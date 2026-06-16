@@ -45,6 +45,46 @@ user instanceof Named
 user instanceof Timestamped
 ```
 
+## Linearization
+
+When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build
+one runtime inheritance chain. C3 keeps local ordering intact, deduplicates shared
+dependencies, and makes `super` calls follow the same order everywhere.
+
+```ts
+import { mixin } from "ts-mixin-class"
+
+@mixin()
+class Root {
+    print(): string {
+        return "Root"
+    }
+}
+
+@mixin()
+class Left implements Root {
+    print(): string {
+        return `Left > ${super.print()}`
+    }
+}
+
+@mixin()
+class Right implements Root {
+    print(): string {
+        return `Right > ${super.print()}`
+    }
+}
+
+class Combined implements Left, Right {
+    print(): string {
+        return `Combined > ${super.print()}`
+    }
+}
+
+new Combined().print()
+// "Combined > Left > Right > Root"
+```
+
 ## Required bases
 
 A mixin can declare a required consumer base with `extends`:
@@ -85,17 +125,15 @@ named.label()
 named instanceof Named
 ```
 
-For a required-base mixin, the standalone mixin class is built on its canonical required
+For a mixin with the base class requirement, the standalone mixin class is built on its canonical required
 base:
 
 ```ts
 class ModelBase {
-    // ...
 }
 
 @mixin()
 class Persisted extends ModelBase {
-    // ...
 }
 
 const persisted = new Persisted()
@@ -127,13 +165,12 @@ user instanceof UserBase
 ```
 
 For generic mixins, TypeScript cannot infer the base type after explicit mixin type
-arguments in the same call. Provide both the mixin type arguments and the base constructor
+arguments in the same call. Provide both the generic type arguments of the mixin and the base constructor
 type:
 
 ```ts
 @mixin()
 class StoredValue<T> {
-    // ...
 }
 
 class StringBox extends StoredValue.mix<string, typeof UserBase>(UserBase) {
@@ -182,7 +219,7 @@ Instead, mixins use a cooperative initialization pattern, similar in spirit to P
 [`super()` cooperative multiple inheritance](https://docs.python.org/3/library/functions.html#super).
 To opt in to this mechanism, extend the provided `Base` class, which provides a static method `new` as a constructor for every derived class.
 
-This static constructor accepts a single argument - a config for the instance. A type for this argument is derived as a combination of
+This static constructor accepts a single object argument - a config for the instance. A type for this argument is derived as a combination of
 all properties of the class with the `public` modifier. Properties without the `public` modifier are not included in the config type
 and cannot be provided for instantiation.
 
@@ -238,7 +275,7 @@ const user = User.new({
 ### Instantiation with generics
 
 Consumer classes with generics can also use static `new` constructor. It keeps
-generic parameters, so the type can be written explicitly or inferred from the config
+generic parameters from the class declaration. The type can be written explicitly or inferred from the config
 object:
 
 ```ts

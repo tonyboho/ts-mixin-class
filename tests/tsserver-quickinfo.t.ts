@@ -18,9 +18,11 @@ import {
     importedConsumerSuperPropertyArgs,
     importedConsumerText,
     importedMixinText,
+    positionToIndex,
     type QuickInfoBody,
     selfMixinPropertyArgs,
     selfMixinStaticPropertyArgs,
+    sourceSlice,
     superMixinMethodArgs,
     superMixinPropertyArgs
 } from "./tsserver-editor-util.js"
@@ -203,6 +205,16 @@ it("tsserver quickinfo reports mixin consumer class declarations", async (t: Tes
 
         t.match(quickInfo.displayString ?? "", "class ConstructableConsumer",
             "QuickInfo reports the source consumer class declaration")
+        t.equal(
+            positionToIndex(constructionConsumerText, quickInfo.start),
+            classNamePosition,
+            "QuickInfo span starts at the consumer class name"
+        )
+        t.equal(
+            sourceSlice(constructionConsumerText, quickInfo),
+            "ConstructableConsumer",
+            "QuickInfo span covers only the consumer class name"
+        )
     } finally {
         await fixture.dispose()
     }

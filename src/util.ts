@@ -220,7 +220,7 @@ export function preserveSourceViewGeneratedClassLikeRange<
     if (node.name !== undefined && original.name !== undefined) {
         tsInstance.setOriginalNode(node.name, original.name)
         preserveTextRange(tsInstance, node.name, {
-            pos : original.pos,
+            pos : original.name.getStart(original.getSourceFile()),
             end : original.name.end
         })
     }

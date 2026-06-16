@@ -1,0 +1,525 @@
+import type * as ts from "typescript"
+import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
+import { buildInterfaceMembers, interfaceDeclarationRange } from "./interface-members.js"
+import {
+    anyConstructorName,
+    classStaticsName,
+    consumerBaseSuffix,
+    defineMixinClassName,
+    generatedName,
+    implementsTypes,
+    isNamedClassElement,
+    mixinClassValueName,
+    mixinFactoryName,
+    requiredBaseType,
+    runtimeMixinClassName,
+    type FileMixinContext,
+    type MixinDeclarationDiagnostic,
+    type ResolvedMixinRef,
+    type TransformOptions
+} from "./model.js"
+import {
+    cloneExpressionWithTypeArguments,
+    consumerHeritageClauses,
+    createSourceViewConsumerBaseHeadType,
+    heritageTypeToTypeReference,
+    mixinValueIdentifier,
+    MixinTransformError
+} from "./expand-util.js"
+import {
+    createMixinApplyType,
+    createSourceViewMixinApplyType,
+    hasManualMixinApplySyntax
+} from "./mixin-apply-type.js"
+import {
+    collectMixinClassDiagnostics,
+    isSupportedMixinClassMember
+} from "./mixin-diagnostics.js"
+import {
+    localMixinHeritageTypes,
+    localMixinRefs
+} from "./mixin-refs.js"
+import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
+import {
+    cloneNode,
+    deepCloneNode,
+    generatedTextRange,
+    hasModifier,
+    preserveGeneratedDeclarationRange,
+    preserveSourceViewGeneratedClassLikeRange,
+    preserveTextRange
+} from "./util.js"
+import type { TypeScript } from "./util.js"
+
+// ---------------------------------------------------------------------------
+// Mixin class transformation
+//
+// A mixin class expands into three declarations:
+//
+//     interface X<T> { ...instance member signatures... }
+//     const __X$mixin = <T>(base: AnyConstructor) => class extends base { ...body... }
+//     const X = __X$mixin(Object) as unknown as
+//         (new <T>(...args: any[]) => X<T>) & ClassStatics<ReturnType<typeof __X$mixin>>
+
+export function expandMixinClass(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    ref: ResolvedMixinRef,
+    context: FileMixinContext,
+    options: TransformOptions
+): ts.Statement[] {
+    const factory         = tsInstance.factory
+    const declaration     = ref.declaration
+
+    if (declaration === undefined) {
+        throw new Error(`Mixin class ${ref.className} has no declaration in the transformed file`)
+    }
+
+    const defaultExport = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+    const exportModifiers = exportModifiersOf(tsInstance, declaration)
+    const factoryExportModifiers = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
+        ? [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ]
+        : undefined
+    const diagnostics     = collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)
+    const diagnosticAliases = createMixinDeclarationDiagnosticAliases(
+        tsInstance,
+        ref.className,
+        diagnostics,
+        declaration
+    )
+
+    if (options.sourceView) {
+        return [
+            ...diagnosticAliases,
+            ...expandSourceViewMixinClass(tsInstance, sourceFile, declaration, context, options)
+        ]
+    }
+
+    // Emit-only: the source-view path above recomputes its own heritage/required
+    // base, so these stay below the early return to avoid wasted work per edit.
+    const typeParameters  = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
+    const requiredBase    = requiredBaseType(tsInstance, declaration)
+    const dependencyRefs  = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
+    const interfaceMembers = buildInterfaceMembers(tsInstance, sourceFile, declaration)
+
+    const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
+        exportModifiers,
+        ref.className,
+        typeParameters,
+        interfaceHeritageClauses(tsInstance, declaration, context),
+        interfaceMembers
+    ), interfaceDeclarationRange(declaration, interfaceMembers))
+
+    const factoryStatement = preserveTextRange(tsInstance, factory.createVariableStatement(
+        factoryExportModifiers,
+        factory.createVariableDeclarationList([
+            factory.createVariableDeclaration(
+                ref.localFactoryName,
+                undefined,
+                undefined,
+                createMixinFactoryExpression(tsInstance, declaration, typeParameters, context, options)
+            )
+        ], tsInstance.NodeFlags.Const)
+    ), generatedTextRange(sourceFile, declaration.end))
+
+    const valueStatement = preserveTextRange(tsInstance, factory.createVariableStatement(
+        exportModifiers,
+        factory.createVariableDeclarationList([
+            factory.createVariableDeclaration(
+                ref.className,
+                undefined,
+                undefined,
+                factory.createAsExpression(
+                    factory.createAsExpression(
+                        factory.createCallExpression(
+                            factory.createIdentifier(defineMixinClassName),
+                            undefined,
+                            [
+                                factory.createStringLiteral(ref.className),
+                                asMixinFactory(tsInstance, factory.createIdentifier(ref.localFactoryName)),
+                                factory.createArrayLiteralExpression(
+                                    dependencyRefs.map((dependencyRef) => {
+                                        return mixinValueIdentifier(tsInstance, dependencyRef)
+                                    })
+                                ),
+                                ...(requiredBase === undefined
+                                    ? []
+                                    : [ cloneNode(tsInstance, requiredBase.expression) ])
+                            ]
+                        ),
+                        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                    ),
+                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters)
+                )
+            )
+        ], tsInstance.NodeFlags.Const)
+    ), generatedTextRange(sourceFile, declaration.end))
+
+    const defaultExportStatement = defaultExport
+        ? [ preserveTextRange(tsInstance, factory.createExportAssignment(
+            undefined,
+            undefined,
+            factory.createIdentifier(ref.className)
+        ), generatedTextRange(sourceFile, declaration.end)) ]
+        : []
+
+    return [ interfaceDeclaration, ...diagnosticAliases, factoryStatement, valueStatement, ...defaultExportStatement ]
+}
+
+function createMixinDeclarationDiagnosticAliases(
+    tsInstance: TypeScript,
+    className: string,
+    diagnostics: MixinDeclarationDiagnostic[],
+    original: ts.ClassDeclaration
+): ts.TypeAliasDeclaration[] {
+    const factory = tsInstance.factory
+
+    return diagnostics.map((diagnostic, index) => {
+        return preserveGeneratedDeclarationRange(tsInstance, factory.createTypeAliasDeclaration(
+            undefined,
+            generatedName(className, `$mixinDeclarationError${index}`),
+            [ factory.createTypeParameterDeclaration(
+                undefined,
+                "__mixinDeclarationError",
+                factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
+                factory.createLiteralTypeNode(factory.createStringLiteral(diagnostic.message))
+            ) ],
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
+        ), diagnostic.node, original)
+    })
+}
+
+function expandSourceViewMixinClass(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    context: FileMixinContext,
+    options: TransformOptions
+): ts.Statement[] {
+    const factory = tsInstance.factory
+
+    if (declaration.name === undefined) {
+        throw new MixinTransformError(sourceFile, declaration, "A mixin class must have a name")
+    }
+
+    const requiredBase = requiredBaseType(tsInstance, declaration)
+    const dependencyHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
+    const reducedDependencyHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, dependencyHeritage)
+    const generatedHeritageRange = generatedTextRange(
+        sourceFile,
+        declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
+    )
+
+    if (dependencyHeritage.length === 0 && requiredBase === undefined) {
+        const metadataExtendsClause = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+            preserveTextRange(
+                tsInstance,
+                createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, undefined, []),
+                generatedHeritageRange
+            )
+        ]), generatedHeritageRange)
+
+        return [ factory.updateClassDeclaration(
+            declaration,
+            declaration.modifiers,
+            declaration.name,
+            declaration.typeParameters,
+            preserveTextRange(
+                tsInstance,
+                factory.createNodeArray([ metadataExtendsClause, ...(declaration.heritageClauses ?? []) ]),
+                declaration.heritageClauses ?? generatedHeritageRange
+            ),
+            rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+        ) ]
+    }
+
+    const baseName       = generatedName(declaration.name.text, consumerBaseSuffix)
+    const cloneTypeParameters = () => declaration.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter))
+    const dependencyRefs = localMixinRefs(context, dependencyHeritage)
+
+    const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
+        undefined,
+        baseName,
+        cloneTypeParameters(),
+        [ factory.createHeritageClause(
+            tsInstance.SyntaxKind.ExtendsKeyword,
+            [
+                ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
+                ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
+            ]
+        ) ],
+        []
+    ), declaration)
+
+    const baseClass = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createClassDeclaration(
+        undefined,
+        baseName,
+        cloneTypeParameters(),
+        [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+            createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, requiredBase, dependencyRefs)
+        ]) ],
+        []
+    ), declaration)
+
+    const updatedDeclaration = factory.updateClassDeclaration(
+        declaration,
+        declaration.modifiers,
+        declaration.name,
+        declaration.typeParameters,
+        consumerHeritageClauses(tsInstance, declaration, baseName, generatedHeritageRange),
+        rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+    )
+
+    return [ baseInterface, baseClass, updatedDeclaration ]
+}
+
+// Source-view mixin class base: a cast that adds RuntimeMixinClass metadata
+// (factory/requirements/base symbols) and required-base/dependency statics, so
+// typeof MixinClass matches the runtime value.
+function createSourceViewMixinMetadataBase(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    requiredBase: ts.ExpressionWithTypeArguments | undefined,
+    dependencyRefs: ResolvedMixinRef[]
+): ts.ExpressionWithTypeArguments {
+    const factory = tsInstance.factory
+
+    const headType = requiredBase === undefined
+        ? factory.createTypeReferenceNode(anyConstructorName, undefined)
+        : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined)
+    const manualMixinApplyTypes = hasManualMixinApplySyntax(sourceFile)
+        ? [ createSourceViewMixinApplyType(
+            tsInstance,
+            declaration,
+            declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
+        ) ]
+        : []
+    const castType = factory.createIntersectionTypeNode([
+        headType,
+        ...dependencyRefs
+            .filter((ref) => ref.localValueName !== undefined)
+            .map((ref) => {
+                return factory.createTypeReferenceNode(classStaticsName, [
+                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                ])
+            }),
+        ...manualMixinApplyTypes,
+        createRuntimeMixinClassType(tsInstance, declaration)
+    ])
+
+    return factory.createExpressionWithTypeArguments(
+        factory.createParenthesizedExpression(
+            factory.createAsExpression(
+                factory.createAsExpression(
+                    requiredBase === undefined
+                        ? factory.createIdentifier("Object")
+                        : cloneNode(tsInstance, requiredBase.expression),
+                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                ),
+                castType
+            )
+        ),
+        undefined
+    )
+}
+
+function createMixinFactoryExpression(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    typeParameters: ts.TypeParameterDeclaration[] | undefined,
+    context: FileMixinContext,
+    options: TransformOptions
+): ts.FunctionExpression {
+    const factory = tsInstance.factory
+
+    return factory.createFunctionExpression(
+        undefined,
+        undefined,
+        undefined,
+        typeParameters,
+        [ createBaseParameter(tsInstance, declaration, context) ],
+        undefined,
+        factory.createBlock([
+            factory.createReturnStatement(factory.createClassExpression(
+                undefined,
+                undefined,
+                undefined,
+                [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+                    factory.createExpressionWithTypeArguments(factory.createIdentifier("base"), undefined)
+                ]) ],
+                mixinRuntimeMembers(tsInstance, declaration, options)
+            ))
+        ], true)
+    )
+}
+
+function mixinRuntimeMembers(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    options: TransformOptions
+): ts.NodeArray<ts.ClassElement> {
+    const members = tsInstance.factory.createNodeArray(declaration.members.filter((member) => {
+        if (tsInstance.isConstructorDeclaration(member) ||
+            hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) ||
+            hasModifier(tsInstance, member, tsInstance.SyntaxKind.PrivateKeyword) ||
+            hasModifier(tsInstance, member, tsInstance.SyntaxKind.ProtectedKeyword) ||
+            isNamedClassElement(member) && tsInstance.isPrivateIdentifier(member.name)
+        ) {
+            return false
+        }
+
+        return isSupportedMixinClassMember(tsInstance, member)
+    }))
+
+    return rewritePublicOnlyUndefinedInitializers(tsInstance, members, options)
+}
+
+function asMixinFactory(tsInstance: TypeScript, expression: ts.Expression): ts.Expression {
+    return tsInstance.factory.createAsExpression(
+        tsInstance.factory.createAsExpression(
+            expression,
+            tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+        ),
+        tsInstance.factory.createTypeReferenceNode(mixinFactoryName, undefined)
+    )
+}
+
+// Static type cast for a mixin value. Non-generic mixins use the shared
+// `MixinClassValue<Instance, typeof factory[, RequiredBase]>` alias (collapsing
+// the constructor + ClassStatics + `mix` intersection that otherwise dominates
+// emitted output). `& RuntimeMixinClass` stays a visible sibling so the .d.ts
+// mixin marker is unchanged. Generic mixins keep the inline form, since their
+// constructor and `mix` capture the mixin's own type parameters.
+function createMixinValueCastType(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef,
+    typeParameters: ts.TypeParameterDeclaration[] | undefined
+): ts.TypeNode {
+    const factory = tsInstance.factory
+    const instanceType = factory.createTypeReferenceNode(
+        ref.className,
+        typeParameters?.map((typeParameter) => {
+            return factory.createTypeReferenceNode(typeParameter.name, undefined)
+        })
+    )
+    const factoryReturnType = factory.createTypeReferenceNode("ReturnType", [
+        factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName))
+    ])
+
+    if (typeParameters !== undefined) {
+        return factory.createIntersectionTypeNode([
+            factory.createParenthesizedType(factory.createConstructorTypeNode(
+                undefined,
+                typeParameters,
+                [ factory.createParameterDeclaration(
+                    undefined,
+                    factory.createToken(tsInstance.SyntaxKind.DotDotDotToken),
+                    "args",
+                    undefined,
+                    factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
+                ) ],
+                instanceType
+            )),
+            factory.createTypeReferenceNode(classStaticsName, [ factoryReturnType ]),
+            createMixinApplyType(tsInstance, declaration, typeParameters, instanceType, factoryReturnType),
+            createRuntimeMixinClassType(tsInstance, declaration)
+        ])
+    }
+
+    const requiredBase = requiredBaseType(tsInstance, declaration)
+
+    return factory.createIntersectionTypeNode([
+        factory.createTypeReferenceNode(mixinClassValueName, [
+            instanceType,
+            factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),
+            ...(requiredBase === undefined ? [] : [ heritageTypeToTypeReference(tsInstance, requiredBase) ])
+        ]),
+        createRuntimeMixinClassType(tsInstance, declaration)
+    ])
+}
+
+function createRuntimeMixinClassType(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration
+): ts.TypeReferenceNode {
+    const requiredBase = requiredBaseType(tsInstance, declaration)
+
+    return tsInstance.factory.createTypeReferenceNode(
+        runtimeMixinClassName,
+        requiredBase === undefined
+            ? undefined
+            : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]
+    )
+}
+
+function interfaceHeritageClauses(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    context: FileMixinContext
+): ts.HeritageClause[] | undefined {
+    const requiredBase = requiredBaseType(tsInstance, declaration)
+    const types = [
+        ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
+        ...reduceTransitiveMixinHeritageTypes(tsInstance, context, implementsTypes(tsInstance, declaration))
+    ]
+
+    if (types.length === 0) {
+        return undefined
+    }
+
+    return [ tsInstance.factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, types) ]
+}
+
+function exportModifiersOf(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration
+): ts.Modifier[] | undefined {
+    if (!hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword) ||
+        hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+    ) {
+        return undefined
+    }
+
+    return [ tsInstance.factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ]
+}
+
+// Factory base parameter: AnyConstructor, or AnyConstructor<Dep1<...> & Dep2<...>>
+// for a mixin with dependencies. This gives the body typed super access.
+function createBaseParameter(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    context: FileMixinContext
+): ts.ParameterDeclaration {
+    const factory = tsInstance.factory
+    const requiredBase = requiredBaseType(tsInstance, declaration)
+
+    const dependencyTypes = [
+        ...(requiredBase === undefined
+            ? []
+            : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]),
+        ...implementsTypes(tsInstance, declaration)
+            .filter((heritageType) => {
+                return tsInstance.isIdentifier(heritageType.expression) &&
+                    context.byLocalName.has(heritageType.expression.text)
+            })
+            .map((heritageType) => heritageTypeToTypeReference(tsInstance, heritageType))
+    ]
+
+    const baseInstanceType =
+        dependencyTypes.length === 0 ? undefined :
+        dependencyTypes.length === 1 ? dependencyTypes[0] :
+            factory.createIntersectionTypeNode(dependencyTypes)
+
+    return factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        "base",
+        undefined,
+        factory.createTypeReferenceNode(
+            anyConstructorName,
+            baseInstanceType === undefined ? undefined : [ baseInstanceType ]
+        )
+    )
+}

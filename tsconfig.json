@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "lib": [
+            "ES2022"
+        ],
+        "types": [
+            "node"
+        ],
+        "strict": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "outDir": "dist",
+        "rootDir": ".",
+        "declaration": true,
+        "sourceMap": false
+    },
+    "include": [
+        "bench/**/*.ts",
+        "src/**/*.ts",
+        "tests/**/*.ts"
+    ],
+    "exclude": [
+        "bench/fixtures/generated/**/*.ts",
+        "tests/declaration-fixture-suite/**/*.ts",
+        "tests/fixture-suite/**/*.ts"
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": [
+            "ES2022",
+            "DOM"
+        ],
+        "strict": true,
+        "useDefineForClassFields": false,
+        "skipLibCheck": true,
+        "rootDir": "src",
+        "outDir": "dist",
+        "plugins": [
+            {
+                "transform": "ts-mixin-class",
+                "transformProgram": true
+            }
+        ],
+        "experimentalDecorators": false
+    },
+    "include": [
+        "src/**/*.ts"
+    ]
+}

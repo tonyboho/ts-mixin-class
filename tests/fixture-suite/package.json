@@ -1,0 +1,38 @@
+{
+    "name": "ts-mixin-class-fixture-suite",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./mixins": {
+            "types": "./dist/standard/mixins.d.ts",
+            "default": "./dist/standard/mixins.js"
+        },
+        "./default-mixin": {
+            "types": "./dist/standard/default-mixin.d.ts",
+            "default": "./dist/standard/default-mixin.js"
+        }
+    },
+    "scripts": {
+        "build": "pnpm run clean && pnpm run build:standard && pnpm run build:legacy && pnpm run build:instance-type",
+        "build:instance-type": "tsc -p tsconfig.instance-type.json",
+        "build:legacy": "tsc -p tsconfig.legacy.json",
+        "build:standard": "tsc -p tsconfig.json",
+        "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+        "clean:instance-type": "node -e \"require('node:fs').rmSync('dist/instance-type', { recursive: true, force: true })\"",
+        "clean:legacy": "node -e \"require('node:fs').rmSync('dist/legacy', { recursive: true, force: true })\"",
+        "clean:standard": "node -e \"require('node:fs').rmSync('dist/standard', { recursive: true, force: true })\"",
+        "test": "pnpm run test:standard && pnpm run test:legacy && pnpm run test:instance-type",
+        "test:instance-type": "siesta dist/instance-type",
+        "test:legacy": "siesta dist/legacy",
+        "test:standard": "siesta dist/standard",
+        "prepare": "ts-patch install"
+    },
+    "dependencies": {
+        "ts-mixin-class": "workspace:*"
+    },
+    "devDependencies": {
+        "@bryntum/siesta": "6.0.0-beta-1",
+        "ts-patch": "4.0.1",
+        "typescript": "6.0.3"
+    }
+}

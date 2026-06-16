@@ -1,0 +1,54 @@
+{
+    "name": "ts-mixin-class",
+    "version": "0.1.0",
+    "description": "TypeScript program transformer skeleton for class-level mixin decorators.",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "types": "dist/src/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/src/index.d.ts",
+            "default": "./dist/src/index.js"
+        },
+        "./base": {
+            "types": "./dist/src/base.d.ts",
+            "default": "./dist/src/base.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "bench": "pnpm --silent run build && node dist/bench/index.js --full",
+        "bench:transform": "pnpm --silent run build && node dist/bench/index.js transform",
+        "bench:compile": "pnpm --silent run build && node dist/bench/index.js compile",
+        "bench:tsserver": "pnpm --silent run build && node dist/bench/index.js tsserver",
+        "bench:edit": "pnpm --silent run build && node dist/bench/index.js edit",
+        "bench:ts-repro": "pnpm --silent run build && node dist/bench/diagnostics/typescript-interface-repro.js",
+        "build": "tsc -p tsconfig.json",
+        "pretest": "pnpm run build",
+        "test": "siesta dist/tests",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "fixture:declarations": "pnpm --dir tests/fixture-suite run build:standard && pnpm --dir tests/declaration-fixture-suite run build && pnpm --dir tests/declaration-fixture-suite run test",
+        "fixture": "pnpm --dir tests/fixture-suite run build && pnpm --dir tests/fixture-suite run test",
+        "prepare": "ts-patch install"
+    },
+    "keywords": [
+        "typescript",
+        "transformer",
+        "ts-patch",
+        "mixin"
+    ],
+    "license": "MIT",
+    "private": true,
+    "peerDependencies": {
+        "typescript": "6.0.3"
+    },
+    "devDependencies": {
+        "@bryntum/siesta": "6.0.0-beta-1",
+        "@types/node": "25.6.0",
+        "ts-patch": "4.0.1",
+        "typescript": "6.0.3"
+    }
+}

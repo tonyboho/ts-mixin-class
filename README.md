@@ -176,17 +176,17 @@ const label: string = box.label()
 
 ## Instantiation
 
-Constructor signatures for mixins are generally not composable, because JavaScript does not have named arguments as Python, only positional.
+Constructor signatures for mixins are generally not composable, because JavaScript, unlike Python, does not have named arguments, only positional ones.
 
 Instead, mixins use a cooperative initialization pattern, similar in spirit to Python's
 [`super()` cooperative multiple inheritance](https://docs.python.org/3/library/functions.html#super).
 To opt in to this mechanism, extend the provided `Base` class, which provides a static method `new` as a constructor for every derived class.
 
 This static constructor accepts a single argument - a config for the instance. A type for this argument is derived as a combination of
-all propertis of the class with the `public` modifier. Properties without `public` modifer are not included in the config type
-and can not be provided for instantiation.
+all properties of the class with the `public` modifier. Properties without the `public` modifier are not included in the config type
+and cannot be provided for instantiation.
 
-Properties with `?` are marked as optional in the config type, all other properties are required.
+Properties with `?` are marked as optional in the config type; all other properties are required.
 
 ```ts
 import { Base } from "ts-mixin-class/base"
@@ -207,11 +207,11 @@ The instantiation flow is as follows:
 - A native JS constructor is called without arguments. It will assign the property initializer expressions to all properties.
 It is a good performance practice to provide an initializer expression for all of your properties, to keep the shape of your class
 constant.
-- An `initialize` method is called with the configuration object, given to the initial static `new` constructor.
+- An `initialize` method is called with the configuration object given to the initial static `new` constructor.
 `initialize` just performs `Object.assign(this, config)`, so all configs are applied to the instance at once, in no particular order.
 
 Override `initialize` when a class needs derived state or validation after config
-assignment. Use the exported `Config<T>` helper for the argument type (see `Limitations` sections for details):
+assignment. Use the exported `Config<T>` helper for the argument type (see the `Limitations` section for details):
 
 ```ts
 import { Base, type Config } from "ts-mixin-class/base"
@@ -235,9 +235,9 @@ const user = User.new({
 })
 ```
 
-### Initializing with generics
+### Instantiation with generics
 
-Generic consumers can also use `Base.new(config)`. The generated static adapter keeps
+Consumer classes with generics can also use static `new` constructor. It keeps
 generic parameters, so the type can be written explicitly or inferred from the config
 object:
 
@@ -267,7 +267,7 @@ const stringValue: string = inferred.value
 
 ### Initializing required properties
 
-Required `public` properties sometimes need an own runtime slot before a real value
+Required `public` properties sometimes need their own runtime slot before a real value
 is known. For example, a class may want to keep object shapes stable but cannot use a
 neutral value like `0` or `""`.
 

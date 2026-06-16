@@ -212,17 +212,17 @@ export function preserveSourceViewGeneratedClassLikeRange<
 ): Node {
     tsInstance.setOriginalNode(node, original)
     preserveGeneratedOriginalNodes(tsInstance, node, original)
-
-    const generatedClassLikeRange = {
+    preserveTextRange(tsInstance, node, {
         pos : original.pos,
-        end : original.name?.end ?? original.end
-    }
-
-    preserveTextRange(tsInstance, node, generatedClassLikeRange)
+        end : original.members.pos
+    })
 
     if (node.name !== undefined && original.name !== undefined) {
         tsInstance.setOriginalNode(node.name, original.name)
-        preserveTextRange(tsInstance, node.name, generatedClassLikeRange)
+        preserveTextRange(tsInstance, node.name, {
+            pos : original.pos,
+            end : original.name.end
+        })
     }
 
     if (node.typeParameters !== undefined) {

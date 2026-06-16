@@ -34,6 +34,7 @@ import {
     cloneSourceFileForTransform,
     generatedTextRange,
     hasDifferentAstShape,
+    preserveTextRange,
     preserveTopLevelStatementRanges,
     printSourceFile,
     scriptKindFromFileName,
@@ -415,7 +416,11 @@ function expandConstructionBaseClass(
         rewritten.name,
         rewritten.typeParameters,
         rewritten.heritageClauses,
-        tsInstance.factory.createNodeArray([ ...rewritten.members, ...constructionMembers ])
+        preserveTextRange(
+            tsInstance,
+            tsInstance.factory.createNodeArray([ ...rewritten.members, ...constructionMembers ]),
+            rewritten.members
+        )
     )
 }
 

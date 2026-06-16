@@ -118,13 +118,22 @@ function importedRequiredBaseRef(
     resolvedFileName: string,
     specifier: string,
     importedName: string,
-    fallbackLocalName: string
+    fallbackLocalName: string,
+    requiredBaseIsPackageBase: boolean,
+    packageName: string
 ): ResolvedMixinRef["requiredBase"] {
+    // A mixin whose required base is the package `Base` carries it from the
+    // package, not from the mixin's own module (which does not re-export `Base`).
+    if (requiredBaseIsPackageBase) {
+        return packageBaseRequiredBaseRef(packageName, fallbackLocalName)
+    }
+
     for (const [ localName, imported ] of importMap) {
         if (imported.resolvedFileName === resolvedFileName && imported.importedName === importedName) {
             return {
                 localName,
-                import : undefined
+                import : undefined,
+                isPackageBase : false
             }
         }
     }
@@ -135,7 +144,23 @@ function importedRequiredBaseRef(
             specifier,
             importedName,
             localName : fallbackLocalName
-        }
+        },
+        isPackageBase : false
+    }
+}
+
+function packageBaseRequiredBaseRef(
+    packageName: string,
+    localName: string
+): NonNullable<ResolvedMixinRef["requiredBase"]> {
+    return {
+        localName,
+        import : {
+            specifier    : `${packageName}/base`,
+            importedName : "Base",
+            localName
+        },
+        isPackageBase : true
     }
 }
 
@@ -151,6 +176,7 @@ export function buildFileMixinContext(
         byLocalName        : new Map(),
         byKey              : new Map(),
         usedFactoryImports : new Map(),
+        crossFile,
         // Share the program-wide linearization index when cross-file context is
         // available; otherwise fall back to a file-local cache (still reused
         // across multiple consumers in the same file).
@@ -160,13 +186,13 @@ export function buildFileMixinContext(
     addLocalMixinRefs(sourceFile, imports, facts, context)
 
     if (crossFile !== undefined) {
-        addImportedMixinRefs(tsInstance, sourceFile, crossFile, facts, context)
+        addImportedMixinRefs(tsInstance, sourceFile, crossFile, facts, context, options)
     }
 
     addSameFileDependencies(facts, context)
 
     if (crossFile !== undefined) {
-        addTransitiveRegistryClosure(sourceFile, crossFile, context)
+        addTransitiveRegistryClosure(sourceFile, crossFile, context, options)
     }
 
     return context
@@ -209,7 +235,8 @@ function addImportedMixinRefs(
     sourceFile: ts.SourceFile,
     crossFile: CrossFileContext,
     facts: SourceFileFacts,
-    context: FileMixinContext
+    context: FileMixinContext,
+    options: TransformOptions
 ): void {
     const importMap = buildImportedNameMap(tsInstance, sourceFile, crossFile.resolveModuleFileName, facts)
 
@@ -254,7 +281,9 @@ function addImportedMixinRefs(
                     imported.resolvedFileName,
                     importFacts.specifier,
                     registered.requiredBaseName,
-                    localName + "$requiredBase"
+                    localName + "$requiredBase",
+                    registered.requiredBaseIsPackageBase,
+                    options.packageName
                 )
 
             const ref: ResolvedMixinRef = {
@@ -312,7 +341,8 @@ function addSameFileDependencies(
 function addTransitiveRegistryClosure(
     sourceFile: ts.SourceFile,
     crossFile: CrossFileContext,
-    context: FileMixinContext
+    context: FileMixinContext,
+    options: TransformOptions
 ): void {
     const queue = [ ...context.byKey.values() ].flatMap((ref) => ref.dependencies)
 
@@ -342,14 +372,17 @@ function addTransitiveRegistryClosure(
             },
             requiredBase     : registered.requiredBaseName === undefined
                 ? undefined
-                : {
-                    localName : registered.name + "$requiredBase",
-                    import    : {
-                        specifier,
-                        importedName : registered.requiredBaseName,
-                        localName    : registered.name + "$requiredBase"
-                    }
-            },
+                : registered.requiredBaseIsPackageBase
+                    ? packageBaseRequiredBaseRef(options.packageName, registered.name + "$requiredBase")
+                    : {
+                        localName : registered.name + "$requiredBase",
+                        import    : {
+                            specifier,
+                            importedName : registered.requiredBaseName,
+                            localName    : registered.name + "$requiredBase"
+                        },
+                        isPackageBase : false
+                    },
             dependencies     : registered.dependencies,
             declaration      : undefined,
             configProperties : registered.configProperties,

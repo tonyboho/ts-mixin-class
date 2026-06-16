@@ -2,8 +2,13 @@ import type * as ts from "typescript"
 import type { ProgramTransformerExtras } from "ts-patch"
 import { expandConsumerClass } from "./consumer-expand.js"
 import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
-import { createConstructionMembers, importsPackageBase, isConstructionBaseOptIn } from "./construction-config.js"
-import { buildFileMixinContext } from "./context.js"
+import {
+    createConstructionMembers,
+    importsPackageBase,
+    isConstructionBaseOptIn,
+    resolveCrossFileConstructionBase
+} from "./construction-config.js"
+import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { createMixinDeclarationDiagnosticAliases } from "./expand-util.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
@@ -24,11 +29,12 @@ import {
     staticConflictKeysName,
     type CrossFileContext,
     type FileMixinContext,
+    type ImportedNameBinding,
     type MixinClassTransformerConfig,
     type StaticCollisionCheckMode,
     type TransformOptions
 } from "./model.js"
-import { buildMixinRegistry, hasRuntimeModuleForDeclaration } from "./registry.js"
+import { buildConstructionBaseRegistry, buildMixinRegistry, hasRuntimeModuleForDeclaration } from "./registry.js"
 import {
     cloneLayeredSourceFileForTransform,
     cloneSourceFileForTransform,
@@ -130,12 +136,14 @@ export default function transformProgram(
         return available
     }
 
-    const registry  = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
-    const crossFile = registry.size === 0
+    const registry          = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
+    const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName)
+    const crossFile = registry.size === 0 && constructionBases.size === 0
         ? undefined
         : {
             registry,
-            cacheKey : registryCacheKey(registry),
+            constructionBases,
+            cacheKey : registryCacheKey(registry, constructionBases),
             resolveModuleFileName,
             canImportRuntimeValue,
             linearizationCache : new Map<string, string[]>()
@@ -299,6 +307,19 @@ export function transformSourceFile(
         tsInstance, sourceFile, mixinDecoratorImports, resolvedOptions, crossFile, facts
     )
 
+    // Resolves local base identifiers to cross-file construction-base entries.
+    // Built lazily, only when a class actually needs construction-base resolution.
+    let baseImportMapCache: Map<string, ImportedNameBinding> | undefined
+    const getBaseImportMap = (): Map<string, ImportedNameBinding> | undefined => {
+        if (crossFile === undefined) {
+            return undefined
+        }
+
+        baseImportMapCache ??= buildImportedNameMap(tsInstance, sourceFile, crossFile.resolveModuleFileName, facts)
+
+        return baseImportMapCache
+    }
+
     let expandedAnything = false
     let needsGeneratedImports = false
 
@@ -353,13 +374,19 @@ export function transformSourceFile(
                 tsInstance,
                 sourceFile,
                 classFacts.extendsType,
-                resolvedOptions
+                resolvedOptions,
+                facts,
+                new Set(),
+                crossFile,
+                getBaseImportMap()
             )) {
                 const expandedStatement = expandConstructionBaseClass(
                     tsInstance,
                     sourceFile,
                     classFacts.declaration,
-                    resolvedOptions
+                    resolvedOptions,
+                    crossFile,
+                    getBaseImportMap()
                 )
 
                 if (expandedStatement !== statement) {
@@ -388,7 +415,9 @@ function expandConstructionBaseClass(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
-    options: TransformOptions
+    options: TransformOptions,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined
 ): ts.ClassDeclaration {
     const rewritten = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
     const constructionMembers = createConstructionMembers(
@@ -403,7 +432,9 @@ function expandConstructionBaseClass(
         options,
         options.sourceView
             ? generatedTextRange(sourceFile, declaration.members.end)
-            : generatedTextRange(sourceFile, declaration.pos)
+            : generatedTextRange(sourceFile, declaration.pos),
+        crossFile,
+        baseImportMap
     )
 
     if (constructionMembers.length === 0) {
@@ -560,6 +591,7 @@ function transformAppliesToSourceFile(
 
     return shouldTransformSourceFile(
         tsInstance,
+        sourceFile,
         getSourceFileFacts(tsInstance, sourceFile, options),
         options,
         crossFile
@@ -568,6 +600,7 @@ function transformAppliesToSourceFile(
 
 function shouldTransformSourceFile(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     facts: SourceFileFacts,
     options: TransformOptions,
     crossFile: CrossFileContext | undefined
@@ -580,9 +613,43 @@ function shouldTransformSourceFile(
         return classFacts.implementsIdentifierNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
     const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined) &&
-        importsPackageBase(tsInstance, facts, options)
+        (
+            importsPackageBase(tsInstance, facts, options) ||
+            extendsCrossFileConstructionBase(tsInstance, sourceFile, facts, crossFile)
+        )
 
     return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionConfig
+}
+
+// Whether any class in the file extends an imported class that the cross-file
+// registry knows to be a construction base. Lets the gate keep transforming files
+// that derive from a Base descendant in another module without importing `Base`
+// themselves, while still skipping ordinary `extends` of unrelated classes.
+function extendsCrossFileConstructionBase(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined
+): boolean {
+    if (crossFile === undefined || crossFile.constructionBases.size === 0) {
+        return false
+    }
+
+    const extendsNames = facts.classes.flatMap((classFacts) => {
+        const expression = classFacts.extendsType?.expression
+
+        return expression !== undefined && tsInstance.isIdentifier(expression) ? [ expression.text ] : []
+    })
+
+    if (extendsNames.length === 0) {
+        return false
+    }
+
+    const baseImportMap = buildImportedNameMap(tsInstance, sourceFile, crossFile.resolveModuleFileName, facts)
+
+    return extendsNames.some((name) => {
+        return resolveCrossFileConstructionBase(name, crossFile, baseImportMap)?.isBaseDescendant === true
+    })
 }
 
 function shouldSkipSourceFile(sourceFile: ts.SourceFile): boolean {
@@ -625,8 +692,11 @@ function preserveSourceCacheKey(
     ].join("|")
 }
 
-function registryCacheKey(registry: CrossFileContext["registry"]): string {
-    return [ ...registry.entries() ]
+function registryCacheKey(
+    registry: CrossFileContext["registry"],
+    constructionBases: CrossFileContext["constructionBases"]
+): string {
+    const mixinKey = [ ...registry.entries() ]
         .map(([ key, entry ]) => {
             return [
                 key,
@@ -642,6 +712,19 @@ function registryCacheKey(registry: CrossFileContext["registry"]): string {
         })
         .sort()
         .join("|")
+    const constructionBaseKey = [ ...constructionBases.entries() ]
+        .map(([ key, entry ]) => {
+            return [
+                key,
+                entry.configProperties.map((property) => {
+                    return `${property.name}:${String(property.optional)}`
+                }).join(",")
+            ].join(":")
+        })
+        .sort()
+        .join("|")
+
+    return `${mixinKey}\0${constructionBaseKey}`
 }
 
 function resolveUsePrintedSourceFile(

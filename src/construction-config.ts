@@ -1,8 +1,12 @@
 import type * as ts from "typescript"
 import { MixinTransformError } from "./expand-util.js"
 import {
+    registryKey,
     uniqueConfigProperties,
     type ConfigProperty,
+    type ConstructionBaseEntry,
+    type CrossFileContext,
+    type ImportedNameBinding,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -26,13 +30,21 @@ export function createConstructionMembers(
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
     options: TransformOptions,
-    generatedRange: ts.TextRange
+    generatedRange: ts.TextRange,
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>,
+    requiredBaseIsConstructionBase = false
 ): ts.ClassElement[] {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
 
     if (declaration.name === undefined ||
         facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
-        !isConstructionBaseOptIn(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts)
+        !(
+            requiredBaseIsConstructionBase ||
+            isConstructionBaseOptIn(
+                tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, new Set(), crossFile, baseImportMap
+            )
+        )
     ) {
         return []
     }
@@ -47,7 +59,9 @@ export function createConstructionMembers(
         implicitRequiredBase,
         mixinRefs,
         options,
-        facts
+        facts,
+        crossFile,
+        baseImportMap
     )
     const consumerType = createConsumerInstanceType(tsInstance, declaration)
 
@@ -143,7 +157,9 @@ export function isConstructionBaseOptIn(
     baseType: ts.ExpressionWithTypeArguments | undefined,
     options: TransformOptions,
     facts = getSourceFileFacts(tsInstance, sourceFile, options),
-    seen = new Set<string>()
+    seen = new Set<string>(),
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>
 ): boolean {
     if (baseType === undefined) {
         return false
@@ -165,12 +181,39 @@ export function isConstructionBaseOptIn(
 
     seen.add(baseName)
 
-    const nextBase = facts.classesByName.get(baseName)?.extendsType
+    const localBase = facts.classesByName.get(baseName)
 
-    return isConstructionBaseOptIn(tsInstance, sourceFile, nextBase, options, facts, seen)
+    if (localBase !== undefined) {
+        return isConstructionBaseOptIn(
+            tsInstance, sourceFile, localBase.extendsType, options, facts, seen, crossFile, baseImportMap
+        )
+    }
+
+    // The base is not declared in this file: it may be an imported class that
+    // transitively extends the package `Base`, recorded in the cross-file
+    // construction-base registry.
+    return resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)?.isBaseDescendant === true
 }
 
-function isPackageBaseExpression(
+// Resolves a local base identifier to its cross-file construction-base entry,
+// when the name is imported and the imported class transitively extends `Base`.
+export function resolveCrossFileConstructionBase(
+    name: string,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined
+): ConstructionBaseEntry | undefined {
+    if (crossFile === undefined || baseImportMap === undefined) {
+        return undefined
+    }
+
+    const imported = baseImportMap.get(name)
+
+    return imported === undefined
+        ? undefined
+        : crossFile.constructionBases.get(registryKey(imported.resolvedFileName, imported.importedName))
+}
+
+export function isPackageBaseExpression(
     tsInstance: TypeScript,
     expression: ts.Expression,
     options: TransformOptions,
@@ -262,7 +305,9 @@ function createConstructionConfig(
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
     options: TransformOptions,
-    facts: SourceFileFacts
+    facts: SourceFileFacts,
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>
 ): ConstructionConfig {
     const factory = tsInstance.factory
 
@@ -281,7 +326,9 @@ function createConstructionConfig(
         extendsType,
         implicitRequiredBase,
         mixinRefs,
-        facts
+        facts,
+        crossFile,
+        baseImportMap
     )
     const requiredNames: string[] = []
     const optionalNames: string[] = []
@@ -370,10 +417,12 @@ function staticConstructionConfigProperties(
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
-    facts: SourceFileFacts
+    facts: SourceFileFacts,
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>
 ): ConfigProperty[] {
     return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts),
+        ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap),
         ...mixinRefs.flatMap((ref) => ref.configProperties),
         ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? [])
     ])
@@ -395,15 +444,24 @@ function literalKeyUnionType(
 function baseConfigProperties(
     tsInstance: TypeScript,
     baseType: ts.ExpressionWithTypeArguments | undefined,
-    facts: SourceFileFacts
+    facts: SourceFileFacts,
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>
 ): ConfigProperty[] {
     if (baseType === undefined || !tsInstance.isIdentifier(baseType.expression)) {
         return []
     }
 
     const baseName = baseType.expression.text
+    const localBase = facts.classesByName.get(baseName)
 
-    return facts.classesByName.get(baseName)?.configProperties ?? []
+    if (localBase !== undefined) {
+        return localBase.configProperties
+    }
+
+    // Imported base: the cross-file registry carries the accumulated config fields
+    // of the base and all of its ancestors up to `Base`.
+    return resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)?.configProperties ?? []
 }
 
 function createConsumerInstanceType(

@@ -21,6 +21,7 @@ import {
     createConstructionMembers,
     isConstructionBaseOptIn
 } from "./construction-config.js"
+import { buildImportedNameMap } from "./context.js"
 import {
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
@@ -32,7 +33,7 @@ import {
     localMixinRefs
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
-import { getSourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { createStaticCollisionValidations } from "./static-collisions.js"
 import {
     consumerBaseSuffix,
@@ -42,6 +43,7 @@ import {
     generatedName,
     requiredBaseType,
     type FileMixinContext,
+    type ImportedNameBinding,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -227,7 +229,10 @@ export function expandConsumerClass(
         implicitRequiredBase,
         linearized,
         options,
-        options.sourceView ? generatedTextRange(sourceFile, declaration.members.end) : expansion.generatedRange
+        options.sourceView ? generatedTextRange(sourceFile, declaration.members.end) : expansion.generatedRange,
+        context.crossFile,
+        consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts),
+        linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
     )
     const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
         tsInstance,
@@ -552,4 +557,47 @@ function firstRequiredBaseType(
     }
 
     return undefined
+}
+
+// Base import map for the consumer, augmented with the generated aliases of any
+// cross-file required bases (e.g. `Mixin$requiredBase`). The implicit required
+// base produced by `firstRequiredBaseType` uses that alias as its identifier, so
+// mapping it back to the imported class lets construction-base resolution reach
+// the cross-file registry entry.
+function consumerBaseImportMap(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext,
+    mixinRefs: ResolvedMixinRef[],
+    facts: SourceFileFacts
+): Map<string, ImportedNameBinding> | undefined {
+    const crossFile = context.crossFile
+
+    if (crossFile === undefined) {
+        return undefined
+    }
+
+    const baseImportMap = buildImportedNameMap(tsInstance, sourceFile, crossFile.resolveModuleFileName, facts)
+
+    for (const ref of mixinRefs) {
+        const requiredBase = ref.requiredBase
+
+        if (requiredBase?.import === undefined) {
+            continue
+        }
+
+        const resolvedFileName = crossFile.resolveModuleFileName(requiredBase.import.specifier, sourceFile.fileName)
+
+        if (resolvedFileName === undefined) {
+            continue
+        }
+
+        baseImportMap.set(requiredBase.localName, {
+            resolvedFileName,
+            importedName : requiredBase.import.importedName,
+            typeOnly     : false
+        })
+    }
+
+    return baseImportMap
 }

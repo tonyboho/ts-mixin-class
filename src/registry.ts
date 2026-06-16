@@ -1,4 +1,5 @@
 import type * as ts from "typescript"
+import { isPackageBaseExpression } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
     defaultTransformOptions,
@@ -9,6 +10,8 @@ import {
     shouldSkipFileName,
     uniqueConfigProperties,
     type ConfigProperty,
+    type ConstructionBaseRegistry,
+    type ImportedNameBinding,
     type MixinRegistry,
     type TransformOptions
 } from "./model.js"
@@ -48,6 +51,7 @@ export function buildMixinRegistry(
             defaultExport     : candidate.defaultExport,
             dependencies      : [],
             requiredBaseName  : candidate.requiredBaseName,
+            requiredBaseIsPackageBase : candidate.requiredBaseIsPackageBase,
             configProperties    : candidate.configProperties
         })
 
@@ -125,9 +129,159 @@ type Candidate = {
     name                 : string,
     dependencyNames      : string[],
     requiredBaseName     : string | undefined,
+    requiredBaseIsPackageBase : boolean,
     configProperties     : ConfigProperty[],
     declarationHeritage  : boolean,
     defaultExport        : boolean
+}
+
+// Program-wide map of ordinary (non-mixin) classes that transitively extend the
+// package `Base`. Built once per program so a cross-file `extends`/required-base
+// reference can be recognised as a construction base (and its accumulated config
+// fields read) without re-analysing the defining file.
+export function buildConstructionBaseRegistry(
+    tsInstance: TypeScript,
+    program: ts.Program,
+    options: Partial<TransformOptions> = {},
+    resolveModuleFileName?: (specifier: string, containingFile: string) => string | undefined
+): ConstructionBaseRegistry {
+    const resolvedOptions = {
+        ...defaultTransformOptions,
+        ...options
+    }
+
+    type ConstructionBaseCandidate = {
+        fileName            : string,
+        name                : string,
+        baseName            : string | undefined,
+        extendsPackageBase  : boolean,
+        ownConfigProperties : ConfigProperty[],
+        importMap           : Map<string, ImportedNameBinding>
+    }
+
+    const candidatesByKey = new Map<string, ConstructionBaseCandidate>()
+    const candidates: ConstructionBaseCandidate[] = []
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (shouldSkipRegistrySourceFile(sourceFile) ||
+            sourceFile.isDeclarationFile ||
+            !sourceFile.text.includes(resolvedOptions.packageName)
+        ) {
+            continue
+        }
+
+        const facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
+        let importMap: Map<string, ImportedNameBinding> | undefined
+
+        for (const classFacts of facts.classes) {
+            if (classFacts.name === undefined ||
+                classFacts.hasMixinDecorator ||
+                classFacts.extendsType === undefined
+            ) {
+                continue
+            }
+
+            importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
+
+            const baseExpression = classFacts.extendsType.expression
+            const candidate: ConstructionBaseCandidate = {
+                fileName            : sourceFile.fileName,
+                name                : classFacts.name,
+                baseName            : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
+                extendsPackageBase  : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts),
+                ownConfigProperties : classFacts.configProperties,
+                importMap
+            }
+
+            candidates.push(candidate)
+            candidatesByKey.set(registryKey(sourceFile.fileName, classFacts.name), candidate)
+        }
+    }
+
+    const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[] }>()
+
+    const resolve = (
+        candidate: ConstructionBaseCandidate,
+        seen: Set<string>
+    ): { isBaseDescendant: boolean, configProperties: ConfigProperty[] } => {
+        const key = registryKey(candidate.fileName, candidate.name)
+        const cached = resolved.get(key)
+
+        if (cached !== undefined) {
+            return cached
+        }
+
+        if (seen.has(key)) {
+            return { isBaseDescendant : false, configProperties : candidate.ownConfigProperties }
+        }
+
+        seen.add(key)
+
+        if (candidate.extendsPackageBase) {
+            const result = { isBaseDescendant : true, configProperties : candidate.ownConfigProperties }
+
+            resolved.set(key, result)
+
+            return result
+        }
+
+        const baseCandidate = candidate.baseName === undefined
+            ? undefined
+            : candidatesByKey.get(registryKey(candidate.fileName, candidate.baseName)) ??
+                resolveImportedConstructionBaseCandidate(candidate, candidatesByKey)
+
+        if (baseCandidate === undefined) {
+            const result = { isBaseDescendant : false, configProperties : candidate.ownConfigProperties }
+
+            resolved.set(key, result)
+
+            return result
+        }
+
+        const baseResolved = resolve(baseCandidate, seen)
+        const result = {
+            isBaseDescendant : baseResolved.isBaseDescendant,
+            configProperties : uniqueConfigProperties([ ...baseResolved.configProperties, ...candidate.ownConfigProperties ])
+        }
+
+        resolved.set(key, result)
+
+        return result
+    }
+
+    function resolveImportedConstructionBaseCandidate(
+        candidate: ConstructionBaseCandidate,
+        byKey: Map<string, ConstructionBaseCandidate>
+    ): ConstructionBaseCandidate | undefined {
+        if (candidate.baseName === undefined) {
+            return undefined
+        }
+
+        const imported = candidate.importMap.get(candidate.baseName)
+
+        return imported === undefined
+            ? undefined
+            : byKey.get(registryKey(imported.resolvedFileName, imported.importedName))
+    }
+
+    const registry: ConstructionBaseRegistry = new Map()
+
+    for (const candidate of candidates) {
+        const entry = resolve(candidate, new Set())
+
+        if (!entry.isBaseDescendant) {
+            continue
+        }
+
+        registry.set(registryKey(candidate.fileName, candidate.name), {
+            fileName         : candidate.fileName,
+            name             : candidate.name,
+            isBaseDescendant : true,
+            configProperties : entry.configProperties
+        })
+    }
+
+    return registry
 }
 
 function cachedSourceFileMixinCandidates(
@@ -182,6 +336,8 @@ function collectSourceFileMixinCandidates(
             name                 : classFacts.name,
             dependencyNames      : classFacts.implementsIdentifierNames,
             requiredBaseName     : classFacts.requiredBaseName,
+            requiredBaseIsPackageBase : classFacts.extendsType !== undefined &&
+                isPackageBaseExpression(tsInstance, classFacts.extendsType.expression, options, facts),
             configProperties     : classFacts.configProperties,
             declarationHeritage  : false,
             defaultExport        : classFacts.defaultExport
@@ -254,6 +410,7 @@ function collectDeclarationFileMixinCandidates(
                 name                 : declaration.name.text,
                 dependencyNames      : interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text)),
                 requiredBaseName     : undefined,
+                requiredBaseIsPackageBase : false,
                 configProperties     : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
                 declarationHeritage  : true,
                 defaultExport

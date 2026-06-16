@@ -235,6 +235,32 @@ it("generates public-only static construction config overloads for plain Base de
         "Plain Base public-only config ignores fields without an explicit public modifier")
 })
 
+it("generates construction members for transitive same-file Base descendants", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class GrandBase extends Base {
+            public g: string = ""
+        }
+
+        class Mid extends GrandBase {
+            public m: number = 0
+        }
+
+        class Leaf extends Mid {
+            public l: boolean = false
+        }
+    `))
+    const printed = printSourceFile(ts, transformedFile)
+
+    t.match(printed, "): GrandBase;",
+        "A direct Base descendant gets its own static new")
+    t.match(printed, "): Mid;",
+        "An intermediate descendant regenerates static new through the local extends chain")
+    t.match(printed, "): Leaf;",
+        "A transitive descendant regenerates static new with its own instance type")
+})
+
 it("can use instance-type construction config mode", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"

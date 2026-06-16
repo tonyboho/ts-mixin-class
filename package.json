@@ -3,6 +3,7 @@
     "version": "0.0.2",
     "description": "TypeScript program transformer skeleton for class-level mixin decorators.",
     "type": "module",
+    "packageManager": "pnpm@11.7.0",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/tonyboho/typescript.git",
@@ -46,12 +47,12 @@
     ],
     "license": "MIT",
     "peerDependencies": {
-        "typescript": "6.0.3"
+        "typescript": "catalog:"
     },
     "devDependencies": {
-        "@bryntum/siesta": "6.0.0-beta-1",
-        "@types/node": "25.6.0",
-        "ts-patch": "4.0.1",
-        "typescript": "6.0.3"
+        "@bryntum/siesta": "catalog:",
+        "@types/node": "catalog:",
+        "ts-patch": "catalog:",
+        "typescript": "catalog:"
     }
 }

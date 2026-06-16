@@ -2,6 +2,7 @@
     "name": "ts-mixin-class-fixture-suite",
     "private": true,
     "type": "module",
+    "packageManager": "pnpm@11.7.0",
     "exports": {
         "./mixins": {
             "types": "./dist/standard/mixins.d.ts",
@@ -31,8 +32,8 @@
         "ts-mixin-class": "workspace:*"
     },
     "devDependencies": {
-        "@bryntum/siesta": "6.0.0-beta-1",
-        "ts-patch": "4.0.1",
-        "typescript": "6.0.3"
+        "@bryntum/siesta": "catalog:",
+        "ts-patch": "catalog:",
+        "typescript": "catalog:"
     }
 }

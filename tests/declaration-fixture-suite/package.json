@@ -2,6 +2,7 @@
     "name": "ts-mixin-class-declaration-consumer-fixture-suite",
     "private": true,
     "type": "module",
+    "packageManager": "pnpm@11.7.0",
     "scripts": {
         "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
         "test": "siesta dist",
@@ -12,8 +13,8 @@
         "ts-mixin-class": "workspace:*"
     },
     "devDependencies": {
-        "@bryntum/siesta": "6.0.0-beta-1",
-        "ts-patch": "4.0.1",
-        "typescript": "6.0.3"
+        "@bryntum/siesta": "catalog:",
+        "ts-patch": "catalog:",
+        "typescript": "catalog:"
     }
 }

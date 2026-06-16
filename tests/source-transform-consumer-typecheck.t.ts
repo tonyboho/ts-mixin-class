@@ -414,6 +414,33 @@ it("can allow undefined initializers for plain Base descendants", async (t: Test
     t.expect(diagnostics).toEqual([])
 })
 
+it("requires public-only config fields for plain Base descendants", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class Model extends Base {
+            public id: string = ""
+            public name?: string = ""
+            skippedValue: string = ""
+        }
+
+        Model.new({ id : "ok" })
+
+        // @ts-expect-error public-only config requires public fields without a question mark.
+        Model.new()
+
+        // @ts-expect-error public-only config requires public fields without a question mark.
+        Model.new({})
+
+        // @ts-expect-error public-only config excludes fields without an explicit public modifier.
+        Model.new({ id : "ok", skippedValue : "nope" })
+    `))
+
+    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
+
+    t.expect(diagnostics).toEqual([])
+})
+
 it("does not allow undefined initializers in instance-type construction config mode", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"

@@ -200,7 +200,7 @@ it("generates public-only static construction config overloads by default", asyn
 
     t.match(
         printed,
-        "static new<T>(props?: Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
+        "static new<T>(props: Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
             "Partial<Pick<Consumer<T>, \"optionalBaseValue\" | \"optionalMixinValue\" | \"optionalOwnValue\">>): Consumer<T>;",
         "Default public-only construction config preserves required and optional property names"
     )
@@ -212,6 +212,27 @@ it("generates public-only static construction config overloads by default", asyn
         "Public-only construction config ignores mixin fields without an explicit public modifier")
     t.notMatch(printed, "\"skippedOwnValue\"",
         "Public-only construction config ignores consumer fields without an explicit public modifier")
+})
+
+it("generates public-only static construction config overloads for plain Base descendants", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class Model extends Base {
+            public id: string = ""
+            public name?: string = ""
+            skippedValue: string = ""
+        }
+    `))
+    const printed = printSourceFile(ts, transformedFile)
+
+    t.match(
+        printed,
+        "static new(props: Pick<Model, \"id\"> & Partial<Pick<Model, \"name\">>): Model;",
+        "Plain Base descendants get required and optional public-only config fields"
+    )
+    t.notMatch(printed, "\"skippedValue\"",
+        "Plain Base public-only config ignores fields without an explicit public modifier")
 })
 
 it("can use instance-type construction config mode", async (t: Test) => {

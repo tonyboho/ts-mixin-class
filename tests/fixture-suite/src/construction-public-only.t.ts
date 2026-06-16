@@ -4,6 +4,25 @@ import { mixin } from "ts-mixin-class"
 import { Base, type Config } from "ts-mixin-class/base"
 
 
+class Model extends Base {
+    public id: string = ""
+    public name?: string = ""
+}
+
+// @ts-expect-error no config
+const model1 = Model.new()
+
+// @ts-expect-error missing required config
+const model2 = Model.new({ name: "John Doe" })
+
+class Model2 extends Base {
+    public name?: string = ""
+}
+
+const model21 = Model2.new()
+const model22 = Model2.new({})
+
+
 class ConstructableBase extends Base {
     public baseValue: string = "base"
     public optionalBaseValue?: string

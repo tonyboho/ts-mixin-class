@@ -45,7 +45,7 @@ user instanceof Named
 user instanceof Timestamped
 ```
 
-## Required Bases
+## Required bases
 
 A mixin can declare a required consumer base with `extends`:
 
@@ -70,12 +70,12 @@ class UserModel extends DomainModel implements Persisted {
 ```
 
 For a mixin class, `extends ModelBase` means “this mixin can only be applied to
-`ModelBase` or one of its descendants”. It does not permanently lock the mixin to that
+`ModelBase` or one of its descendants”. It does not permanently lock the consumers of the mixin to that
 exact runtime base. Both typecheck and runtime enforce this requirement.
 
 ## Mixin Classes Are Classes
 
-Mixin values are still full class values. You can instantiate them directly, access their
+Mixin classes are still regular classes. You can instantiate them directly, access their
 static members, and use them with `instanceof`:
 
 ```ts
@@ -89,6 +89,15 @@ For a required-base mixin, the standalone mixin class is built on its canonical 
 base:
 
 ```ts
+class ModelBase {
+    // ...
+}
+
+@mixin()
+class Persisted extends ModelBase {
+    // ...
+}
+
 const persisted = new Persisted()
 
 persisted instanceof ModelBase
@@ -122,6 +131,11 @@ arguments in the same call. Provide both the mixin type arguments and the base c
 type:
 
 ```ts
+@mixin()
+class StoredValue<T> {
+    // ...
+}
+
 class StringBox extends StoredValue.mix<string, typeof UserBase>(UserBase) {
 }
 ```
@@ -160,34 +174,44 @@ const value: number | undefined = box.getValue()
 const label: string = box.label()
 ```
 
-## Construction
+## Instantiation
 
-Constructor signatures for mixins are intentionally not defined. Different mixins may
-need different constructor inputs, and a single classic constructor signature cannot
-generally represent a C3-linearized mixin chain.
+Constructor signatures for mixins are generally not composable, because JavaScript does not have named arguments as Python, only positional.
 
 Instead, mixins use a cooperative initialization pattern, similar in spirit to Python's
 [`super()` cooperative multiple inheritance](https://docs.python.org/3/library/functions.html#super).
-To opt in, put `Base` in the consumer's base chain, either directly, through an
-application base class, or as the required base for mixins that depend on this protocol.
-Construction then goes through `Base.new(config)`:
+To opt in to this mechanism, extend the provided `Base` class, which provides a static method `new` as a constructor for every derived class.
+
+This static constructor accepts a single argument - a config for the instance. A type for this argument is derived as a combination of
+all propertis of the class with the `public` modifier. Properties without `public` modifer are not included in the config type
+and can not be provided for instantiation.
+
+Properties with `?` are marked as optional in the config type, all other properties are required.
 
 ```ts
 import { Base } from "ts-mixin-class/base"
 
 class Model extends Base {
+    // required in the config
     public id: string = ""
+
+    // optional in the config
+    public name?: string = ""
 }
 
 const model = Model.new({ id : "42" })
 ```
 
-`Base.new(config)` creates an empty instance with `new this()` and then calls
-`initialize(config)`. The default `initialize` implementation assigns config
-properties onto the instance.
+The instantiation flow is as follows:
+- Instantiation starts as: `const instance = MixinClass.new({ ... })`
+- A native JS constructor is called without arguments. It will assign the property initializer expressions to all properties.
+It is a good performance practice to provide an initializer expression for all of your properties, to keep the shape of your class
+constant.
+- An `initialize` method is called with the configuration object, given to the initial static `new` constructor.
+`initialize` just performs `Object.assign(this, config)`, so all configs are applied to the instance at once, in no particular order.
 
 Override `initialize` when a class needs derived state or validation after config
-assignment. Use the exported `Config<T>` helper for the argument type:
+assignment. Use the exported `Config<T>` helper for the argument type (see `Limitations` sections for details):
 
 ```ts
 import { Base, type Config } from "ts-mixin-class/base"
@@ -210,62 +234,6 @@ const user = User.new({
     lastName  : "Lovelace"
 })
 ```
-
-The transformer adds a typed static `new(...)` adapter only when the consumer base chain
-extends `Base`.
-
-`constructionConfig` controls the generated config type:
-
-- `public-only` is the default. It includes explicitly `public` instance fields from
-  the base, consumer, and consumed mixins. Fields without `?` are required in the config
-  type; fields with `?` are optional. Definite-assignment fields such as `public id!: T`
-  are required.
-- `instance-type` uses the broader `Partial<Consumer<T>>` shape.
-
-
-
-### Initializing required properties
-
-Required `public-only` properties sometimes need an own runtime slot before a real value
-is known. For example, a class may want to keep object shapes stable but cannot use a
-neutral value like `0` or `""`.
-
-The `allowUndefinedForRequiredProperties` transformer option allows this pattern for
-required public construction properties:
-
-```json
-{
-    "compilerOptions": {
-        "plugins": [
-            {
-                "transform": "ts-mixin-class",
-                "transformProgram": true,
-                "allowUndefinedForRequiredProperties": true
-            }
-        ]
-    }
-}
-```
-
-With that option enabled, the transformer accepts:
-
-```ts
-class User extends Base {
-    public id: string = undefined
-}
-
-const user = User.new({ id : "42" })
-
-const id: string = user.id
-```
-
-The property type is still `string`; it is not widened to `string | undefined`. Internally
-the initializer is treated like `undefined!`, so the runtime value is `undefined` while
-the declared property type remains strict. This option only applies to required
-`public-only` construction properties, including ordinary classes that directly or
-indirectly extend `Base` without consuming any mixins. Optional fields, non-public
-fields, static fields, and `constructionConfig: "instance-type"` keep normal TypeScript
-checking.
 
 ### Initializing with generics
 
@@ -296,6 +264,46 @@ const inferred = ConfiguredBox.new({
 const numericValue: number = explicit.value
 const stringValue: string = inferred.value
 ```
+
+### Initializing required properties
+
+Required `public` properties sometimes need an own runtime slot before a real value
+is known. For example, a class may want to keep object shapes stable but cannot use a
+neutral value like `0` or `""`.
+
+The `allowUndefinedForRequiredProperties` transformer option (disabled by default) allows this pattern for
+required public configuration properties:
+
+```json
+{
+    "compilerOptions": {
+        "plugins": [
+            {
+                "transform": "ts-mixin-class",
+                "transformProgram": true,
+                "allowUndefinedForRequiredProperties": true
+            }
+        ]
+    }
+}
+```
+
+With that option enabled, the transformer accepts:
+
+```ts
+class User extends Base {
+    public id: string = undefined
+}
+
+const user = User.new({ id : "42" })
+
+const id: string = user.id
+```
+
+The property type is still `string`; it is not widened to `string | undefined`. Internally
+the initializer is treated like `undefined!`, so the runtime value is `undefined` while
+the declared property type remains strict.
+
 
 ## Runtime Metadata
 
@@ -470,3 +478,8 @@ The transformer has two source-file modes:
 - Emit builds print and reparse the transformed file.
 - IDE/tsserver mode keeps the original source text and overlays a transformed AST with
   preserved source ranges, so editor navigation still points at the user-written code.
+
+
+## License
+
+MIT License

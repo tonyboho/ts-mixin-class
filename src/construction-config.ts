@@ -1,7 +1,6 @@
 import type * as ts from "typescript"
 import { MixinTransformError } from "./expand-util.js"
 import {
-    anyConstructorName,
     uniqueConfigProperties,
     type ConfigProperty,
     type ResolvedMixinRef,
@@ -13,6 +12,11 @@ import {
     preserveGeneratedDeclarationRange
 } from "./util.js"
 import type { TypeScript } from "./util.js"
+
+type ConstructionConfig = {
+    type : ts.TypeNode,
+    optionalParameter : boolean
+}
 
 export function createConstructionMembers(
     tsInstance: TypeScript,
@@ -35,7 +39,7 @@ export function createConstructionMembers(
 
     const factory = tsInstance.factory
     const staticModifier = [ factory.createToken(tsInstance.SyntaxKind.StaticKeyword) ]
-    const configType = createConstructionConfigType(
+    const config = createConstructionConfig(
         tsInstance,
         sourceFile,
         declaration,
@@ -67,8 +71,8 @@ export function createConstructionMembers(
                 undefined,
                 undefined,
                 "props",
-                factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-                configType
+                config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                config.type
             ) ],
             consumerType,
             undefined
@@ -81,9 +85,7 @@ export function createConstructionMembers(
             [ factory.createTypeParameterDeclaration(
                 undefined,
                 "T",
-                factory.createTypeReferenceNode(anyConstructorName, [
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                ]),
+                createAnyConstructorType(tsInstance),
                 undefined
             ) ],
             [
@@ -217,7 +219,7 @@ function isPackageBaseImport(
     return specifier === options.packageName || specifier === `${options.packageName}/base`
 }
 
-function createConstructionConfigType(
+function createConstructionConfig(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
@@ -226,13 +228,16 @@ function createConstructionConfigType(
     mixinRefs: ResolvedMixinRef[],
     options: TransformOptions,
     facts: SourceFileFacts
-): ts.TypeNode {
+): ConstructionConfig {
     const factory = tsInstance.factory
 
     if (options.constructionConfig === "instance-type") {
-        return factory.createTypeReferenceNode("Partial", [
-            createConsumerInstanceType(tsInstance, declaration)
-        ])
+        return {
+            type : factory.createTypeReferenceNode("Partial", [
+                createConsumerInstanceType(tsInstance, declaration)
+            ]),
+            optionalParameter : true
+        }
     }
 
     const properties = staticConstructionConfigProperties(
@@ -271,26 +276,57 @@ function createConstructionConfigType(
         ])
 
     if (requiredType === undefined && optionalType === undefined) {
-        return factory.createTypeReferenceNode("Partial", [
-            factory.createTypeReferenceNode("Pick", [
-                consumerType,
-                factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
-            ])
-        ])
+        return {
+            type : factory.createTypeReferenceNode("Partial", [
+                factory.createTypeReferenceNode("Pick", [
+                    consumerType,
+                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
+                ])
+            ]),
+            optionalParameter : true
+        }
     }
 
     if (requiredType === undefined) {
-        return optionalType as ts.TypeNode
+        return {
+            type : optionalType as ts.TypeNode,
+            optionalParameter : true
+        }
     }
 
     if (optionalType === undefined) {
-        return requiredType
+        return {
+            type : requiredType,
+            optionalParameter : false
+        }
     }
 
-    return factory.createIntersectionTypeNode([
-        requiredType,
-        optionalType
-    ])
+    return {
+        type : factory.createIntersectionTypeNode([
+            requiredType,
+            optionalType
+        ]),
+        optionalParameter : false
+    }
+}
+
+function createAnyConstructorType(tsInstance: TypeScript): ts.ConstructorTypeNode {
+    const factory = tsInstance.factory
+
+    return factory.createConstructorTypeNode(
+        undefined,
+        undefined,
+        [
+            factory.createParameterDeclaration(
+                undefined,
+                factory.createToken(tsInstance.SyntaxKind.DotDotDotToken),
+                "args",
+                undefined,
+                factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
+            )
+        ],
+        factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+    )
 }
 
 function staticConstructionConfigProperties(

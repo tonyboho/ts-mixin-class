@@ -2,7 +2,7 @@ import type * as ts from "typescript"
 import type { ProgramTransformerExtras } from "ts-patch"
 import { expandConsumerClass } from "./consumer-expand.js"
 import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
-import { isConstructionBaseOptIn } from "./construction-config.js"
+import { createConstructionMembers, isConstructionBaseOptIn } from "./construction-config.js"
 import { buildFileMixinContext } from "./context.js"
 import { createMixinDeclarationDiagnosticAliases } from "./expand-util.js"
 import { expandMixinClass } from "./mixin-expand.js"
@@ -32,6 +32,7 @@ import { buildMixinRegistry, hasRuntimeModuleForDeclaration } from "./registry.j
 import {
     cloneLayeredSourceFileForTransform,
     cloneSourceFileForTransform,
+    generatedTextRange,
     hasDifferentAstShape,
     preserveTopLevelStatementRanges,
     printSourceFile,
@@ -353,15 +354,16 @@ export function transformSourceFile(
                 classFacts.extendsType,
                 resolvedOptions
             )) {
-                const rewrittenStatement = rewritePublicOnlyUndefinedInitializerClass(
+                const expandedStatement = expandConstructionBaseClass(
                     tsInstance,
+                    sourceFile,
                     classFacts.declaration,
                     resolvedOptions
                 )
 
-                if (rewrittenStatement !== statement) {
+                if (expandedStatement !== statement) {
                     expandedAnything = true
-                    return [ rewrittenStatement ]
+                    return [ expandedStatement ]
                 }
             }
         }
@@ -378,6 +380,42 @@ export function transformSourceFile(
         needsGeneratedImports
             ? insertGeneratedImports(tsInstance, expandedStatements, context, resolvedOptions)
             : expandedStatements
+    )
+}
+
+function expandConstructionBaseClass(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    options: TransformOptions
+): ts.ClassDeclaration {
+    const rewritten = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
+    const constructionMembers = createConstructionMembers(
+        tsInstance,
+        sourceFile,
+        declaration,
+        declaration.heritageClauses?.find((clause) => {
+            return clause.token === tsInstance.SyntaxKind.ExtendsKeyword
+        })?.types[0],
+        undefined,
+        [],
+        options,
+        options.sourceView
+            ? generatedTextRange(sourceFile, declaration.members.end)
+            : generatedTextRange(sourceFile, declaration.pos)
+    )
+
+    if (constructionMembers.length === 0) {
+        return rewritten
+    }
+
+    return tsInstance.factory.updateClassDeclaration(
+        rewritten,
+        rewritten.modifiers,
+        rewritten.name,
+        rewritten.typeParameters,
+        rewritten.heritageClauses,
+        tsInstance.factory.createNodeArray([ ...rewritten.members, ...constructionMembers ])
     )
 }
 
@@ -534,11 +572,9 @@ function shouldTransformSourceFile(
     const hasPotentialConsumer = facts.classes.some((classFacts) => {
         return classFacts.implementsIdentifierNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
-    const hasPotentialConstructionRewrite = options.constructionConfig === "public-only" &&
-        options.allowUndefinedForRequiredProperties &&
-        facts.classes.some((classFacts) => classFacts.extendsType !== undefined)
+    const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined)
 
-    return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionRewrite
+    return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionConfig
 }
 
 function shouldSkipSourceFile(sourceFile: ts.SourceFile): boolean {

@@ -33,7 +33,7 @@ export function reduceTransitiveMixinHeritageTypes(
 ): ts.ExpressionWithTypeArguments[] {
     const direct = heritageTypes.map((heritageType) => {
         if (!tsInstance.isIdentifier(heritageType.expression) || heritageType.typeArguments !== undefined) {
-            return { heritageType, ref : undefined }
+            return { heritageType, ref: undefined }
         }
 
         return {
@@ -71,7 +71,7 @@ function collectReachableMixinKeys(
     startKey: string,
     visiting: Set<string>
 ): Set<string> {
-    const cache = reachabilityCacheFor(context)
+    const cache  = reachabilityCacheFor(context)
     const cached = cache.get(startKey)
 
     if (cached !== undefined) {
@@ -87,7 +87,7 @@ function collectReachableMixinKeys(
     visiting.add(startKey)
 
     const reachable = new Set<string>()
-    const ref = context.byKey.get(startKey)
+    const ref       = context.byKey.get(startKey)
 
     if (ref !== undefined) {
         for (const dependencyKey of ref.dependencies) {

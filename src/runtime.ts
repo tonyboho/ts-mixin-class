@@ -27,9 +27,9 @@ export type StaticStrictConflictKeys<Left, Right> = {
 }[Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]
 
 export type RuntimeMixinClass<RequiredBase extends object = object> = {
-    readonly [factory]: MixinFactory,
-    readonly [requirements]: readonly RuntimeMixinClass[],
-    readonly [base]: AnyConstructor<RequiredBase>
+    readonly [factory]      : MixinFactory,
+    readonly [requirements] : readonly RuntimeMixinClass[],
+    readonly [base]         : AnyConstructor<RequiredBase>
 }
 
 // Factored static type of a non-generic mixin class value. The transformer emits
@@ -52,19 +52,19 @@ export type MixinClassValue<
     }
 
 type RuntimeMixinClassValue = AnyConstructor<any> & RuntimeMixinClass & {
-    readonly mix: <Base extends AnyConstructor<any>>(base: Base) => AnyConstructor<any>
+    readonly mix : <Base extends AnyConstructor<any>>(base: Base) => AnyConstructor<any>
 }
 
 type RuntimeMixinMetadata = {
-    factory: MixinFactory,
-    requirements: RuntimeMixinClassValue[],
-    requiredBase: AnyConstructor<any>,
-    linearization: RuntimeMixinClassValue[] | undefined,
-    applications: WeakMap<AnyConstructor<any>, AnyConstructor<any>>
+    factory       : MixinFactory,
+    requirements  : RuntimeMixinClassValue[],
+    requiredBase  : AnyConstructor<any>,
+    linearization : RuntimeMixinClassValue[] | undefined,
+    applications  : WeakMap<AnyConstructor<any>, AnyConstructor<any>>
 }
 
 const runtimeMixinMetadata = new WeakMap<RuntimeMixinClassValue, RuntimeMixinMetadata>()
-const appliedMixinClasses = new WeakMap<AnyConstructor<any>, Set<RuntimeMixinClassValue>>()
+const appliedMixinClasses  = new WeakMap<AnyConstructor<any>, Set<RuntimeMixinClassValue>>()
 
 export function mixin(..._args: unknown[]): (..._decoratorArgs: unknown[]) => void {
     return () => {}
@@ -76,25 +76,25 @@ export function defineMixinClass(
     mixinRequirements: readonly RuntimeMixinClassValue[] = [],
     requiredBase: AnyConstructor<any> = Object
 ): RuntimeMixinClassValue {
-    const requirementList = [ ...mixinRequirements ]
+    const requirementList          = [ ...mixinRequirements ]
     const requirementLinearization = linearizeRuntimeRequirements(requirementList)
-    const canonicalBase = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
-    const mixinClass = mixinFactory(canonicalBase) as RuntimeMixinClassValue
-    const applications = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
+    const canonicalBase            = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
+    const mixinClass               = mixinFactory(canonicalBase) as RuntimeMixinClassValue
+    const applications             = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
 
     applications.set(canonicalBase, mixinClass)
 
     runtimeMixinMetadata.set(mixinClass, {
-        factory        : mixinFactory,
-        requirements   : requirementList,
+        factory       : mixinFactory,
+        requirements  : requirementList,
         requiredBase,
-        linearization  : [ mixinClass, ...requirementLinearization ],
+        linearization : [ mixinClass, ...requirementLinearization ],
         applications
     })
 
-    Object.defineProperty(mixinClass, factory, { value : mixinFactory })
-    Object.defineProperty(mixinClass, requirements, { value : requirementList })
-    Object.defineProperty(mixinClass, base, { value : requiredBase })
+    Object.defineProperty(mixinClass, factory, { value: mixinFactory })
+    Object.defineProperty(mixinClass, requirements, { value: requirementList })
+    Object.defineProperty(mixinClass, base, { value: requiredBase })
     Object.defineProperty(mixinClass, "mix", {
         value(runtimeBase: AnyConstructor<any>) {
             return mixinChain(runtimeBase, mixinClass)
@@ -137,7 +137,7 @@ function applyRuntimeMixin(
     mixinClass: RuntimeMixinClassValue
 ): AnyConstructor<any> {
     const metadata = runtimeMetadataOf(mixinClass)
-    const cached = metadata.applications.get(base)
+    const cached   = metadata.applications.get(base)
 
     if (!classExtends(base, metadata.requiredBase)) {
         throw new Error(
@@ -221,7 +221,7 @@ function registerAppliedMixins(
     mixins: readonly RuntimeMixinClassValue[]
 ): void {
     const inherited = appliedMixinClasses.get(Object.getPrototypeOf(appliedClass)) ?? new Set<RuntimeMixinClassValue>()
-    const applied = new Set<RuntimeMixinClassValue>(inherited)
+    const applied   = new Set<RuntimeMixinClassValue>(inherited)
 
     for (const mixinClass of mixins) {
         applied.add(mixinClass)

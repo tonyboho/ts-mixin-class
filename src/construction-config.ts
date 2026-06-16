@@ -18,7 +18,7 @@ import {
 import type { TypeScript } from "./util.js"
 
 type ConstructionConfig = {
-    type : ts.TypeNode,
+    type              : ts.TypeNode,
     optionalParameter : boolean
 }
 
@@ -49,9 +49,9 @@ export function createConstructionMembers(
         return []
     }
 
-    const factory = tsInstance.factory
+    const factory        = tsInstance.factory
     const staticModifier = [ factory.createToken(tsInstance.SyntaxKind.StaticKeyword) ]
-    const config = createConstructionConfig(
+    const config         = createConstructionConfig(
         tsInstance,
         sourceFile,
         declaration,
@@ -63,13 +63,13 @@ export function createConstructionMembers(
         crossFile,
         baseImportMap
     )
-    const consumerType = createConsumerInstanceType(tsInstance, declaration)
+    const consumerType   = createConsumerInstanceType(tsInstance, declaration)
 
     // The checker validates overload adjacency by position (subsequent.pos ===
     // node.end), so source-view overloads get consecutive non-zero-width ranges:
     // zero width makes a node "missing" for the checker.
     const overloadRange = (index: number): ts.TextRange => options.sourceView
-        ? { pos : generatedRange.pos + index, end : generatedRange.pos + index + 1 }
+        ? { pos: generatedRange.pos + index, end: generatedRange.pos + index + 1 }
         : generatedRange
 
     return [
@@ -192,7 +192,7 @@ export function isPackageBaseExpression(
             continue
         }
 
-        const importClause = importFacts.declaration.importClause
+        const importClause  = importFacts.declaration.importClause
         const namedBindings = importClause?.namedBindings
 
         if (namedBindings === undefined) {
@@ -288,7 +288,7 @@ function createConstructionConfig(
         }
     }
 
-    const properties = staticConstructionConfigProperties(
+    const properties              = staticConstructionConfigProperties(
         tsInstance,
         declaration,
         extendsType,
@@ -339,14 +339,14 @@ function createConstructionConfig(
 
     if (requiredType === undefined) {
         return {
-            type : optionalType as ts.TypeNode,
+            type              : optionalType as ts.TypeNode,
             optionalParameter : true
         }
     }
 
     if (optionalType === undefined) {
         return {
-            type : requiredType,
+            type              : requiredType,
             optionalParameter : false
         }
     }
@@ -401,7 +401,7 @@ function baseConfigProperties(
         return []
     }
 
-    const baseName = baseType.expression.text
+    const baseName  = baseType.expression.text
     const localBase = facts.classesByName.get(baseName)
 
     if (localBase !== undefined) {

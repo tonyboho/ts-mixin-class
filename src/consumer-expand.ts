@@ -75,7 +75,7 @@ export function expandConsumerClass(
     options: TransformOptions,
     mixinHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
 ): ts.Statement[] {
-    const factory = tsInstance.factory
+    const factory   = tsInstance.factory
     const expansion = createConsumerExpansionContext(
         tsInstance,
         sourceFile,
@@ -121,13 +121,13 @@ export function expandConsumerClass(
         )
     }
 
-    const implicitRequiredBase = expansion.extendsType === undefined
+    const implicitRequiredBase            = expansion.extendsType === undefined
         ? firstRequiredBaseType(tsInstance, context, linearized)
         : undefined
-    const emptyBaseName = expansion.extendsType === undefined && implicitRequiredBase === undefined
+    const emptyBaseName                   = expansion.extendsType === undefined && implicitRequiredBase === undefined
         ? generatedName(expansion.name, consumerEmptyBaseSuffix)
         : undefined
-    const requiredBaseValidations = expansion.extendsType === undefined
+    const requiredBaseValidations         = expansion.extendsType === undefined
         ? []
         : createRequiredBaseValidations(
             tsInstance,
@@ -145,9 +145,9 @@ export function expandConsumerClass(
         expansion.directMixinRefs,
         mixinHeritage
     )
-    const reducedMixinHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
-    const facts = getSourceFileFacts(tsInstance, sourceFile, options)
-    const staticCollisionValidations = createStaticCollisionValidations(
+    const reducedMixinHeritage            = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
+    const facts                           = getSourceFileFacts(tsInstance, sourceFile, options)
+    const staticCollisionValidations      = createStaticCollisionValidations(
         tsInstance,
         sourceFile,
         declaration,
@@ -160,7 +160,7 @@ export function expandConsumerClass(
         options.staticCollisionCheck,
         options.sourceView
     )
-    const consumerValidations = [
+    const consumerValidations             = [
         ...requiredBaseValidations,
         ...missingRuntimeImportValidations,
         ...staticCollisionValidations
@@ -198,7 +198,7 @@ export function expandConsumerClass(
         ) ],
         []
     )
-    const baseInterface = options.sourceView
+    const baseInterface     = options.sourceView
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseInterfaceNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseInterfaceNode, expansion.generatedRange, declaration)
 
@@ -217,11 +217,11 @@ export function expandConsumerClass(
         ) ],
         []
     )
-    const baseClass = options.sourceView
+    const baseClass     = options.sourceView
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseClassNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseClassNode, expansion.generatedRange, declaration)
 
-    const constructionMembers = createConstructionMembers(
+    const constructionMembers      = createConstructionMembers(
         tsInstance,
         sourceFile,
         declaration,
@@ -240,7 +240,7 @@ export function expandConsumerClass(
         declaration.members,
         expansion.originalExtendsClause === undefined
     )
-    const consumerMembers = isConstructionBaseOptIn(
+    const consumerMembers          = isConstructionBaseOptIn(
         tsInstance,
         sourceFile,
         expansion.extendsType ?? implicitRequiredBase,
@@ -248,10 +248,10 @@ export function expandConsumerClass(
     )
         ? rewritePublicOnlyUndefinedInitializers(tsInstance, consumerMembersWithSuper, options)
         : consumerMembersWithSuper
-    const updatedConsumerMembers = constructionMembers.length === 0
+    const updatedConsumerMembers   = constructionMembers.length === 0
         ? consumerMembers
         : preserveTextRange(tsInstance, factory.createNodeArray([ ...consumerMembers, ...constructionMembers ]), consumerMembers)
-    const updatedConsumer = factory.updateClassDeclaration(
+    const updatedConsumer          = factory.updateClassDeclaration(
         declaration,
         declaration.modifiers,
         declaration.name,
@@ -299,15 +299,15 @@ function createConsumerExpansionContext(
         throw new MixinTransformError(sourceFile, declaration, "A mixin consumer class must have a name")
     }
 
-    const name = declaration.name.text
-    const originalExtendsClause = extendsClause(tsInstance, declaration)
-    const extendsType = originalExtendsClause?.types[0]
-    const generatedRange = options.sourceView ? declaration : generatedTextRange(sourceFile, declaration.pos)
-    const sourceViewGeneratedRange = generatedTextRange(sourceFile, declaration.pos)
-    const firstHeritageType = declaration.heritageClauses?.[0]?.types[0]
-    const generatedHeritageRange = originalExtendsClause ??
+    const name                       = declaration.name.text
+    const originalExtendsClause      = extendsClause(tsInstance, declaration)
+    const extendsType                = originalExtendsClause?.types[0]
+    const generatedRange             = options.sourceView ? declaration : generatedTextRange(sourceFile, declaration.pos)
+    const sourceViewGeneratedRange   = generatedTextRange(sourceFile, declaration.pos)
+    const firstHeritageType          = declaration.heritageClauses?.[0]?.types[0]
+    const generatedHeritageRange     = originalExtendsClause ??
         (options.sourceView && declaration.heritageClauses !== undefined
-            ? { pos : declaration.heritageClauses.pos, end : declaration.heritageClauses.end }
+            ? { pos: declaration.heritageClauses.pos, end: declaration.heritageClauses.end }
             : generatedTextRange(
                 sourceFile,
                 declaration.heritageClauses?.pos ?? declaration.name.end
@@ -317,7 +317,7 @@ function createConsumerExpansionContext(
 
     return {
         name,
-        baseName : generatedName(name, consumerBaseSuffix),
+        baseName        : generatedName(name, consumerBaseSuffix),
         extendsType,
         directMixinRefs : localMixinRefs(context, mixinHeritage),
         generatedRange,
@@ -346,17 +346,17 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
         throw new MixinTransformError(sourceFile, declaration, "A mixin consumer class must have a name")
     }
 
-    const name          = declaration.name.text
-    const baseName      = generatedName(name, consumerBaseSuffix)
-    const extendsType   = extendsClause(tsInstance, declaration)?.types[0]
-    const mixinHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
+    const name                 = declaration.name.text
+    const baseName             = generatedName(name, consumerBaseSuffix)
+    const extendsType          = extendsClause(tsInstance, declaration)?.types[0]
+    const mixinHeritage        = localMixinHeritageTypes(tsInstance, declaration, context)
     const reducedMixinHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
 
     if (extendsType === undefined) {
         throw new MixinTransformError(sourceFile, declaration, "Unsupported base diagnostic requires an extends clause")
     }
 
-    const diagnosticValidation = createConsumerDiagnosticValidation(
+    const diagnosticValidation  = createConsumerDiagnosticValidation(
         tsInstance,
         declaration,
         "__mixinUnsupportedBaseExpression",
@@ -436,26 +436,26 @@ function expandConsumerClassWithLinearizationDiagnostic(
         throw new MixinTransformError(sourceFile, declaration, "A mixin consumer class must have a name")
     }
 
-    const name           = declaration.name.text
-    const baseName       = generatedName(name, consumerBaseSuffix)
-    const extendsType    = extendsClause(tsInstance, declaration)?.types[0]
-    const emptyBaseName  = extendsType === undefined ? generatedName(name, consumerEmptyBaseSuffix) : undefined
-    const mixinHeritage  = localMixinHeritageTypes(tsInstance, declaration, context)
-    const reducedMixinHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
-    const generatedRange = generatedTextRange(sourceFile, declaration.pos)
-    const originalExtendsClause = extendsClause(tsInstance, declaration)
-    const generatedHeritageRange = originalExtendsClause ?? generatedTextRange(
+    const name                       = declaration.name.text
+    const baseName                   = generatedName(name, consumerBaseSuffix)
+    const extendsType                = extendsClause(tsInstance, declaration)?.types[0]
+    const emptyBaseName              = extendsType === undefined ? generatedName(name, consumerEmptyBaseSuffix) : undefined
+    const mixinHeritage              = localMixinHeritageTypes(tsInstance, declaration, context)
+    const reducedMixinHeritage       = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
+    const generatedRange             = generatedTextRange(sourceFile, declaration.pos)
+    const originalExtendsClause      = extendsClause(tsInstance, declaration)
+    const generatedHeritageRange     = originalExtendsClause ?? generatedTextRange(
         sourceFile,
         declaration.heritageClauses?.pos ?? declaration.name.end
     )
     const generatedHeritageTypeRange = extendsType ?? generatedHeritageRange
-    const diagnosticValidation = createLinearizationDiagnosticValidation(
+    const diagnosticValidation       = createLinearizationDiagnosticValidation(
         tsInstance,
         declaration,
         linearizationDiagnosticMessage(directMixinRefs, context, error),
         generatedHeritageTypeRange
     )
-    const checkedTypeParameters = appendRequiredBaseValidationTypeParameters(
+    const checkedTypeParameters      = appendRequiredBaseValidationTypeParameters(
         tsInstance,
         declaration.typeParameters,
         [ diagnosticValidation ]

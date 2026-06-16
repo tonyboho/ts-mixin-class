@@ -66,13 +66,13 @@ function preserveSyntheticDescendantRangesAndGetRealRange(
         }
         : parentRange
     let range: ts.TextRange | undefined
-    const mergeRange = (nextRange: ts.TextRange | undefined): void => {
+    const mergeRange   = (nextRange: ts.TextRange | undefined): void => {
         if (nextRange === undefined) {
             return
         }
 
         range = range === undefined
-            ? { pos : nextRange.pos, end : nextRange.end }
+            ? { pos: nextRange.pos, end: nextRange.end }
             : {
                 pos : Math.min(range.pos, nextRange.pos),
                 end : Math.max(range.end, nextRange.end)
@@ -240,19 +240,19 @@ export function preserveSourceViewGeneratedClassLikeRange<
     }
 
     if (node.heritageClauses !== undefined) {
-        const originalHeritage = original.heritageClauses
+        const originalHeritage      = original.heritageClauses
         const originalHeritageTypes = originalHeritage?.flatMap((heritageClause) => [ ...heritageClause.types ]) ?? []
         const originalHeritageRange = originalHeritage === undefined
             ? zeroWidthRange(original.name?.end ?? original.end)
-            : { pos : originalHeritage.pos, end : originalHeritage.end }
+            : { pos: originalHeritage.pos, end: originalHeritage.end }
         let generatedHeritageRange: ts.TextRange | undefined
 
         preserveTextRange(tsInstance, node.heritageClauses, originalHeritageRange)
 
         node.heritageClauses.forEach((heritageClause, index) => {
-            const originalClause = originalHeritage?.[Math.min(index, originalHeritage.length - 1)]
-            const clauseRange = originalClause ?? originalHeritageRange
-            const mappedOriginalTypes = heritageClause.types.map((_heritageType, typeIndex) => {
+            const originalClause                = originalHeritage?.[Math.min(index, originalHeritage.length - 1)]
+            const clauseRange                   = originalClause ?? originalHeritageRange
+            const mappedOriginalTypes           = heritageClause.types.map((_heritageType, typeIndex) => {
                 return originalHeritageTypes[typeIndex] ??
                     originalClause?.types[Math.min(typeIndex, originalClause.types.length - 1)]
             })
@@ -284,13 +284,13 @@ export function preserveSourceViewGeneratedClassLikeRange<
 
             heritageClause.types.forEach((heritageType, typeIndex) => {
                 const originalType = mappedOriginalTypes[typeIndex]
-                const typeRange = originalType ?? clauseRange
+                const typeRange    = originalType ?? clauseRange
 
                 preserveTextRange(tsInstance, heritageType, typeRange)
                 preserveTextRange(tsInstance, heritageType.expression, originalType?.expression ?? typeRange)
 
                 if (heritageType.typeArguments !== undefined) {
-                    const originalTypeArguments = originalType?.typeArguments
+                    const originalTypeArguments      = originalType?.typeArguments
                     const generatedTypeArgumentRange = zeroWidthRange(heritageType.expression.end)
 
                     preserveTextRange(
@@ -408,11 +408,11 @@ export function hasDifferentAstShape(
     left: ts.SourceFile,
     right: ts.SourceFile
 ): boolean {
-    const leftStack: ts.Node[] = [ left ]
-    const rightStack: ts.Node[] = [ right ]
-    const leftChildren: ts.Node[] = []
+    const leftStack: ts.Node[]     = [ left ]
+    const rightStack: ts.Node[]    = [ right ]
+    const leftChildren: ts.Node[]  = []
     const rightChildren: ts.Node[] = []
-    const collectChildren = (node: ts.Node, children: ts.Node[]): void => {
+    const collectChildren          = (node: ts.Node, children: ts.Node[]): void => {
         children.length = 0
 
         tsInstance.forEachChild(node, (child) => {
@@ -421,7 +421,7 @@ export function hasDifferentAstShape(
     }
 
     while (leftStack.length > 0) {
-        const leftNode = leftStack.pop() as ts.Node
+        const leftNode  = leftStack.pop() as ts.Node
         const rightNode = rightStack.pop()
 
         if (rightNode === undefined) {
@@ -500,7 +500,7 @@ export function printSourceFile(tsInstance: TypeScript, sourceFile: ts.SourceFil
     let printer = printerCache.get(tsInstance)
 
     if (printer === undefined) {
-        printer = tsInstance.createPrinter({ newLine : tsInstance.NewLineKind.LineFeed })
+        printer = tsInstance.createPrinter({ newLine: tsInstance.NewLineKind.LineFeed })
         printerCache.set(tsInstance, printer)
     }
 

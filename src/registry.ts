@@ -46,13 +46,13 @@ export function buildMixinRegistry(
 
     for (const candidate of candidates) {
         registry.set(registryKey(candidate.sourceFile.fileName, candidate.name), {
-            fileName          : candidate.sourceFile.fileName,
-            name              : candidate.name,
-            defaultExport     : candidate.defaultExport,
-            dependencies      : [],
-            requiredBaseName  : candidate.requiredBaseName,
+            fileName                  : candidate.sourceFile.fileName,
+            name                      : candidate.name,
+            defaultExport             : candidate.defaultExport,
+            dependencies              : [],
+            requiredBaseName          : candidate.requiredBaseName,
             requiredBaseIsPackageBase : candidate.requiredBaseIsPackageBase,
-            configProperties    : candidate.configProperties
+            configProperties          : candidate.configProperties
         })
 
         if (candidate.defaultExport) {
@@ -62,7 +62,7 @@ export function buildMixinRegistry(
         }
     }
 
-    const importMaps = new Map<string, Map<string, { resolvedFileName: string, importedName: string }>>()
+    const importMaps            = new Map<string, Map<string, { resolvedFileName: string, importedName: string }>>()
     const dependencyNamesByFile = new Map<string, Set<string>>()
 
     for (const candidate of candidates) {
@@ -125,14 +125,14 @@ export function buildMixinRegistry(
 }
 
 type Candidate = {
-    sourceFile           : ts.SourceFile,
-    name                 : string,
-    dependencyNames      : string[],
-    requiredBaseName     : string | undefined,
+    sourceFile                : ts.SourceFile,
+    name                      : string,
+    dependencyNames           : string[],
+    requiredBaseName          : string | undefined,
     requiredBaseIsPackageBase : boolean,
-    configProperties     : ConfigProperty[],
-    declarationHeritage  : boolean,
-    defaultExport        : boolean
+    configProperties          : ConfigProperty[],
+    declarationHeritage       : boolean,
+    defaultExport             : boolean
 }
 
 // Program-wide map of ordinary (non-mixin) classes that transitively extend the
@@ -159,7 +159,7 @@ export function buildConstructionBaseRegistry(
         importMap           : Map<string, ImportedNameBinding>
     }
 
-    const candidatesByKey = new Map<string, ConstructionBaseCandidate>()
+    const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
     const candidates: ConstructionBaseCandidate[] = []
 
     for (const sourceFile of program.getSourceFiles()) {
@@ -181,9 +181,10 @@ export function buildConstructionBaseRegistry(
                 continue
             }
 
+            // eslint-disable-next-line align-assignments/align-assignments
             importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
 
-            const baseExpression = classFacts.extendsType.expression
+            const baseExpression                       = classFacts.extendsType.expression
             const candidate: ConstructionBaseCandidate = {
                 fileName            : sourceFile.fileName,
                 name                : classFacts.name,
@@ -204,7 +205,7 @@ export function buildConstructionBaseRegistry(
         candidate: ConstructionBaseCandidate,
         seen: Set<string>
     ): { isBaseDescendant: boolean, configProperties: ConfigProperty[] } => {
-        const key = registryKey(candidate.fileName, candidate.name)
+        const key    = registryKey(candidate.fileName, candidate.name)
         const cached = resolved.get(key)
 
         if (cached !== undefined) {
@@ -212,13 +213,13 @@ export function buildConstructionBaseRegistry(
         }
 
         if (seen.has(key)) {
-            return { isBaseDescendant : false, configProperties : candidate.ownConfigProperties }
+            return { isBaseDescendant: false, configProperties: candidate.ownConfigProperties }
         }
 
         seen.add(key)
 
         if (candidate.extendsPackageBase) {
-            const result = { isBaseDescendant : true, configProperties : candidate.ownConfigProperties }
+            const result = { isBaseDescendant: true, configProperties: candidate.ownConfigProperties }
 
             resolved.set(key, result)
 
@@ -231,7 +232,7 @@ export function buildConstructionBaseRegistry(
                 resolveImportedConstructionBaseCandidate(candidate, candidatesByKey)
 
         if (baseCandidate === undefined) {
-            const result = { isBaseDescendant : false, configProperties : candidate.ownConfigProperties }
+            const result = { isBaseDescendant: false, configProperties: candidate.ownConfigProperties }
 
             resolved.set(key, result)
 
@@ -239,7 +240,7 @@ export function buildConstructionBaseRegistry(
         }
 
         const baseResolved = resolve(baseCandidate, seen)
-        const result = {
+        const result       = {
             isBaseDescendant : baseResolved.isBaseDescendant,
             configProperties : uniqueConfigProperties([ ...baseResolved.configProperties, ...candidate.ownConfigProperties ])
         }
@@ -290,13 +291,13 @@ function cachedSourceFileMixinCandidates(
     options: TransformOptions
 ): Candidate[] {
     const cacheKey = registryCandidateCacheKey(sourceFile, options)
-    const cached = registryCandidateCache.get(sourceFile)?.get(cacheKey)
+    const cached   = registryCandidateCache.get(sourceFile)?.get(cacheKey)
 
     if (cached !== undefined) {
         return cached
     }
 
-    const candidates = collectSourceFileMixinCandidates(tsInstance, sourceFile, options)
+    const candidates      = collectSourceFileMixinCandidates(tsInstance, sourceFile, options)
     const cachedByOptions = registryCandidateCache.get(sourceFile) ?? new Map<string, Candidate[]>()
 
     cachedByOptions.set(cacheKey, candidates)
@@ -333,14 +334,14 @@ function collectSourceFileMixinCandidates(
 
         candidates.push({
             sourceFile,
-            name                 : classFacts.name,
-            dependencyNames      : classFacts.implementsIdentifierNames,
-            requiredBaseName     : classFacts.requiredBaseName,
+            name                      : classFacts.name,
+            dependencyNames           : classFacts.implementsIdentifierNames,
+            requiredBaseName          : classFacts.requiredBaseName,
             requiredBaseIsPackageBase : classFacts.extendsType !== undefined &&
                 isPackageBaseExpression(tsInstance, classFacts.extendsType.expression, options, facts),
-            configProperties     : classFacts.configProperties,
-            declarationHeritage  : false,
-            defaultExport        : classFacts.defaultExport
+            configProperties    : classFacts.configProperties,
+            declarationHeritage : false,
+            defaultExport       : classFacts.defaultExport
         })
     }
 
@@ -370,8 +371,8 @@ function collectDeclarationFileMixinCandidates(
     }
 
     const candidates: Candidate[] = []
-    const interfaces = new Map<string, ts.InterfaceDeclaration>()
-    const defaultExportNames = new Set<string>()
+    const interfaces              = new Map<string, ts.InterfaceDeclaration>()
+    const defaultExportNames      = new Set<string>()
 
     for (const statement of sourceFile.statements) {
         if (tsInstance.isInterfaceDeclaration(statement)) {
@@ -407,12 +408,12 @@ function collectDeclarationFileMixinCandidates(
 
             candidates.push({
                 sourceFile,
-                name                 : declaration.name.text,
-                dependencyNames      : interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text)),
-                requiredBaseName     : undefined,
+                name                      : declaration.name.text,
+                dependencyNames           : interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text)),
+                requiredBaseName          : undefined,
                 requiredBaseIsPackageBase : false,
-                configProperties     : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
-                declarationHeritage  : true,
+                configProperties          : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
+                declarationHeritage       : true,
                 defaultExport
             })
         }

@@ -32,13 +32,13 @@ export function createStaticCollisionValidations(
         return []
     }
 
-    const allSources = [
+    const allSources                            = [
         ...consumerBaseStaticSources(tsInstance, sourceFile, extendsType, implicitRequiredBase, emptyBaseName, facts),
         ...mixinRefs.flatMap((ref) => {
             return mixinStaticSource(tsInstance, ref, facts)
         })
     ]
-    const sources = sourceView
+    const sources                               = sourceView
         ? allSources.filter((source) => {
             return source.staticNames !== undefined && source.staticNames.size > 0
         })
@@ -47,8 +47,8 @@ export function createStaticCollisionValidations(
 
     for (let leftIndex = 0; leftIndex < sources.length; leftIndex++) {
         for (let rightIndex = leftIndex + 1; rightIndex < sources.length; rightIndex++) {
-            const left = sources[leftIndex]
-            const right = sources[rightIndex]
+            const left         = sources[leftIndex]
+            const right        = sources[rightIndex]
             const knownOverlap = knownStaticNameOverlap(left, right)
 
             if (sourceView && knownOverlap === undefined) {
@@ -196,7 +196,7 @@ function staticCollisionDiagnosticMessage(
     knownOverlap: string[] | undefined
 ): string {
     const consumerName = declaration.name?.text ?? "<anonymous consumer>"
-    const names = knownOverlap === undefined || knownOverlap.length === 0
+    const names        = knownOverlap === undefined || knownOverlap.length === 0
         ? "one or more static members"
         : knownOverlap.join(", ")
 
@@ -209,8 +209,8 @@ function staticCollisionDiagnosticMessage(
 function uniqueStaticCollisionTypeParameterName(declaration: ts.ClassDeclaration, validationIndex: number): string {
     const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
     const baseName = `__mixinStaticCollision${validationIndex}`
-    let name = baseName
-    let index = 0
+    let name       = baseName
+    let index      = 0
 
     while (existing.has(name)) {
         index++

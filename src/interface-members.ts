@@ -15,7 +15,7 @@ export function buildInterfaceMembers(
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration
 ): ts.NodeArray<ts.TypeElement> {
-    const factory = tsInstance.factory
+    const factory                   = tsInstance.factory
     const members: ts.TypeElement[] = []
 
     const getters = new Map<string, ts.GetAccessorDeclaration>()

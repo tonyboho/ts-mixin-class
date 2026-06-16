@@ -35,10 +35,10 @@ export type ClassFacts = {
 
 export type SourceFileFacts = {
     mixinDecoratorImports : MixinDecoratorImports,
-    imports              : ImportFacts[],
-    classes              : ClassFacts[],
-    classesByName        : Map<string, ClassFacts>,
-    classesByDeclaration : Map<ts.ClassDeclaration, ClassFacts>
+    imports               : ImportFacts[],
+    classes               : ClassFacts[],
+    classesByName         : Map<string, ClassFacts>,
+    classesByDeclaration  : Map<ts.ClassDeclaration, ClassFacts>
 }
 
 const sourceFileFactsCache = new WeakMap<ts.SourceFile, Map<string, SourceFileFacts>>()
@@ -49,13 +49,13 @@ export function getSourceFileFacts(
     options: TransformOptions
 ): SourceFileFacts {
     const cacheKey = sourceFileFactsCacheKey(options)
-    const cached = sourceFileFactsCache.get(sourceFile)?.get(cacheKey)
+    const cached   = sourceFileFactsCache.get(sourceFile)?.get(cacheKey)
 
     if (cached !== undefined) {
         return cached
     }
 
-    const facts = collectSourceFileFacts(tsInstance, sourceFile, options)
+    const facts           = collectSourceFileFacts(tsInstance, sourceFile, options)
     const cachedByOptions = sourceFileFactsCache.get(sourceFile) ?? new Map<string, SourceFileFacts>()
 
     cachedByOptions.set(cacheKey, facts)
@@ -69,11 +69,11 @@ function collectSourceFileFacts(
     sourceFile: ts.SourceFile,
     options: TransformOptions
 ): SourceFileFacts {
-    const mixinDecoratorImports = collectMixinDecoratorImports(tsInstance, sourceFile, options)
+    const mixinDecoratorImports  = collectMixinDecoratorImports(tsInstance, sourceFile, options)
     const imports: ImportFacts[] = []
-    const classes: ClassFacts[] = []
-    const classesByName = new Map<string, ClassFacts>()
-    const classesByDeclaration = new Map<ts.ClassDeclaration, ClassFacts>()
+    const classes: ClassFacts[]  = []
+    const classesByName          = new Map<string, ClassFacts>()
+    const classesByDeclaration   = new Map<ts.ClassDeclaration, ClassFacts>()
 
     for (const statement of sourceFile.statements) {
         if (tsInstance.isImportDeclaration(statement) && tsInstance.isStringLiteral(statement.moduleSpecifier)) {
@@ -108,9 +108,9 @@ function importFacts(
     tsInstance: TypeScript,
     declaration: ts.ImportDeclaration
 ): ImportFacts {
-    const importClause = declaration.importClause
+    const importClause  = declaration.importClause
     const namedBindings = importClause?.namedBindings
-    const localNames = [
+    const localNames    = [
         ...(importClause?.name === undefined ? [] : [ importClause.name.text ]),
         ...(namedBindings !== undefined && tsInstance.isNamedImports(namedBindings)
             ? namedBindings.elements.map((element) => element.name.text)
@@ -160,7 +160,7 @@ function classFacts(
             .map((heritageType) => heritageType.expression)
             .filter((expression): expression is ts.Identifier => tsInstance.isIdentifier(expression))
             .map((expression) => expression.text),
-        requiredBaseName          : requiredBaseIdentifierName(tsInstance, declaration),
+        requiredBaseName : requiredBaseIdentifierName(tsInstance, declaration),
         get configProperties() {
             return getMemberFacts().configProperties
         },
@@ -170,7 +170,7 @@ function classFacts(
         get hasStaticNew() {
             return getMemberFacts().staticNames.has("new")
         },
-        hasMixinDecorator         : hasMixinDecorator(tsInstance, declaration, mixinDecoratorImports, options)
+        hasMixinDecorator : hasMixinDecorator(tsInstance, declaration, mixinDecoratorImports, options)
     }
 }
 
@@ -178,13 +178,13 @@ function collectClassMemberFacts(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration
 ): ClassMemberFacts {
-    const staticNames = new Set<string>()
+    const staticNames                        = new Set<string>()
     const configProperties: ConfigProperty[] = []
 
     for (const member of declaration.members) {
         // Fetch modifiers once per member: getModifiers allocates, and the
         // checks below would otherwise call it up to four times each.
-        const modifiers = tsInstance.canHaveModifiers(member)
+        const modifiers       = tsInstance.canHaveModifiers(member)
             ? tsInstance.getModifiers(member)
             : undefined
         const hasModifierKind = (kind: ts.SyntaxKind): boolean => {

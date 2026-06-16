@@ -102,10 +102,10 @@ export default function transformProgram(
     config: MixinClassTransformerConfig,
     { ts: tsInstance }: ProgramTransformerExtras
 ): ts.Program {
-    const compilerOptions = program.getCompilerOptions()
-    const compilerHost    = host ?? tsInstance.createCompilerHost(compilerOptions)
-    const options         = resolveTransformOptions(config)
-    const resolvedModuleFileNames = new Map<string, string | undefined>()
+    const compilerOptions           = program.getCompilerOptions()
+    const compilerHost              = host ?? tsInstance.createCompilerHost(compilerOptions)
+    const options                   = resolveTransformOptions(config)
+    const resolvedModuleFileNames   = new Map<string, string | undefined>()
     const runtimeModuleAvailability = new Map<string, boolean>()
 
     const resolveModuleFileName = (specifier: string, containingFile: string): string | undefined => {
@@ -138,17 +138,17 @@ export default function transformProgram(
 
     const registry          = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
     const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName)
-    const crossFile = registry.size === 0 && constructionBases.size === 0
+    const crossFile         = registry.size === 0 && constructionBases.size === 0
         ? undefined
         : {
             registry,
             constructionBases,
-            cacheKey : registryCacheKey(registry, constructionBases),
+            cacheKey           : registryCacheKey(registry, constructionBases),
             resolveModuleFileName,
             canImportRuntimeValue,
             linearizationCache : new Map<string, string[]>()
         }
-    const nextHost  = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program)
+    const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program)
 
     return tsInstance.createProgram(
         program.getRootFileNames(),
@@ -166,8 +166,8 @@ export function createMixinClassCompilerHost(
     crossFile?: CrossFileContext,
     baseProgram?: ts.Program
 ): ts.CompilerHost {
-    const options = resolveTransformOptions(config)
-    const sourceCache = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
+    const options              = resolveTransformOptions(config)
+    const sourceCache          = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
     const usePrintedSourceFile = resolveUsePrintedSourceFile(config, compilerOptions)
 
     return {
@@ -175,7 +175,7 @@ export function createMixinClassCompilerHost(
 
         getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) {
             const layeredSourceFile = baseProgram?.getSourceFile(fileName)
-            const preserveCacheKey = usePrintedSourceFile
+            const preserveCacheKey  = usePrintedSourceFile
                 ? undefined
                 : preserveSourceCacheKey(options, crossFile, languageVersionOrOptions)
 
@@ -230,7 +230,7 @@ export function createMixinClassCompilerHost(
                     hostSourceFile === undefined ||
                     layeredSourceFile !== hostSourceFile && hasDifferentAstShape(tsInstance, layeredSourceFile, hostSourceFile)
                 )
-            const sourceFile = useLayeredSourceFile ? layeredSourceFile : hostSourceFile
+            const sourceFile           = useLayeredSourceFile ? layeredSourceFile : hostSourceFile
 
             if (sourceFile === undefined) {
                 return sourceFile
@@ -267,7 +267,7 @@ export function createMixinClassCompilerHost(
             const transformSourceFileInput = useLayeredSourceFile
                 ? cloneLayeredSourceFileForTransform(tsInstance, sourceFile)
                 : cloneSourceFileForTransform(tsInstance, sourceFile, languageVersionOrOptions)
-            const transformedSourceFile = transformSourceFile(tsInstance, transformSourceFileInput, {
+            const transformedSourceFile    = transformSourceFile(tsInstance, transformSourceFileInput, {
                 ...options,
                 sourceView : true
             }, crossFile)
@@ -315,12 +315,13 @@ export function transformSourceFile(
             return undefined
         }
 
+        // eslint-disable-next-line align-assignments/align-assignments
         baseImportMapCache ??= buildImportedNameMap(tsInstance, sourceFile, crossFile.resolveModuleFileName, facts)
 
         return baseImportMapCache
     }
 
-    let expandedAnything = false
+    let expandedAnything      = false
     let needsGeneratedImports = false
 
     const expandedStatements = sourceFile.statements.flatMap((statement): ts.Statement[] => {
@@ -357,7 +358,7 @@ export function transformSourceFile(
             const ref = context.byLocalName.get(classFacts.name)
 
             if (ref !== undefined && ref.declaration === statement) {
-                expandedAnything = true
+                expandedAnything      = true
                 needsGeneratedImports = true
                 return expandMixinClass(tsInstance, sourceFile, ref, context, resolvedOptions)
             }
@@ -365,7 +366,7 @@ export function transformSourceFile(
             const mixinHeritage = localMixinHeritageTypesFromFacts(tsInstance, classFacts, context)
 
             if (mixinHeritage.length > 0) {
-                expandedAnything = true
+                expandedAnything      = true
                 needsGeneratedImports = true
                 return expandConsumerClass(tsInstance, sourceFile, classFacts.declaration, context, resolvedOptions, mixinHeritage)
             }
@@ -419,7 +420,7 @@ function expandConstructionBaseClass(
     crossFile: CrossFileContext | undefined,
     baseImportMap: Map<string, ImportedNameBinding> | undefined
 ): ts.ClassDeclaration {
-    const rewritten = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
+    const rewritten           = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
     const constructionMembers = createConstructionMembers(
         tsInstance,
         sourceFile,
@@ -539,7 +540,7 @@ function createHelperTypeImport(
     context: FileMixinContext,
     options: TransformOptions
 ): ts.ImportDeclaration {
-    const factory = tsInstance.factory
+    const factory              = tsInstance.factory
     const staticConflictImport = options.staticCollisionCheck === false
         ? []
         : [
@@ -605,11 +606,11 @@ function shouldTransformSourceFile(
     options: TransformOptions,
     crossFile: CrossFileContext | undefined
 ): boolean {
-    const hasMixinDecoratorImports = facts.mixinDecoratorImports.identifiers.size > 0 ||
+    const hasMixinDecoratorImports       = facts.mixinDecoratorImports.identifiers.size > 0 ||
         facts.mixinDecoratorImports.namespaces.size > 0
-    const hasMixinDeclaration = hasMixinDecoratorImports &&
+    const hasMixinDeclaration            = hasMixinDecoratorImports &&
         facts.classes.some((classFacts) => classFacts.hasMixinDecorator)
-    const hasPotentialConsumer = facts.classes.some((classFacts) => {
+    const hasPotentialConsumer           = facts.classes.some((classFacts) => {
         return classFacts.implementsIdentifierNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
     const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined) &&
@@ -696,7 +697,7 @@ function registryCacheKey(
     registry: CrossFileContext["registry"],
     constructionBases: CrossFileContext["constructionBases"]
 ): string {
-    const mixinKey = [ ...registry.entries() ]
+    const mixinKey            = [ ...registry.entries() ]
         .map(([ key, entry ]) => {
             return [
                 key,

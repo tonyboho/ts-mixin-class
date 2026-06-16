@@ -12,7 +12,7 @@ export function rewritePublicOnlyUndefinedInitializers(
         return members
     }
 
-    let changed = false
+    let changed            = false
     const rewrittenMembers = members.map((member) => {
         const rewrittenMember = rewritePublicOnlyUndefinedInitializer(tsInstance, member)
 

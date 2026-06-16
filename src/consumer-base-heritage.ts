@@ -215,7 +215,7 @@ function createUnsupportedBaseConsumerCastType(
     mixinRefs: ResolvedMixinRef[]
 ): ts.TypeNode {
     const factory = tsInstance.factory
-    const types = [
+    const types   = [
         factory.createTypeReferenceNode(anyConstructorName, undefined),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
@@ -235,7 +235,7 @@ function createConsumerBaseHeadType(
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     emptyBaseName: string | undefined
 ): ts.TypeNode {
-    const factory = tsInstance.factory
+    const factory  = tsInstance.factory
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {

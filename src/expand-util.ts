@@ -138,7 +138,7 @@ export function createSourceViewConsumerBaseHeadType(
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     emptyBaseName: string | undefined
 ): ts.TypeNode {
-    const factory = tsInstance.factory
+    const factory  = tsInstance.factory
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {
@@ -173,7 +173,7 @@ export function consumerHeritageClauses(
             return factory.createTypeReferenceNode(typeParameter.name.text, undefined)
         })
         : []
-    const typeArguments = ownTypeArguments.length > 0 || extraTypeArguments.length > 0
+    const typeArguments    = ownTypeArguments.length > 0 || extraTypeArguments.length > 0
         ? [ ...ownTypeArguments, ...extraTypeArguments ]
         : undefined
 
@@ -219,10 +219,10 @@ export function consumerHeritageClauses(
     const implementsHeritage = declaration.heritageClauses?.find((heritageClause) => {
         return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword
     })
-    const clauses = keepImplements && implementsHeritage !== undefined
+    const clauses            = keepImplements && implementsHeritage !== undefined
         ? [ extendsHeritage, implementsHeritage ]
         : [ extendsHeritage ]
-    const heritageRange = keepImplements ? declaration.heritageClauses ?? generatedRange : generatedRange
+    const heritageRange      = keepImplements ? declaration.heritageClauses ?? generatedRange : generatedRange
 
     return preserveTextRange(tsInstance, factory.createNodeArray(clauses), heritageRange)
 }

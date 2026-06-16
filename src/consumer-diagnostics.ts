@@ -68,7 +68,7 @@ export function unsupportedBaseDiagnosticMessage(
     extendsType: ts.ExpressionWithTypeArguments
 ): string {
     const consumerName = declaration.name?.text ?? "<anonymous consumer>"
-    const actualBase = heritageTypeText(tsInstance, sourceFile, extendsType)
+    const actualBase   = heritageTypeText(tsInstance, sourceFile, extendsType)
 
     return "Unsupported mixin consumer base expression. " +
         `${consumerName} extends ${actualBase}. ` +
@@ -82,7 +82,7 @@ export function linearizationDiagnosticMessage(
     error: DependencyLinearizationError
 ): string {
     const directMixins = directMixinRefs.map((ref) => ref.className).join(", ")
-    const pending = error.pendingSequences
+    const pending      = error.pendingSequences
         .map((sequence) => {
             return sequence.map((key) => context.byKey.get(key)?.className ?? key).join(" -> ")
         })
@@ -179,7 +179,7 @@ export function createMissingRuntimeImportValidations(
         }
 
         const heritageType = mixinHeritage[index]
-        const range = heritageType ?? declaration
+        const range        = heritageType ?? declaration
 
         validations.push(createConsumerDiagnosticValidation(
             tsInstance,
@@ -223,7 +223,7 @@ function missingRuntimeImportDiagnosticMessage(
     declaration: ts.ClassDeclaration,
     mixinRef: ResolvedMixinRef
 ): string {
-    const consumerName = declaration.name?.text ?? "<anonymous consumer>"
+    const consumerName  = declaration.name?.text ?? "<anonymous consumer>"
     const missingImport = mixinRef.missingRuntimeImport
 
     if (missingImport === undefined) {
@@ -231,6 +231,7 @@ function missingRuntimeImportDiagnosticMessage(
     }
 
     return "Missing mixin runtime value. " +
+        // eslint-disable-next-line max-len
         `Consumer ${consumerName} implements ${mixinRef.className}, and ${mixinRef.className} is marked as a runtime mixin class in declarations from "${missingImport.specifier}". ` +
         "However, the transformer could not find a JavaScript runtime module for that declaration file. " +
         "Mixin classes must be available as runtime values so mixinChain(...) can apply them. " +
@@ -243,8 +244,8 @@ function uniqueGeneratedTypeParameterName(
     baseName: string
 ): string {
     const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
-    let name = baseName
-    let index = 0
+    let name       = baseName
+    let index      = 0
 
     while (existing.has(name)) {
         index++
@@ -321,7 +322,7 @@ function baseSatisfiesRequiredBaseSyntactically(
     const actualBaseDeclaration = sourceFile.statements.find((statement): statement is ts.ClassDeclaration => {
         return tsInstance.isClassDeclaration(statement) && statement.name?.text === actualBaseName
     })
-    const nextBase = actualBaseDeclaration === undefined
+    const nextBase              = actualBaseDeclaration === undefined
         ? undefined
         : extendsClause(tsInstance, actualBaseDeclaration)?.types[0]
 
@@ -354,7 +355,7 @@ function createRequiredBaseDiagnosticType(
     mixinRef: ResolvedMixinRef,
     requiredBase: RequiredBaseRequirement
 ): ts.TypeNode {
-    const factory = tsInstance.factory
+    const factory    = tsInstance.factory
     const actualBase = heritageTypeToTypeReference(tsInstance, extendsType)
 
     return factory.createConditionalTypeNode(
@@ -376,7 +377,7 @@ function requiredBaseDiagnosticMessage(
     requiredBase: RequiredBaseRequirement
 ): string {
     const consumerName = declaration.name?.text ?? "<anonymous consumer>"
-    const actualBase = heritageTypeText(tsInstance, sourceFile, extendsType)
+    const actualBase   = heritageTypeText(tsInstance, sourceFile, extendsType)
 
     return "Mixin required base mismatch. " +
         `Mixin ${mixinRef.className} can only be applied to ${requiredBase.name} or a subclass of ${requiredBase.name}, ` +

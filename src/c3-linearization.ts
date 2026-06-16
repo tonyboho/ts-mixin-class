@@ -15,7 +15,7 @@ type Candidate<T> =
 
 export function mergeC3Linearizations<T>(sequences: readonly (readonly T[])[]): T[] {
     const result: T[] = []
-    const pending = sequences
+    const pending     = sequences
         .map((sequence) => [ ...new Set(sequence) ])
         .filter((sequence) => sequence.length > 0)
         .map((sequence): PendingSequence<T> => {
@@ -24,7 +24,7 @@ export function mergeC3Linearizations<T>(sequences: readonly (readonly T[])[]): 
                 offset : 0
             }
         })
-    const tailCounts = buildTailCounts(pending)
+    const tailCounts  = buildTailCounts(pending)
 
     while (pending.length > 0) {
         const candidate = findC3Candidate(pending, tailCounts)
@@ -67,7 +67,7 @@ function findC3Candidate<T>(
         }
     }
 
-    return { found : false }
+    return { found: false }
 }
 
 function consumeC3Candidate<T>(

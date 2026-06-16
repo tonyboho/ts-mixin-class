@@ -15,7 +15,7 @@ export function addSyntheticSuperCallToConstructors(
         return members
     }
 
-    let changed = false
+    let changed          = false
     const updatedMembers = members.map((member) => {
         if (!tsInstance.isConstructorDeclaration(member) ||
             member.body === undefined ||

@@ -68,20 +68,20 @@ export function expandMixinClass(
     context: FileMixinContext,
     options: TransformOptions
 ): ts.Statement[] {
-    const factory         = tsInstance.factory
-    const declaration     = ref.declaration
+    const factory     = tsInstance.factory
+    const declaration = ref.declaration
 
     if (declaration === undefined) {
         throw new Error(`Mixin class ${ref.className} has no declaration in the transformed file`)
     }
 
-    const defaultExport = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
-    const exportModifiers = exportModifiersOf(tsInstance, declaration)
+    const defaultExport          = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+    const exportModifiers        = exportModifiersOf(tsInstance, declaration)
     const factoryExportModifiers = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
         ? [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ]
         : undefined
-    const diagnostics     = collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)
-    const diagnosticAliases = createMixinDeclarationDiagnosticAliases(
+    const diagnostics            = collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)
+    const diagnosticAliases      = createMixinDeclarationDiagnosticAliases(
         tsInstance,
         ref.className,
         diagnostics,
@@ -97,9 +97,9 @@ export function expandMixinClass(
 
     // Emit-only: the source-view path above recomputes its own heritage/required
     // base, so these stay below the early return to avoid wasted work per edit.
-    const typeParameters  = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
-    const requiredBase    = requiredBaseType(tsInstance, declaration)
-    const dependencyRefs  = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
+    const typeParameters   = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
+    const requiredBase     = requiredBaseType(tsInstance, declaration)
+    const dependencyRefs   = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
     const interfaceMembers = buildInterfaceMembers(tsInstance, sourceFile, declaration)
 
     const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
@@ -202,10 +202,10 @@ function expandSourceViewMixinClass(
         throw new MixinTransformError(sourceFile, declaration, "A mixin class must have a name")
     }
 
-    const requiredBase = requiredBaseType(tsInstance, declaration)
-    const dependencyHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
+    const requiredBase              = requiredBaseType(tsInstance, declaration)
+    const dependencyHeritage        = localMixinHeritageTypes(tsInstance, declaration, context)
     const reducedDependencyHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, dependencyHeritage)
-    const generatedHeritageRange = generatedTextRange(
+    const generatedHeritageRange    = generatedTextRange(
         sourceFile,
         declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
     )
@@ -233,9 +233,9 @@ function expandSourceViewMixinClass(
         ) ]
     }
 
-    const baseName       = generatedName(declaration.name.text, consumerBaseSuffix)
+    const baseName            = generatedName(declaration.name.text, consumerBaseSuffix)
     const cloneTypeParameters = () => declaration.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter))
-    const dependencyRefs = localMixinRefs(context, dependencyHeritage)
+    const dependencyRefs      = localMixinRefs(context, dependencyHeritage)
 
     const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
         undefined,
@@ -285,7 +285,7 @@ function createSourceViewMixinMetadataBase(
 ): ts.ExpressionWithTypeArguments {
     const factory = tsInstance.factory
 
-    const headType = requiredBase === undefined
+    const headType              = requiredBase === undefined
         ? factory.createTypeReferenceNode(anyConstructorName, undefined)
         : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined)
     const manualMixinApplyTypes = hasManualMixinApplySyntax(sourceFile)
@@ -295,7 +295,7 @@ function createSourceViewMixinMetadataBase(
             declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
         ) ]
         : []
-    const castType = factory.createIntersectionTypeNode([
+    const castType              = factory.createIntersectionTypeNode([
         headType,
         ...dependencyRefs
             .filter((ref) => ref.localValueName !== undefined)
@@ -397,8 +397,8 @@ function createMixinValueCastType(
     ref: ResolvedMixinRef,
     typeParameters: ts.TypeParameterDeclaration[] | undefined
 ): ts.TypeNode {
-    const factory = tsInstance.factory
-    const instanceType = factory.createTypeReferenceNode(
+    const factory           = tsInstance.factory
+    const instanceType      = factory.createTypeReferenceNode(
         ref.className,
         typeParameters?.map((typeParameter) => {
             return factory.createTypeReferenceNode(typeParameter.name, undefined)
@@ -460,7 +460,7 @@ function interfaceHeritageClauses(
     context: FileMixinContext
 ): ts.HeritageClause[] | undefined {
     const requiredBase = requiredBaseType(tsInstance, declaration)
-    const types = [
+    const types        = [
         ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
         ...reduceTransitiveMixinHeritageTypes(tsInstance, context, implementsTypes(tsInstance, declaration))
     ]
@@ -492,7 +492,7 @@ function createBaseParameter(
     declaration: ts.ClassDeclaration,
     context: FileMixinContext
 ): ts.ParameterDeclaration {
-    const factory = tsInstance.factory
+    const factory      = tsInstance.factory
     const requiredBase = requiredBaseType(tsInstance, declaration)
 
     const dependencyTypes = [

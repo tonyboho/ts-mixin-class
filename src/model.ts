@@ -3,11 +3,11 @@ import type { PluginConfig } from "ts-patch"
 import type { TypeScript } from "./util.js"
 
 export type MixinClassTransformerConfig = PluginConfig & {
-    packageName? : string,
-    decoratorName? : string,
-    mode? : MixinClassTransformerMode,
-    staticCollisionCheck? : StaticCollisionCheckMode | boolean,
-    constructionConfig? : ConstructionConfigMode,
+    packageName?                         : string,
+    decoratorName?                       : string,
+    mode?                                : MixinClassTransformerMode,
+    staticCollisionCheck?                : StaticCollisionCheckMode | boolean,
+    constructionConfig?                  : ConstructionConfigMode,
     allowUndefinedForRequiredProperties? : boolean
 }
 
@@ -16,11 +16,11 @@ export type StaticCollisionCheckMode = false | "never" | "strict"
 export type ConstructionConfigMode = "public-only" | "instance-type"
 
 export type TransformOptions = {
-    packageName : string,
-    decoratorName : string,
-    sourceView : boolean,
-    staticCollisionCheck : StaticCollisionCheckMode,
-    constructionConfig : ConstructionConfigMode,
+    packageName                         : string,
+    decoratorName                       : string,
+    sourceView                          : boolean,
+    staticCollisionCheck                : StaticCollisionCheckMode,
+    constructionConfig                  : ConstructionConfigMode,
     allowUndefinedForRequiredProperties : boolean
 }
 
@@ -30,17 +30,17 @@ export type MixinDecoratorImports = {
 }
 
 export type RegisteredMixin = {
-    fileName     : string,
-    name         : string,
-    defaultExport : boolean,
+    fileName                  : string,
+    name                      : string,
+    defaultExport             : boolean,
     // Dependency registry keys (mixin entries from implements)
-    dependencies : string[],
-    requiredBaseName : string | undefined,
+    dependencies              : string[],
+    requiredBaseName          : string | undefined,
     // The mixin's required base is the package `Base` itself (the construction
     // base), so consumers must import it from the package rather than from the
     // mixin's own module, and are construction-enabled.
     requiredBaseIsPackageBase : boolean,
-    configProperties : ConfigProperty[]
+    configProperties          : ConfigProperty[]
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -51,8 +51,8 @@ export type MixinRegistry = Map<string, RegisteredMixin>
 // accumulates the class's own public config fields plus those of its ancestors up
 // to `Base`, which is exactly what a downstream `.new(...)` config type needs.
 export type ConstructionBaseEntry = {
-    fileName : string,
-    name : string,
+    fileName         : string,
+    name             : string,
     isBaseDescendant : boolean,
     configProperties : ConfigProperty[]
 }
@@ -60,15 +60,15 @@ export type ConstructionBaseEntry = {
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
 
 export type CrossFileContext = {
-    registry : MixinRegistry,
-    constructionBases : ConstructionBaseRegistry,
-    cacheKey : string,
-    resolveModuleFileName : (specifier: string, containingFile: string) => string | undefined
-    canImportRuntimeValue? : (resolvedFileName: string) => boolean
+    registry               : MixinRegistry,
+    constructionBases      : ConstructionBaseRegistry,
+    cacheKey               : string,
+    resolveModuleFileName  : (specifier: string, containingFile: string) => string | undefined,
+    canImportRuntimeValue? : (resolvedFileName: string) => boolean,
     // Per-mixin C3 linearizations (registry key -> linearized keys). The result
     // depends only on the registry graph, so it is shared across every consumer
     // and file in the program instead of being rebuilt per linearizeDependencies.
-    linearizationCache : Map<string, string[]>
+    linearizationCache     : Map<string, string[]>
 }
 
 export type ImportedNameBinding = {
@@ -87,27 +87,27 @@ export type ResolvedMixinRef = {
     localFactoryName : string,
     factoryImport    : { specifier: string, importedName: string } | undefined,
     requiredBase     : {
-        localName : string,
-        import    : { specifier: string, importedName: string, localName: string } | undefined,
+        localName     : string,
+        import        : { specifier: string, importedName: string, localName: string } | undefined,
         // The required base resolves to the package `Base`, so a consumer using
         // this mixin is construction-enabled even without a local `Base` import.
         isPackageBase : boolean
     } | undefined,
-    dependencies     : string[],
-    declaration      : ts.ClassDeclaration | undefined
-    configProperties : ConfigProperty[]
+    dependencies         : string[],
+    declaration          : ts.ClassDeclaration | undefined,
+    configProperties     : ConfigProperty[],
     missingRuntimeImport : {
-        specifier : string,
+        specifier    : string,
         importedName : string
     } | undefined
 }
 
 export type FileMixinContext = {
-    byLocalName : Map<string, ResolvedMixinRef>,
-    byKey       : Map<string, ResolvedMixinRef>,
+    byLocalName        : Map<string, ResolvedMixinRef>,
+    byKey              : Map<string, ResolvedMixinRef>,
     // Program-wide cross-file context, when the program contains mixins or
     // construction bases. Used to resolve imported/required construction bases.
-    crossFile? : CrossFileContext,
+    crossFile?         : CrossFileContext,
     // Factories actually used in generated chains.
     usedFactoryImports : Map<string, { specifier: string, importedName: string, localName: string }>,
     // Shared with the program-wide cache via CrossFileContext when available, so
@@ -126,8 +126,8 @@ export type RequiredBaseRequirement = {
 }
 
 export type StaticSource = {
-    name : string,
-    typeNode : ts.TypeNode,
+    name        : string,
+    typeNode    : ts.TypeNode,
     staticNames : Set<string> | undefined
 }
 
@@ -148,16 +148,16 @@ export class DependencyLinearizationError extends Error {
 }
 
 export const defaultTransformOptions: TransformOptions = {
-    packageName                                : "ts-mixin-class",
-    decoratorName                              : "mixin",
-    sourceView                                 : false,
-    staticCollisionCheck                       : "never",
-    constructionConfig                         : "public-only",
+    packageName                         : "ts-mixin-class",
+    decoratorName                       : "mixin",
+    sourceView                          : false,
+    staticCollisionCheck                : "never",
+    constructionConfig                  : "public-only",
     allowUndefinedForRequiredProperties : false
 }
 
 export const anyConstructorName = "AnyConstructor"
-export const classStaticsName   = "ClassStatics"
+export const classStaticsName = "ClassStatics"
 export const defineMixinClassName = "defineMixinClass"
 export const mixinChainName = "mixinChain"
 export const mixinApplicationName = "MixinApplication"

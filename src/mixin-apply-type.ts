@@ -49,10 +49,10 @@ export function createMixinApplyType(
     instanceType: ts.TypeNode,
     staticsType: ts.TypeNode
 ): ts.TypeLiteralNode {
-    const factory = tsInstance.factory
+    const factory               = tsInstance.factory
     const baseTypeParameterName = mixinApplyBaseTypeParameterName(declaration)
-    const requiredBase = requiredBaseType(tsInstance, declaration)
-    const baseConstraint = factory.createTypeReferenceNode(anyConstructorName, [
+    const requiredBase          = requiredBaseType(tsInstance, declaration)
+    const baseConstraint        = factory.createTypeReferenceNode(anyConstructorName, [
         requiredBase === undefined
             ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
             : heritageTypeToTypeReference(tsInstance, requiredBase)
@@ -98,8 +98,8 @@ function createSourceViewMixinInstanceType(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration
 ): ts.TypeNode {
-    const factory = tsInstance.factory
-    const ownType = factory.createTypeLiteralNode(createSourceViewMixinInstanceMembers(tsInstance, declaration))
+    const factory        = tsInstance.factory
+    const ownType        = factory.createTypeLiteralNode(createSourceViewMixinInstanceMembers(tsInstance, declaration))
     const inheritedTypes = [
         ...(requiredBaseType(tsInstance, declaration) === undefined
             ? []
@@ -216,7 +216,7 @@ function createSourceViewSignatureParameter(
 
 function mixinApplyBaseTypeParameterName(declaration: ts.ClassDeclaration): string {
     const usedNames = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
-    let name = "__MixinBase"
+    let name        = "__MixinBase"
 
     while (usedNames.has(name)) {
         name = `_${name}`

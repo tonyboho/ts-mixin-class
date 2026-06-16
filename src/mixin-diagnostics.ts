@@ -12,7 +12,7 @@ export function collectMixinClassDiagnostics(
     declaration: ts.ClassDeclaration
 ): MixinDeclarationDiagnostic[] {
     const diagnostics: MixinDeclarationDiagnostic[] = []
-    const className = declaration.name?.text ?? "<anonymous mixin>"
+    const className                                 = declaration.name?.text ?? "<anonymous mixin>"
 
     if (hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.AbstractKeyword)) {
         diagnostics.push({

@@ -38,7 +38,7 @@ export function buildImportedNameMap(
             return
         }
 
-        const importClause = statement.importClause
+        const importClause  = statement.importClause
         const namedBindings = importClause?.namedBindings
 
         const resolvedFileName = resolveModuleFileName(specifier, sourceFile.fileName)
@@ -83,8 +83,8 @@ export function buildImportedNameMap(
             continue
         }
 
-        const importClause = statement.importClause
-        const namedBindings = importClause?.namedBindings
+        const importClause     = statement.importClause
+        const namedBindings    = importClause?.namedBindings
         const localNamesLength = (importClause?.name === undefined ? 0 : 1) +
             (namedBindings !== undefined && tsInstance.isNamedImports(namedBindings) ? namedBindings.elements.length : 0)
 
@@ -99,7 +99,7 @@ function importHasFilteredLocalName(
     statement: ts.ImportDeclaration,
     localNameFilter: ReadonlySet<string>
 ): boolean {
-    const importClause = statement.importClause
+    const importClause  = statement.importClause
     const namedBindings = importClause?.namedBindings
 
     if (importClause?.name !== undefined && localNameFilter.has(importClause.name.text)) {
@@ -132,7 +132,7 @@ function importedRequiredBaseRef(
         if (imported.resolvedFileName === resolvedFileName && imported.importedName === importedName) {
             return {
                 localName,
-                import : undefined,
+                import        : undefined,
                 isPackageBase : false
             }
         }
@@ -210,17 +210,17 @@ function addLocalMixinRefs(
                 continue
             }
 
-            const name = classFacts.name
+            const name                  = classFacts.name
             const ref: ResolvedMixinRef = {
-                key              : registryKey(sourceFile.fileName, name),
-                className        : name,
-                localValueName   : name,
-                localFactoryName : generatedName(name, mixinFactorySuffix),
-                factoryImport    : undefined,
-                requiredBase     : undefined,
-                dependencies     : [],
-                declaration      : classFacts.declaration,
-                configProperties : classFacts.configProperties,
+                key                  : registryKey(sourceFile.fileName, name),
+                className            : name,
+                localValueName       : name,
+                localFactoryName     : generatedName(name, mixinFactorySuffix),
+                factoryImport        : undefined,
+                requiredBase         : undefined,
+                dependencies         : [],
+                declaration          : classFacts.declaration,
+                configProperties     : classFacts.configProperties,
                 missingRuntimeImport : undefined
             }
 
@@ -246,7 +246,7 @@ function addImportedMixinRefs(
         }
 
         for (const localName of importFacts.localNames) {
-            const imported  = importMap.get(localName)
+            const imported = importMap.get(localName)
 
             if (imported === undefined || context.byLocalName.has(localName)) {
                 continue
@@ -296,9 +296,9 @@ function addImportedMixinRefs(
                     importedName : generatedName(registered.name, mixinFactorySuffix)
                 },
                 requiredBase,
-                dependencies     : registered.dependencies,
-                declaration      : undefined,
-                configProperties : registered.configProperties,
+                dependencies         : registered.dependencies,
+                declaration          : undefined,
+                configProperties     : registered.configProperties,
                 missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
                     ? {
                         specifier    : importFacts.specifier,
@@ -370,7 +370,7 @@ function addTransitiveRegistryClosure(
                 specifier,
                 importedName : generatedName(registered.name, mixinFactorySuffix)
             },
-            requiredBase     : registered.requiredBaseName === undefined
+            requiredBase : registered.requiredBaseName === undefined
                 ? undefined
                 : registered.requiredBaseIsPackageBase
                     ? packageBaseRequiredBaseRef(options.packageName, registered.name + "$requiredBase")
@@ -383,9 +383,9 @@ function addTransitiveRegistryClosure(
                         },
                         isPackageBase : false
                     },
-            dependencies     : registered.dependencies,
-            declaration      : undefined,
-            configProperties : registered.configProperties,
+            dependencies         : registered.dependencies,
+            declaration          : undefined,
+            configProperties     : registered.configProperties,
             missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
                 ? {
                     specifier,

@@ -30,8 +30,6 @@
         "pretest": "pnpm run build",
         "test": "siesta dist/tests",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "fixture:declarations": "pnpm --dir tests/fixture-suite run build:standard && pnpm --dir tests/declaration-fixture-suite run build && pnpm --dir tests/declaration-fixture-suite run test",
-        "fixture": "pnpm --dir tests/fixture-suite run build && pnpm --dir tests/fixture-suite run test",
         "prepare": "ts-patch install"
     },
     "keywords": [

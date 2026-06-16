@@ -30,8 +30,8 @@ export class Base {
         }
     }
 
-    static new<T extends typeof Base>(this: T, props?: Config<InstanceType<T>>): InstanceType<T> {
-        const instance = new this() as InstanceType<T>
+    static new(props?: Config<Base>): Base {
+        const instance = new this()
 
         instance.initialize(props)
 

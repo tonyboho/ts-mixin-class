@@ -96,38 +96,6 @@ export function createConstructionMembers(
             undefined,
             "new",
             undefined,
-            [ factory.createTypeParameterDeclaration(
-                undefined,
-                "T",
-                createAnyConstructorType(tsInstance),
-                undefined
-            ) ],
-            [
-                factory.createParameterDeclaration(
-                    undefined,
-                    undefined,
-                    "this",
-                    undefined,
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
-                ),
-                factory.createParameterDeclaration(
-                    undefined,
-                    undefined,
-                    "props",
-                    factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                )
-            ],
-            factory.createTypeReferenceNode("InstanceType", [
-                factory.createTypeReferenceNode("T", undefined)
-            ]),
-            undefined
-        ), overloadRange(1), declaration),
-        preserveGeneratedDeclarationRange(tsInstance, factory.createMethodDeclaration(
-            staticModifier,
-            undefined,
-            "new",
-            undefined,
             undefined,
             [ factory.createParameterDeclaration(
                 undefined,
@@ -147,7 +115,7 @@ export function createConstructionMembers(
                     [ factory.createIdentifier("props") ]
                 ))
             ], true)
-        ), overloadRange(2), declaration)
+        ), overloadRange(1), declaration)
     ]
 }
 
@@ -390,25 +358,6 @@ function createConstructionConfig(
         ]),
         optionalParameter : false
     }
-}
-
-function createAnyConstructorType(tsInstance: TypeScript): ts.ConstructorTypeNode {
-    const factory = tsInstance.factory
-
-    return factory.createConstructorTypeNode(
-        undefined,
-        undefined,
-        [
-            factory.createParameterDeclaration(
-                undefined,
-                factory.createToken(tsInstance.SyntaxKind.DotDotDotToken),
-                "args",
-                undefined,
-                factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
-            )
-        ],
-        factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-    )
 }
 
 function staticConstructionConfigProperties(

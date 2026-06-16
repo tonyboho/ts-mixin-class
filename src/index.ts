@@ -2,7 +2,7 @@ import type * as ts from "typescript"
 import type { ProgramTransformerExtras } from "ts-patch"
 import { expandConsumerClass } from "./consumer-expand.js"
 import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
-import { createConstructionMembers, isConstructionBaseOptIn } from "./construction-config.js"
+import { createConstructionMembers, importsPackageBase, isConstructionBaseOptIn } from "./construction-config.js"
 import { buildFileMixinContext } from "./context.js"
 import { createMixinDeclarationDiagnosticAliases } from "./expand-util.js"
 import { expandMixinClass } from "./mixin-expand.js"
@@ -559,6 +559,7 @@ function transformAppliesToSourceFile(
     }
 
     return shouldTransformSourceFile(
+        tsInstance,
         getSourceFileFacts(tsInstance, sourceFile, options),
         options,
         crossFile
@@ -566,6 +567,7 @@ function transformAppliesToSourceFile(
 }
 
 function shouldTransformSourceFile(
+    tsInstance: TypeScript,
     facts: SourceFileFacts,
     options: TransformOptions,
     crossFile: CrossFileContext | undefined
@@ -577,7 +579,8 @@ function shouldTransformSourceFile(
     const hasPotentialConsumer = facts.classes.some((classFacts) => {
         return classFacts.implementsIdentifierNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
-    const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined)
+    const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined) &&
+        importsPackageBase(tsInstance, facts, options)
 
     return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionConfig
 }

@@ -219,6 +219,41 @@ function isPackageBaseImport(
     return specifier === options.packageName || specifier === `${options.packageName}/base`
 }
 
+// Construction-base opt-in can only ever resolve to true when the file itself
+// imports the package `Base` (the `isConstructionBaseOptIn` chain terminates at
+// `isPackageBaseExpression`, which requires a local package-base import). The
+// transform gate uses this as a cheap pre-check so files that merely extend some
+// ordinary class are not cloned and walked in source-view mode.
+export function importsPackageBase(
+    tsInstance: TypeScript,
+    facts: SourceFileFacts,
+    options: TransformOptions
+): boolean {
+    for (const importFacts of facts.imports) {
+        if (!isPackageBaseImport(importFacts.specifier, options)) {
+            continue
+        }
+
+        const namedBindings = importFacts.declaration.importClause?.namedBindings
+
+        if (namedBindings === undefined) {
+            continue
+        }
+
+        if (tsInstance.isNamespaceImport(namedBindings)) {
+            return true
+        }
+
+        if (namedBindings.elements.some((element) => {
+            return (element.propertyName?.text ?? element.name.text) === "Base"
+        })) {
+            return true
+        }
+    }
+
+    return false
+}
+
 function createConstructionConfig(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,

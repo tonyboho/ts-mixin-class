@@ -45,6 +45,53 @@ user instanceof Named
 user instanceof Timestamped
 ```
 
+## Setup
+
+Include `ts-mixin-class` as a regular dependency and `ts-patch` as a dev
+dependency:
+
+```json
+{
+    "dependencies": {
+        "ts-mixin-class": "0.0.1"
+    },
+    "devDependencies": {
+        "ts-patch": "4.0.1"
+    }
+}
+```
+
+Include `ts-mixin-class` as a compiler plugin in `tsconfig.json`:
+
+```json
+{
+    "compilerOptions": {
+        "plugins": [
+            {
+                "transform": "ts-mixin-class",
+                "transformProgram": true
+            }
+        ]
+    }
+}
+```
+
+Add a `prepare` script to your `package.json`:
+
+```json
+{
+    "scripts": {
+        "prepare": "ts-patch install"
+    }
+}
+```
+
+Run `prepare` once so `ts-patch` patches your local TypeScript:
+
+```shell
+pnpm run prepare
+```
+
 ## Linearization
 
 When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build

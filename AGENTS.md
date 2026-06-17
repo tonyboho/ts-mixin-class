@@ -42,6 +42,16 @@ The same crash text has several possible causes; check them in this order before
 | TS2417 "Class static side ... incorrectly extends" on a consumer | the consumer inherited an applied mixin's value-cast `new` instead of omitting it (construction `new` #3). |
 | construction bug reproduces under `--noEmit`/IDE but not under `tsc` (or vice-versa) | the fix touched only one of the emit / source-view paths (construction `new` #1). |
 
+## Debugging scripts (`scripts/`)
+
+Before writing a throwaway debug script, use the reusable ones in `scripts/` (compiled by `pnpm build` to `dist/scripts/`, full usage in `scripts/README.md`). They cover the recurring tasks: print transformed code, print the source-view AST with ranges, run a whole program and read its diagnostics / resolved types. Input is `--file <path>` / positional path / `--code "<snippet>"` / stdin; a snippet must import `mixin`/`Base` from the package to be transformed. `--mode emit|ide|both` selects the printed (emit) vs position-preserving source-view (ide) pass.
+
+- `node dist/scripts/print-transformed.js [--mode emit|ide|both]` — emitted code for a single file/snippet.
+- `node dist/scripts/print-ast.js [--mode ide|emit]` — AST tree with `[pos,end]`, flagging `⚠ NEGATIVE` / `⚠ ZERO-WIDTH` ranges and each class/interface `<members[]>` range (the range bugs behind invariants #2/#4/#5).
+- `node dist/scripts/program-diagnostics.js [--file <substr>] [--mode emit|ide] [--print] [--types <prop>]` — real cross-file ProgramTransformer over a tsconfig (default fixture-suite), printing semantic diagnostics and, with `--types new`, the resolved type/return of every `.new` access. This is the only one that exercises the cross-file registry; prefer it for "what does the IDE see" questions (`--mode ide`).
+
+If you do need a one-off, the lower-level reproduction trick below still applies.
+
 ## Debugging trick
 
 Spoof tsserver detection before importing the ts-patch-patched typescript, then create a program over the fixture suite — the plugin auto-applies in source-view mode (`resolveUsePrintedSourceFile` checks `process.argv`), reproducing the exact tsserver diagnostics in a plain, debuggable Node process:

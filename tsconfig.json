@@ -20,6 +20,7 @@
     },
     "include": [
         "bench/**/*.ts",
+        "scripts/**/*.ts",
         "src/**/*.ts",
         "tests/**/*.ts"
     ],

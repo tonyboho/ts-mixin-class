@@ -14,6 +14,18 @@ The IDE "source view" (mode `"ide"` / tsserver: unprinted, position-preserving t
 
 6. **Generated declarations need `setOriginalNode` on the name node, not just on the declaration.** When you emit a sibling declaration that reuses an original class's source range (e.g. `__User$base`), the checker must be able to map its **name identifier** back to a real symbol. Without `tsInstance.setOriginalNode(node.name, original.name)` the name resolves to `undefined`, and any feature that asks for the type at that position (quickinfo, `getTypeAtLocation`) crashes deep in the checker: `tryGetDeclaredTypeOfSymbol → getDeclaredTypeOfSymbol → getTypeOfNode` with `Cannot read properties of undefined (reading 'flags')`. `preserveSourceViewGeneratedClassLikeRange` sets the original node on both the declaration and its `name`. The declaration's range and the name's range are *different* concepts — keep them separate (declaration spans `pos..members.pos`, the name spans `pos..name.end`); collapsing them into one shared range object is a latent bug.
 
+## Construction `new` invariants
+
+The generated construction `new` (the static factory that makes `Mixin.new(...)` / `Consumer.new(...)` return the right instance type) has its own non-obvious rules:
+
+1. **The two transform paths emit *different shapes* and both must be handled.** Emit mode turns a `@mixin` class into a **value-cast** (`const X = ... as unknown as <type>`) — there is no class body, so the construction `new` is a member *prepended to the cast type*. Source view keeps a **real class**, so the construction `new` is generated as `static new` *class members*. A fix that touches only one path silently leaves the other broken — and because `resolveUsePrintedSourceFile` picks emit for `!noEmit` builds and source-view for `noEmit`/tsserver, you get the trap where `tsc` passes while `tsc --noEmit` and the IDE fail. Always verify a construction change with **both** `tsc` (emit) and `tsc --noEmit` (source-view).
+
+2. **In a type literal, `new(...): T` is a construct signature, not a property named `new`.** To put a callable `.new` on a value-cast type you must use a **property signature** `new: (props?) => Instance` (`factory.createPropertySignature` + a function type), *not* `factory.createMethodSignature("new", ...)` — the latter prints as `new (...) => T` and provides no `.new` member (symptom: TS2339 "Property 'new' does not exist"). A method literally named `new` is only expressible in a **class** (`static new`), which is why the source-view path can use a method but the emit value cast cannot. `declare` does not rescue the value cast: it is not a type-literal concept at all, and in a class it is allowed only on **property/field** members, not methods (`declare static new(...)` → TS1031; only `declare static new: (...) => T` is legal) — and that property form reintroduces the strict-param variance of #3. So the source-view `static new` is a real method, which in a concrete class must have an implementation body (or overload + impl, → TS2391 otherwise); there is no bodiless shortcut that keeps method (bivariant) semantics.
+
+3. **Property-typed `new` is checked contravariantly (strict); a class `static new` is bivariant.** A consumer generates its own `static new` (returning the consumer type, often with *more* required config than the mixins it applies). If it also *inherited* a mixin's value-cast `new` (a property → strict params), the consumer's stricter `new` would be an incompatible static-side override → TS2417 "Class static side ... incorrectly extends". Therefore a consumer **excludes `"new"` from every applied mixin's inherited statics**: `Omit<typeof Mixin, "prototype" | "new">` (see `createMixinStaticsType`), not `ClassStatics<typeof Mixin>`. The consumer's own `new` is the only one that should win.
+
+4. **Config-field optionality comes from the `?` token, not the initializer.** `public x: T = v` is a **required** config field (`new(props: Pick<…, "x">)`); only `public x?: T` is optional (`new(props?: Partial<…>)`). An initializer alone does not make a config field optional. Only `public` members enter the config at all.
+
 ## Symptom → cause
 
 The same crash text has several possible causes; check them in this order before assuming the obvious one:
@@ -26,6 +38,9 @@ The same crash text has several possible causes; check them in this order before
 | `Cannot find name 'T'` (TS2304) on a type parameter | a node shared between two declarations; `cloneNode` is shallow (#1). |
 | type annotation silently `any`, identifier shows `(Missing)` | a zero-width range (#2). |
 | TS2391 "Function implementation is missing" on the `static new` triple | non-consecutive overload ranges (#3). |
+| TS2339 "Property 'new' does not exist" on a mixin value | the value-cast `new` was built with a method signature (→ construct signature) instead of a property signature (construction `new` #2). |
+| TS2417 "Class static side ... incorrectly extends" on a consumer | the consumer inherited an applied mixin's value-cast `new` instead of omitting it (construction `new` #3). |
+| construction bug reproduces under `--noEmit`/IDE but not under `tsc` (or vice-versa) | the fix touched only one of the emit / source-view paths (construction `new` #1). |
 
 ## Debugging trick
 

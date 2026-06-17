@@ -41,6 +41,7 @@ import {
     localMixinRefs
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
+import { linearizeDependencies } from "./linearization.js"
 import { createConstructionMembers, createMixinConstructionNewType } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
@@ -117,7 +118,7 @@ export function expandMixinClass(
             sourceFile,
             declaration,
             requiredBase,
-            dependencyRefs,
+            constructionDependencyRefs(context, dependencyRefs),
             options,
             facts,
             context.crossFile,
@@ -211,6 +212,28 @@ function createMixinDeclarationDiagnosticAliases(
             factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
         ), diagnostic.node, original)
     })
+}
+
+// The construction config must reflect the mixin's whole applied chain: a mixin
+// that implements another mixin (which implements a third, ...) gets every
+// public config field in that chain. So config collection runs over the
+// *linearized* dependencies, not just the direct `implements` refs that drive
+// the runtime registration and interface heritage. Falls back to the direct refs
+// if linearization fails (a dependency cycle is diagnosed elsewhere). The
+// consumer path already linearizes; this keeps the mixin path consistent.
+function constructionDependencyRefs(
+    context: FileMixinContext,
+    dependencyRefs: ResolvedMixinRef[]
+): ResolvedMixinRef[] {
+    if (dependencyRefs.length === 0) {
+        return dependencyRefs
+    }
+
+    try {
+        return linearizeDependencies(dependencyRefs.map((ref) => ref.key), context)
+    } catch {
+        return dependencyRefs
+    }
 }
 
 function expandSourceViewMixinClass(
@@ -308,7 +331,7 @@ function expandSourceViewMixinClass(
             declaration,
             requiredBase,
             undefined,
-            dependencyRefs,
+            constructionDependencyRefs(context, dependencyRefs),
             options,
             generatedTextRange(sourceFile, declaration.members.end),
             context.crossFile,

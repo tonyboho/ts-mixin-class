@@ -312,6 +312,39 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
         "Source view keeps the mixin as a real class so the static new can attach")
 })
 
+it("collects the transitive mixin chain into a construction-base mixin's `new` config", async (t: Test) => {
+    // Regression: a @mixin class collects construction config only from its direct
+    // `implements` refs, not the transitive chain those refs pull in. So `Leaf`,
+    // which implements `Middle` which implements `Deep`, dropped `Deep`'s public
+    // `deepValue` from `Leaf.new(...)` — `Leaf.new({ deepValue })` then failed with
+    // "Object literal may only specify known properties". (The consumer path
+    // linearizes and does not have this bug; only the mixin construction path did.)
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Deep extends Base {
+            public deepValue?: number = 0
+        }
+
+        @mixin()
+        class Middle extends Base implements Deep {}
+
+        @mixin()
+        class Leaf extends Base implements Middle {
+            public ownValue?: string = ""
+        }
+
+        const leaf: Leaf = Leaf.new({ deepValue: 1, ownValue: "x" })
+
+        void leaf
+    `)))
+
+    t.match(printed, "Pick<Leaf, \"deepValue\" | \"ownValue\">",
+        "Mixin construction config includes the transitive mixin-chain public property")
+    t.expect(typecheckText(printed)).toEqual([])
+})
+
 it("does not throw transforming a mixin while the `extends` keyword is being typed", async (t: Test) => {
     // Regression: typing `extends` into a @mixin class goes through a transient
     // syntax-error state (`class X extends {` — the body brace is parsed as an

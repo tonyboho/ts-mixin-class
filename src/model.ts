@@ -227,11 +227,32 @@ export function implementsTypes(
     return clause === undefined ? [] : [ ...clause.types ]
 }
 
+// A runtime base must be a plain entity name (an identifier or a dotted access),
+// the only forms the transform can turn into `typeof Base` / a heritage
+// reference. Anything else — a call expression, or the `{` body brace parsed as
+// an object literal while `extends` is being typed in tsserver — is not a usable
+// base. `requiredBaseType` treats those as "no base" so the whole transform
+// degrades gracefully rather than throwing (a throwing ProgramTransformer crashes
+// the program build and sticks tsserver with the untransformed fallback).
+export function isSupportedBaseExpression(tsInstance: TypeScript, expression: ts.Expression): boolean {
+    if (tsInstance.isIdentifier(expression)) {
+        return true
+    }
+
+    return tsInstance.isPropertyAccessExpression(expression) &&
+        tsInstance.isIdentifier(expression.name) &&
+        isSupportedBaseExpression(tsInstance, expression.expression)
+}
+
 export function requiredBaseType(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration
 ): ts.ExpressionWithTypeArguments | undefined {
-    return extendsClause(tsInstance, declaration)?.types[0]
+    const base = extendsClause(tsInstance, declaration)?.types[0]
+
+    return base !== undefined && isSupportedBaseExpression(tsInstance, base.expression)
+        ? base
+        : undefined
 }
 
 export function requiredBaseIdentifierName(

@@ -312,6 +312,49 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
         "Source view keeps the mixin as a real class so the static new can attach")
 })
 
+it("does not throw transforming a mixin while the `extends` keyword is being typed", async (t: Test) => {
+    // Regression: typing `extends` into a @mixin class goes through a transient
+    // syntax-error state (`class X extends {` — the body brace is parsed as an
+    // object-literal base). Incremental re-parsing leaves that malformed heritage
+    // node with an undeterminable source file, so deep-cloning it threw
+    // "Could not determine parsed source file". In tsserver that exception crashed
+    // the whole program transform, falling back to the untransformed program — so
+    // unrelated construction-base classes lost their generated `new`, and the
+    // broken state stuck (structureIsReused: Completely) until a server restart.
+    let sourceFile = createSourceFile("typing.ts", `
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Typed {
+            value: number = 0
+        }
+    `)
+
+    transformSourceFile(ts, sourceFile, { sourceView: true })
+
+    // Type " extends" one character at a time after the class name, re-parsing
+    // incrementally (ts.updateSourceFile) exactly as tsserver does on each keystroke.
+    let text     = sourceFile.text
+    let position = text.indexOf("class Typed") + "class Typed".length
+
+    for (const character of " extends") {
+        const nextText = text.slice(0, position) + character + text.slice(position)
+
+        sourceFile = ts.updateSourceFile(
+            sourceFile,
+            nextText,
+            ts.createTextChangeRange(ts.createTextSpan(position, 0), character.length)
+        )
+        text = nextText
+        position++
+
+        t.doesNotThrow(
+            () => transformSourceFile(ts, sourceFile, { sourceView: true }),
+            `Transforming after typing ${JSON.stringify(character)} does not throw`
+        )
+    }
+})
+
 function requiredInterface(sourceFile: ts.SourceFile, name: string): ts.InterfaceDeclaration {
     const declaration = findInterface(sourceFile, name)
 

@@ -264,12 +264,4 @@ function createConsumerBaseHeadType(
     ])
 }
 
-export function isSupportedBaseExpression(tsInstance: TypeScript, expression: ts.Expression): boolean {
-    if (tsInstance.isIdentifier(expression)) {
-        return true
-    }
-
-    return tsInstance.isPropertyAccessExpression(expression) &&
-        tsInstance.isIdentifier(expression.name) &&
-        isSupportedBaseExpression(tsInstance, expression.expression)
-}
+export { isSupportedBaseExpression } from "./model.js"

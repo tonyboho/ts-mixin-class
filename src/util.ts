@@ -464,10 +464,26 @@ export function cloneNode<Node extends ts.Node>(tsInstance: TypeScript, node: No
 
 // Deep clone: factory.cloneNode is shallow and shares children with the original
 // node. In source view that breaks parent chains and name resolution in tsserver.
+//
+// `getSynthesizedDeepClone(node, false)` suppresses the clone's leading/trailing
+// trivia, which internally resolves the node's parse-tree source file. During
+// incremental re-parsing in tsserver a half-typed construct (e.g. `class X extends {`
+// while typing `extends`) yields a malformed node whose source file cannot be
+// determined, so that path throws "Could not determine parsed source file". A
+// throwing ProgramTransformer crashes the whole program build, and tsserver then
+// sticks with the untransformed fallback until restart, so the transform must
+// never throw on transient incomplete syntax. `getSynthesizedDeepClone(node, true)`
+// keeps trivia and skips the source-file lookup, so it is a safe fallback here.
 export function deepCloneNode<Node extends ts.Node>(tsInstance: TypeScript, node: Node): Node {
-    return (tsInstance as unknown as {
+    const factory = tsInstance as unknown as {
         getSynthesizedDeepClone<T extends ts.Node>(node: T, includeTrivia?: boolean): T
-    }).getSynthesizedDeepClone(node, false)
+    }
+
+    try {
+        return factory.getSynthesizedDeepClone(node, false)
+    } catch {
+        return factory.getSynthesizedDeepClone(node, true)
+    }
 }
 
 export function cloneOptionalNode<Node extends ts.Node>(tsInstance: TypeScript, node: Node | undefined): Node | undefined {

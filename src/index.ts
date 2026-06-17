@@ -52,7 +52,6 @@ import type { TypeScript } from "./util.js"
 export * from "./base.js"
 export * from "./runtime.js"
 export type {
-    ConstructionConfigMode,
     CrossFileContext,
     MixinClassTransformerConfig,
     MixinClassTransformerMode,
@@ -75,7 +74,6 @@ function resolveTransformOptions(config: MixinClassTransformerConfig): Transform
         decoratorName        : config.decoratorName ?? defaultTransformOptions.decoratorName,
         sourceView           : false,
         staticCollisionCheck : normalizeStaticCollisionCheck(config.staticCollisionCheck),
-        constructionConfig   : config.constructionConfig ?? defaultTransformOptions.constructionConfig,
         allowUndefinedForRequiredProperties :
             config.allowUndefinedForRequiredProperties ??
             defaultTransformOptions.allowUndefinedForRequiredProperties
@@ -686,7 +684,6 @@ function preserveSourceCacheKey(
         options.packageName,
         options.decoratorName,
         options.staticCollisionCheck,
-        options.constructionConfig,
         String(options.allowUndefinedForRequiredProperties),
         crossFile?.cacheKey ?? "",
         languageVersionKey

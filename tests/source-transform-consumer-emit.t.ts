@@ -33,7 +33,7 @@ it("expands a consumer class into a merged intermediate base", async (t: Test) =
     t.match(
         printed,
         "class __Consumer$base<A> extends (mixinChain(Base, SourceClass1, SourceClass2) as unknown as " +
-            "typeof Base & ClassStatics<typeof SourceClass1> & ClassStatics<typeof SourceClass2>)",
+            "typeof Base & Omit<typeof SourceClass1, \"prototype\" | \"new\"> & Omit<typeof SourceClass2, \"prototype\" | \"new\">)",
         "Intermediate base delegates the runtime chain to the helper with the statics cast"
     )
     t.match(printed, "class Consumer<A> extends __Consumer$base<A> implements SourceClass1<string>, SourceClass2<A>",
@@ -59,7 +59,7 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
     t.match(
         printed,
         "class __Consumer$base<T> extends (mixinChain(__Consumer$empty, SourceClass1) as unknown as " +
-            "typeof __Consumer$empty & ClassStatics<typeof SourceClass1>)",
+            "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\">)",
         "Helper chain starts at the generated empty base and keeps mixin statics"
     )
     t.notMatch(printed, "mixinChain(Object, SourceClass1)",
@@ -259,33 +259,6 @@ it("generates construction members for transitive same-file Base descendants", a
         "An intermediate descendant regenerates static new through the local extends chain")
     t.match(printed, "): Leaf;",
         "A transitive descendant regenerates static new with its own instance type")
-})
-
-it("can use instance-type construction config mode", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { Base, mixin } from "ts-mixin-class"
-
-        class GenericBase<T> extends Base {
-            baseValue: T | undefined
-        }
-
-        @mixin()
-        class SourceClass<T> {
-            mixinValue: T | undefined
-        }
-
-        class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
-            ownValue: T | undefined
-        }
-    `), {
-        constructionConfig : "instance-type"
-    })
-    const printed = printSourceFile(ts, transformedFile)
-
-    t.match(printed, "static new<T>(props?: Partial<Consumer<T>>): Consumer<T>;",
-        "Instance-type construction config mode uses the whole consumer instance shape")
-    t.notMatch(printed, "Pick<Consumer<T>",
-        "Instance-type construction config mode skips static public-property collection")
 })
 
 it("can emit undefined non-null initializers for public-only construction config fields", async (t: Test) => {

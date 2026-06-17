@@ -446,8 +446,8 @@ the `new(...)` call site.
   typing, static typing, declaration emit, and runtime behavior.
 - Provide an exact generated type for `initialize(config)`. Today `Config<this>` is a
   broad structural helper: it can filter methods out of the instance type, but it cannot
-  know which fields were selected by the transformer for `constructionConfig:
-  "public-only"`, and it cannot reproduce the exact required/optional split from the
+  know which public fields were selected by the transformer for the generated config, and
+  it cannot reproduce the exact required/optional split from the
   generated `new(...)` adapter. A future design could expose a generated per-class config
   type or constructor-based helper so user overrides can write something like
   `initialize(config?: ExactConfig<typeof User>)` and get exactly the same shape as

@@ -119,6 +119,61 @@ export function createConstructionMembers(
     ]
 }
 
+// Construction `new` for a mixin's value type. A mixin that extends the package
+// `Base` is construction-enabled, but unlike a consumer it has no class body to
+// attach a generated `static new` to, so its value type otherwise inherits
+// `Base.new`, which returns `Base` rather than the mixin's own instance type.
+// This builds a `{ new(props?): Instance }` member that the value cast prepends
+// so the mixin's standalone `.new(...)` resolves to the mixin type. Returns
+// undefined when the mixin is not a construction base.
+export function createMixinConstructionNewType(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    extendsType: ts.ExpressionWithTypeArguments | undefined,
+    mixinRefs: ResolvedMixinRef[],
+    options: TransformOptions,
+    facts: SourceFileFacts,
+    crossFile?: CrossFileContext,
+    baseImportMap?: Map<string, ImportedNameBinding>
+): ts.TypeNode | undefined {
+    if (declaration.name === undefined ||
+        !isConstructionBaseOptIn(tsInstance, sourceFile, extendsType, options, facts, new Set(), crossFile, baseImportMap)
+    ) {
+        return undefined
+    }
+
+    const factory = tsInstance.factory
+    const config  = createConstructionConfig(
+        tsInstance, sourceFile, declaration, extendsType, undefined, mixinRefs, options, facts, crossFile, baseImportMap
+    )
+
+    // A property signature (`new: (props?) => Instance`), not a method signature:
+    // inside a type literal `new(...)` parses as a construct signature, which
+    // would not provide a callable `.new` member. Consumers that apply this mixin
+    // exclude its `new` from the inherited statics (see createMixinStaticsType),
+    // so the property's strict parameter checking does not clash with a consumer's
+    // own generated `static new`.
+    return factory.createTypeLiteralNode([
+        factory.createPropertySignature(
+            undefined,
+            "new",
+            undefined,
+            factory.createFunctionTypeNode(
+                undefined,
+                [ factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    "props",
+                    config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                    config.type
+                ) ],
+                createConsumerInstanceType(tsInstance, declaration)
+            )
+        )
+    ])
+}
+
 export function isConstructionBaseOptIn(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -272,21 +327,15 @@ function createConstructionConfig(
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
+    // Currently unused: the construction config has a single (public-only) shape
+    // since the `instance-type` mode was removed. Kept threaded so a future mode
+    // option can be honored here without re-plumbing every caller.
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
     baseImportMap?: Map<string, ImportedNameBinding>
 ): ConstructionConfig {
     const factory = tsInstance.factory
-
-    if (options.constructionConfig === "instance-type") {
-        return {
-            type : factory.createTypeReferenceNode("Partial", [
-                createConsumerInstanceType(tsInstance, declaration)
-            ]),
-            optionalParameter : true
-        }
-    }
 
     const properties              = staticConstructionConfigProperties(
         tsInstance,

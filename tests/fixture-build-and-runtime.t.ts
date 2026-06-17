@@ -48,26 +48,6 @@ it("builds and runs the fixture suite with legacy decorators", async (t: Test) =
     )
 })
 
-it("builds and runs the fixture suite with instance-type construction config", async (t: Test) => {
-    assertSuccessfulCommand(t, installResult, "Install fixture suite dependencies")
-
-    assertSuccessfulCommand(
-        t,
-        await runPnpm(fixtureSuiteDirectory, "run", "clean:instance-type"),
-        "Clean fixture suite instance-type build output"
-    )
-    assertSuccessfulCommand(
-        t,
-        await runPnpm(fixtureSuiteDirectory, "run", "build:instance-type"),
-        "Build fixture suite with instance-type construction config"
-    )
-    assertSuccessfulCommand(
-        t,
-        await runPnpm(fixtureSuiteDirectory, "run", "test:instance-type"),
-        "Run fixture suite with instance-type construction config"
-    )
-})
-
 it("reports imported declaration mixins without runtime values", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

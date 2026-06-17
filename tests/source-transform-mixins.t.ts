@@ -275,6 +275,43 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
         "Consumer required-base diagnostic carries a custom message")
 })
 
+it("gives a standalone construction-base mixin its own construction `new` in the emit value cast", async (t: Test) => {
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Serializable extends Base {
+            public format?: string = "json"
+        }
+
+        const created: Serializable = Serializable.new()
+        const configured: Serializable = Serializable.new({ format: "xml" })
+
+        void [ created, configured ]
+    `)))
+
+    t.match(printed, "new: (props?: Partial<Pick<Serializable, \"format\">>) => Serializable;",
+        "Value cast prepends a construction `new` returning the mixin instance type")
+
+    t.expect(typecheckText(printed)).toEqual([])
+})
+
+it("gives a standalone construction-base mixin its own `static new` in the source view", async (t: Test) => {
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Serializable extends Base {
+            public format?: string = "json"
+        }
+    `), { sourceView: true }))
+
+    t.match(printed, "static new(props?: Partial<Pick<Serializable, \"format\">>): Serializable;",
+        "Source-view mixin class regenerates its own static new returning the mixin instance type")
+    t.match(printed, "class Serializable extends __Serializable$base",
+        "Source view keeps the mixin as a real class so the static new can attach")
+})
+
 function requiredInterface(sourceFile: ts.SourceFile, name: string): ts.InterfaceDeclaration {
     const declaration = findInterface(sourceFile, name)
 

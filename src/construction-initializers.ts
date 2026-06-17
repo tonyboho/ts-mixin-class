@@ -50,8 +50,7 @@ export function rewritePublicOnlyUndefinedInitializerClass(
 }
 
 function shouldRewritePublicOnlyUndefinedInitializers(options: TransformOptions): boolean {
-    return options.constructionConfig === "public-only" &&
-        options.allowUndefinedForRequiredProperties
+    return options.allowUndefinedForRequiredProperties
 }
 
 function rewritePublicOnlyUndefinedInitializer(

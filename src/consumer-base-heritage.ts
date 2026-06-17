@@ -15,6 +15,28 @@ import {
 import { cloneNode } from "./util.js"
 import type { TypeScript } from "./util.js"
 
+// Statics a consumer inherits from an applied mixin: the mixin's own statics
+// minus `prototype` and `new`. A construction-base mixin carries its own
+// construction `new` (returning the mixin instance type), but a consumer
+// generates its own `new` returning the consumer instance type. Inheriting the
+// mixin's `new` as a property-typed member would force strict (contravariant)
+// parameter checking and make the consumer's stricter `new` an incompatible
+// static-side override (TS2417), so it is excluded here.
+function createMixinStaticsType(
+    tsInstance: TypeScript,
+    valueName: string
+): ts.TypeNode {
+    const factory = tsInstance.factory
+
+    return factory.createTypeReferenceNode("Omit", [
+        factory.createTypeQueryNode(factory.createIdentifier(valueName)),
+        factory.createUnionTypeNode([
+            factory.createLiteralTypeNode(factory.createStringLiteral("prototype")),
+            factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+        ])
+    ])
+}
+
 function createMixinChainExpression(
     tsInstance: TypeScript,
     mixinRefs: ResolvedMixinRef[],
@@ -177,11 +199,7 @@ function createConsumerBaseCastType(
         createConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => {
-                return factory.createTypeReferenceNode(classStaticsName, [
-                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
-                ])
-            })
+            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
     ]
 
     return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)
@@ -200,11 +218,7 @@ function createSourceViewConsumerBaseCastType(
         createSourceViewConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => {
-                return factory.createTypeReferenceNode(classStaticsName, [
-                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
-                ])
-            })
+            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
     ]
 
     return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)
@@ -219,11 +233,7 @@ function createUnsupportedBaseConsumerCastType(
         factory.createTypeReferenceNode(anyConstructorName, undefined),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => {
-                return factory.createTypeReferenceNode(classStaticsName, [
-                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
-                ])
-            })
+            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
     ]
 
     return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)

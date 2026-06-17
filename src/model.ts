@@ -7,20 +7,17 @@ export type MixinClassTransformerConfig = PluginConfig & {
     decoratorName?                       : string,
     mode?                                : MixinClassTransformerMode,
     staticCollisionCheck?                : StaticCollisionCheckMode | boolean,
-    constructionConfig?                  : ConstructionConfigMode,
     allowUndefinedForRequiredProperties? : boolean
 }
 
 export type MixinClassTransformerMode = "emit" | "ide"
 export type StaticCollisionCheckMode = false | "never" | "strict"
-export type ConstructionConfigMode = "public-only" | "instance-type"
 
 export type TransformOptions = {
     packageName                         : string,
     decoratorName                       : string,
     sourceView                          : boolean,
     staticCollisionCheck                : StaticCollisionCheckMode,
-    constructionConfig                  : ConstructionConfigMode,
     allowUndefinedForRequiredProperties : boolean
 }
 
@@ -152,7 +149,6 @@ export const defaultTransformOptions: TransformOptions = {
     decoratorName                       : "mixin",
     sourceView                          : false,
     staticCollisionCheck                : "never",
-    constructionConfig                  : "public-only",
     allowUndefinedForRequiredProperties : false
 }
 

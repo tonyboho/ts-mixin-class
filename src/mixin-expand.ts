@@ -41,6 +41,9 @@ import {
     localMixinRefs
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
+import { createConstructionMembers, createMixinConstructionNewType } from "./construction-config.js"
+import { buildImportedNameMap } from "./context.js"
+import { getSourceFileFacts } from "./source-file-facts.js"
 import {
     cloneNode,
     deepCloneNode,
@@ -103,6 +106,26 @@ export function expandMixinClass(
     const dependencyRefs   = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
     const interfaceMembers = buildInterfaceMembers(tsInstance, sourceFile, declaration)
 
+    // A mixin that extends the package `Base` is construction-enabled. Generic
+    // mixins keep the inline value form and are handled separately, so the
+    // construction `new` is only added for the non-generic alias form.
+    const facts           = getSourceFileFacts(tsInstance, sourceFile, options)
+    const constructionNew = typeParameters !== undefined
+        ? undefined
+        : createMixinConstructionNewType(
+            tsInstance,
+            sourceFile,
+            declaration,
+            requiredBase,
+            dependencyRefs,
+            options,
+            facts,
+            context.crossFile,
+            context.crossFile === undefined
+                ? undefined
+                : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
+        )
+
     const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
         exportModifiers,
         ref.className,
@@ -150,7 +173,7 @@ export function expandMixinClass(
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
-                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters)
+                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew)
                 )
             )
         ], tsInstance.NodeFlags.Const)
@@ -211,7 +234,7 @@ function expandSourceViewMixinClass(
     // narrow range leaves the base identifier in a sibling gap, which makes
     // tsserver fail token lookup ("Identifier in trivia") for members of the
     // mixin. Matches the consumer path; `implements` clauses are kept as-is.
-    const generatedHeritageRange    = extendsClause(tsInstance, declaration) ??
+    const generatedHeritageRange = extendsClause(tsInstance, declaration) ??
         generatedTextRange(
             sourceFile,
             declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
@@ -268,13 +291,41 @@ function expandSourceViewMixinClass(
         []
     ), declaration)
 
+    // A mixin that extends the package `Base` is a construction base, but in
+    // source view it keeps a real class body that merely inherits `Base.new`
+    // (returning `Base`). Generate its own `static new` overloads so a standalone
+    // `MyMixin.new(...)` resolves to the mixin's instance type, mirroring the
+    // value-cast construction `new` the emit path prepends.
+    const facts               = getSourceFileFacts(tsInstance, sourceFile, options)
+    const baseImportMap       = context.crossFile === undefined
+        ? undefined
+        : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
+    const constructionMembers = declaration.typeParameters !== undefined
+        ? []
+        : createConstructionMembers(
+            tsInstance,
+            sourceFile,
+            declaration,
+            requiredBase,
+            undefined,
+            dependencyRefs,
+            options,
+            generatedTextRange(sourceFile, declaration.members.end),
+            context.crossFile,
+            baseImportMap
+        )
+    const updatedMembers      = rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+    const mixinMembers        = constructionMembers.length === 0
+        ? updatedMembers
+        : preserveTextRange(tsInstance, factory.createNodeArray([ ...updatedMembers, ...constructionMembers ]), updatedMembers)
+
     const updatedDeclaration = factory.updateClassDeclaration(
         declaration,
         declaration.modifiers,
         declaration.name,
         declaration.typeParameters,
         consumerHeritageClauses(tsInstance, declaration, baseName, generatedHeritageRange),
-        rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+        mixinMembers
     )
 
     return [ baseInterface, baseClass, updatedDeclaration ]
@@ -402,7 +453,8 @@ function createMixinValueCastType(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration,
     ref: ResolvedMixinRef,
-    typeParameters: ts.TypeParameterDeclaration[] | undefined
+    typeParameters: ts.TypeParameterDeclaration[] | undefined,
+    constructionNewType?: ts.TypeNode
 ): ts.TypeNode {
     const factory           = tsInstance.factory
     const instanceType      = factory.createTypeReferenceNode(
@@ -438,6 +490,9 @@ function createMixinValueCastType(
     const requiredBase = requiredBaseType(tsInstance, declaration)
 
     return factory.createIntersectionTypeNode([
+        // The mixin's own construction `new` comes first so it wins overload
+        // resolution over the `Base.new` inherited via MixinClassValue.
+        ...(constructionNewType === undefined ? [] : [ constructionNewType ]),
         factory.createTypeReferenceNode(mixinClassValueName, [
             instanceType,
             factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),

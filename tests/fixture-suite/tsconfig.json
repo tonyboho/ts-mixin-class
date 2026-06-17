@@ -24,9 +24,5 @@
     },
     "include": [
         "src/**/*.ts"
-    ],
-    "exclude": [
-        "src/construction-instance-type-generics.t.ts",
-        "src/construction-instance-type.t.ts"
     ]
 }

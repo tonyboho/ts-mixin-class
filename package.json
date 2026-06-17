@@ -52,6 +52,7 @@
     "devDependencies": {
         "@bryntum/siesta": "catalog:",
         "@types/node": "catalog:",
+        "pure-rand": "^6.1.0",
         "ts-patch": "catalog:",
         "typescript": "catalog:"
     }

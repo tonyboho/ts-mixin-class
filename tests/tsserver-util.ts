@@ -30,14 +30,21 @@ export function assertDiagnosticParts(t: Test, messages: string, expectedParts: 
     }
 }
 
-export async function runTypeScriptServerRequest(
+// A long-lived tsserver process: open the project once, then fire many requests
+// over the same process. The one-shot `runTypeScriptServerRequest` forks a fresh
+// server per request (fine for a single assertion), which is far too slow for
+// the quickinfo / rename stress tests that issue hundreds of requests — those
+// open a session once and reuse it.
+export type TsServerSession = {
+    request(command: string, args: unknown): Promise<TsServerResponse>,
+    open(file: string, fileContent: string): Promise<void>,
+    close(): Promise<void>
+}
+
+export function openTsServerSession(
     fixtureDirectory: string,
-    sourceFile: string,
-    text: string,
-    command: string,
-    args: unknown,
     logFile = path.join(fixtureDirectory, "tsserver.log")
-): Promise<TsServerResponse> {
+): TsServerSession {
     const tsserverFile = path.join(fixtureDirectory, "node_modules", "typescript", "lib", "tsserver.js")
     const server = fork(tsserverFile, [
         "--logVerbosity",
@@ -65,26 +72,7 @@ export async function runTypeScriptServerRequest(
 
     server.stdout?.on("data", () => {})
 
-    await sendRequest("open", {
-        file            : sourceFile,
-        fileContent     : text,
-        projectRootPath : fixtureDirectory,
-        scriptKindName  : "TS"
-    })
-    const response = await sendRequest(command, args)
-
-    server.send({
-        arguments : {},
-        command   : "exit",
-        seq       : ++sequence,
-        type      : "request"
-    })
-
-    await waitForExit(server)
-
-    return response
-
-    async function sendRequest(command: string, args: unknown): Promise<TsServerResponse> {
+    const request = async (command: string, args: unknown): Promise<TsServerResponse> => {
         const seq = ++sequence
 
         server.send({
@@ -106,6 +94,48 @@ export async function runTypeScriptServerRequest(
             })
         })
     }
+
+    return {
+        request,
+
+        async open(file: string, fileContent: string): Promise<void> {
+            await request("open", {
+                file,
+                fileContent,
+                projectRootPath : fixtureDirectory,
+                scriptKindName  : "TS"
+            })
+        },
+
+        async close(): Promise<void> {
+            server.send({
+                arguments : {},
+                command   : "exit",
+                seq       : ++sequence,
+                type      : "request"
+            })
+
+            await waitForExit(server)
+        }
+    }
+}
+
+export async function runTypeScriptServerRequest(
+    fixtureDirectory: string,
+    sourceFile: string,
+    text: string,
+    command: string,
+    args: unknown,
+    logFile = path.join(fixtureDirectory, "tsserver.log")
+): Promise<TsServerResponse> {
+    const session = openTsServerSession(fixtureDirectory, logFile)
+
+    await session.open(sourceFile, text)
+    const response = await session.request(command, args)
+
+    await session.close()
+
+    return response
 }
 
 export function positionToLineOffset(text: string, position: number): { line: number, offset: number } {

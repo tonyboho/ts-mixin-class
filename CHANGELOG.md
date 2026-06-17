@@ -1,6 +1,6 @@
 # ts-mixin-class
 
-## 0.0.3
+## 0.0.3 - 2026-06-16
 
 ### Patch Changes
 

@@ -212,6 +212,27 @@ export function preserveSourceViewGeneratedClassLikeRange<
 ): Node {
     tsInstance.setOriginalNode(node, original)
     preserveGeneratedOriginalNodes(tsInstance, node, original)
+
+    // A decorated original (a `@mixin` class) carries its `@mixin()` decorator in
+    // leading trivia. This generated `$base` helper has no decorator and its
+    // first child is the name, so mapping its range over the original would
+    // strand the decorator's `mixin` identifier in the node's trivia gap —
+    // tsserver's getChildren / getTokenAtPosition then throws "Did not expect
+    // <kind> to have an Identifier in its trivia", crashing quickinfo and rename
+    // on the mixin name. These `$base` helpers are never navigated to, so when
+    // the original is decorated collapse the whole subtree to a zero-width range
+    // at the original start: every trivia gap is then empty, and keeping the
+    // position at `original.pos` keeps the inserted statements contiguous so the
+    // SourceFile statement list has no identifier-bearing gap either. (Undecorated
+    // originals — consumers — keep the rich range mapping below, which their
+    // required-base diagnostics depend on; their `class ` prefix is a keyword, not
+    // an identifier, so it never trips the trivia check.)
+    if (tsInstance.getDecorators(original)?.length) {
+        collapseSubtreeTextRange(tsInstance, node, { pos: -1, end: -1 })
+
+        return node
+    }
+
     preserveTextRange(tsInstance, node, {
         pos : original.pos,
         end : original.members.pos
@@ -226,7 +247,18 @@ export function preserveSourceViewGeneratedClassLikeRange<
     }
 
     if (node.typeParameters !== undefined) {
-        const generatedTypeParameterRange = zeroWidthRange(original.typeParameters?.end ?? original.name?.end ?? original.end)
+        // When the original is generic, span the source `<...>` so the source
+        // type-parameter identifiers are owned by the generated type parameters.
+        // A zero-width range past them instead leaves each source parameter name
+        // (e.g. the `A` in `Consumer<A>`) stranded in the gap between the
+        // generated name and type-parameter list, and tsserver's getChildren
+        // throws "Did not expect <kind> to have an Identifier in its trivia". When
+        // the original has no type parameters (the `$base` added synthetic ones
+        // such as `__mixinRequiredBase0`), there is no source identifier to strand,
+        // so collapse them to a zero-width range after the name.
+        const generatedTypeParameterRange = original.typeParameters === undefined
+            ? zeroWidthRange(original.name?.end ?? original.end)
+            : { pos: original.typeParameters.pos, end: original.typeParameters.end }
 
         preserveTextRange(tsInstance, node.typeParameters, generatedTypeParameterRange)
 
@@ -343,6 +375,28 @@ export function preserveSubtreeTextRange(
 
     tsInstance.forEachChild(node, (child) => {
         preserveSubtreeTextRange(tsInstance, child, range)
+    })
+}
+
+// Like preserveSubtreeTextRange, but also sets every nested NodeArray's range.
+// getChildren reconstructs tokens from NodeArray.pos as well as node.pos, so a
+// fully collapsed subtree must pin both — otherwise a NodeArray left at a real
+// span reopens a trivia gap the scanner walks.
+export function collapseSubtreeTextRange(
+    tsInstance: TypeScript,
+    node: ts.Node,
+    range: ts.TextRange
+): void {
+    preserveTextRange(tsInstance, node, range)
+
+    tsInstance.forEachChild(node, (child) => {
+        collapseSubtreeTextRange(tsInstance, child, range)
+    }, (children) => {
+        tsInstance.setTextRange(children, range)
+
+        for (const child of children) {
+            collapseSubtreeTextRange(tsInstance, child, range)
+        }
     })
 }
 

@@ -293,3 +293,52 @@ it("tsserver quickinfo reports a mixin's own member used in a method, even when 
         await fixture.dispose()
     }
 })
+
+const constructionBaseMixinText = trimIndent(`
+    import { Base, mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Serializable extends Base {
+        public format?: string = "json"
+    }
+`)
+
+it("tsserver quickinfo does not crash on a construction-base mixin's class name", async (t: Test) => {
+    // Regression: a mixin that `extends Base` generates a position-preserving
+    // source-view interface and shadow class. Their text range started at the
+    // original class `.pos`, which includes the leading `@mixin()` decorator,
+    // while their first child is the name (no decorator) — so the decorator's
+    // `mixin` identifier was stranded in the generated node's trivia gap, and
+    // tsserver's getTokenAtPosition / getChildren threw "Did not expect
+    // InterfaceDeclaration to have an Identifier in its trivia", failing
+    // quickinfo (and rename) on the mixin name.
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : constructionBaseMixinText } ]
+    })
+
+    try {
+        const sourceFile   = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const namePosition = constructionBaseMixinText.indexOf("Serializable extends")
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                constructionBaseMixinText,
+                "quickinfo",
+                { file : sourceFile, ...positionToLineOffset(constructionBaseMixinText, namePosition + 1) }
+            )
+        )
+
+        t.match(quickInfo.displayString ?? "", "class Serializable",
+            "QuickInfo on a construction-base mixin name reports its class declaration instead of crashing")
+        t.equal(positionToIndex(constructionBaseMixinText, quickInfo.start), namePosition,
+            "QuickInfo highlight starts exactly at the mixin name")
+        t.equal(sourceSlice(constructionBaseMixinText, quickInfo), "Serializable",
+            "QuickInfo highlight covers exactly the mixin name")
+    } finally {
+        await fixture.dispose()
+    }
+})

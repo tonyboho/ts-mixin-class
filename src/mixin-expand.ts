@@ -6,6 +6,7 @@ import {
     classStaticsName,
     consumerBaseSuffix,
     defineMixinClassName,
+    extendsClause,
     generatedName,
     implementsTypes,
     isNamedClassElement,
@@ -205,10 +206,16 @@ function expandSourceViewMixinClass(
     const requiredBase              = requiredBaseType(tsInstance, declaration)
     const dependencyHeritage        = localMixinHeritageTypes(tsInstance, declaration, context)
     const reducedDependencyHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, dependencyHeritage)
-    const generatedHeritageRange    = generatedTextRange(
-        sourceFile,
-        declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
-    )
+    // The generated `extends __X$base` replaces the mixin's own `extends Base`,
+    // so in source view its range must span the original `extends` clause. A
+    // narrow range leaves the base identifier in a sibling gap, which makes
+    // tsserver fail token lookup ("Identifier in trivia") for members of the
+    // mixin. Matches the consumer path; `implements` clauses are kept as-is.
+    const generatedHeritageRange    = extendsClause(tsInstance, declaration) ??
+        generatedTextRange(
+            sourceFile,
+            declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
+        )
 
     if (dependencyHeritage.length === 0 && requiredBase === undefined) {
         const metadataExtendsClause = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [

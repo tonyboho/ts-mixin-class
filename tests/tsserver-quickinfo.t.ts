@@ -219,3 +219,77 @@ it("tsserver quickinfo reports mixin consumer class declarations", async (t: Tes
         await fixture.dispose()
     }
 })
+
+const mixinBaseMemberText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Mixin1 extends Base {
+        prop: string = ""
+
+        check(): boolean {
+            return this.prop === ""
+        }
+    }
+
+    @mixin()
+    class Mixin2 {
+        prop: string = ""
+
+        check(): boolean {
+            return this.prop === ""
+        }
+    }
+`)
+
+it("tsserver quickinfo reports a mixin's own member used in a method, even when the mixin extends Base", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            {
+                fileName : "source.ts",
+                text     : mixinBaseMemberText
+            }
+        ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+
+        const propQuickInfo = async (occurrence: number): Promise<QuickInfoBody> => {
+            let index = -1
+
+            for (let i = 0; i < occurrence; i++) {
+                index = mixinBaseMemberText.indexOf("this.prop", index + 1)
+            }
+
+            return assertResponseBody<QuickInfoBody>(
+                t,
+                await runTypeScriptServerRequest(
+                    fixture.directory,
+                    sourceFile,
+                    mixinBaseMemberText,
+                    "quickinfo",
+                    {
+                        file : sourceFile,
+                        ...positionToLineOffset(mixinBaseMemberText, index + "this.".length)
+                    }
+                )
+            )
+        }
+
+        // Mixin1 extends Base — this is the regressing case.
+        const baseMixin = await propQuickInfo(1)
+
+        t.match(baseMixin.displayString ?? "", "prop", "this.prop in a Base-extending mixin resolves to the property")
+        t.match(baseMixin.displayString ?? "", "string", "...and reports its type")
+
+        // Mixin2 has no base — the control that already works.
+        const plainMixin = await propQuickInfo(2)
+
+        t.match(plainMixin.displayString ?? "", "prop", "this.prop in a plain mixin resolves to the property")
+    } finally {
+        await fixture.dispose()
+    }
+})

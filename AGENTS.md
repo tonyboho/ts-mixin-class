@@ -58,6 +58,15 @@ The same crash text has several possible causes; check them in this order before
 | construction bug reproduces under `--noEmit`/IDE but not under `tsc` (or vice-versa) | the fix touched only one of the emit / source-view paths (construction `new` #1). |
 | `Could not determine parsed source file` / `Unsupported base class expression`, only in tsserver while typing | the transform threw on a transient incomplete-syntax node from incremental parsing (source-view #7). |
 | a diagnostic (e.g. `Unused '@ts-expect-error'`) appears on **unrelated** code after an edit and persists until server restart | the ProgramTransformer threw mid-edit, so tsserver is serving the untransformed fallback program for the whole project (source-view #7). |
+| `Cannot find name 'T'` (TS2304) in **emit** *and* `TS2562 Base class expressions cannot reference class type parameters` in **source view**, on a `@mixin` class that `extends` a generic base | the generic-required-base forwarding gap (below), not invariant #1 — a *concrete* `extends Base<string>` compiles, only forwarding the mixin's own parameter `extends Base<T>` fails. |
+
+## Known gaps
+
+These are tracked by `t.todo` markers (run, reported as `[todo]` with ✘ assertions, but non-fatal) and listed under README "Limitations". No fix attempted yet.
+
+1. **Heritage-clause navigation** — go-to-def / find-all-references / quickinfo on a base type name *inside* a rewritten `extends`/`implements` clause resolve to the internal generated `$base` (empty refs/def, `any` quickinfo). Full analysis and why `.original`/range tweaks/proxies cannot fix it is in invariant #9 "Known gap". Marker: `tsserver-references.t.ts` `t.todo` "base name in `extends LocalBase` resolves to the base class". `stress-references` tolerates these (and property-access member-name) empties; every *other* empty fails.
+
+2. **Generic mixin forwarding its type parameter into a generic required base** — `@mixin() class M<T> extends Base<T>` does not compile: emit → `TS2304 Cannot find name 'T'` (the value cast modelling the mixin loses `T` from scope); source view → `TS2562 Base class expressions cannot reference class type parameters` (the generated metadata base is `extends (<cast using T>)`, forbidden for a class type parameter in a base-class expression). A *concrete* type argument (`extends Base<string>`) compiles cleanly in both paths — the corpus only had that case, which is why this was untested. A fix likely needs the required base forwarded at the *interface/type* level rather than through a base-class cast, or a clear unsupported-pattern diagnostic instead of the raw TS errors. Marker: `generic-mixin-required-base.t.ts` `t.todo`.
 
 ## Debugging scripts (`scripts/`)
 

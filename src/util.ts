@@ -549,6 +549,74 @@ export function setParentRecursivePreservingVersion(
     return (tsInstance as TypeScriptWithParents).setParentRecursive(sourceFile, false)
 }
 
+// The source-view tree is built from a throwaway clone the program never binds.
+// Generated nodes carry `.original` links back into that unbound clone (set by
+// `factory.update*`, `deepCloneNode`, and explicit `setOriginalNode`). tsserver
+// navigation maps a node to its parse tree via `getParseTreeNode`, and because
+// `isParseTreeNode` tests ONLY the `Synthesized` flag (not binding/reachability),
+// it walks `.original` into the unbound clone and crashes the checker:
+// `getSymbolOfDeclaration(<unbound class>).members` during a scope walk, or
+// `getTypeAtLocation(<unbound heritage>)` while collecting base-type symbols for
+// rename.
+//
+// These generated nodes already carry preserved positive ranges, so the OTHER,
+// position-based notion of synthetic (`nodeIsSynthesized`, `pos < 0`) already
+// treats them as real. Clearing the `Synthesized` flag simply aligns the
+// flag-based view with that reality: `getParseTreeNode` then returns the node
+// itself (it is bound and lives in this tree) and never reaches the clone.
+// Crucially `.original` is KEPT, so declaration emit (`isDeclarationAndNotVisible`
+// reads `getParseTreeNode(node).kind`) and the generated `$base` required-base /
+// linearization diagnostics — both of which rely on `.original` — keep working.
+// (TS itself clears this flag on generated import declarations; see program.ts.)
+//
+// Only nodes whose `.original` escapes this bound tree are touched, and only the
+// kinds tsserver navigation resolves through.
+export function alignGeneratedNavigableNodesWithParseTree(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile
+): ts.SourceFile {
+    const synthesized = tsInstance.NodeFlags.Synthesized
+    const inTree      = new Set<ts.Node>()
+
+    const collect = (node: ts.Node): void => {
+        inTree.add(node)
+        tsInstance.forEachChild(node, collect)
+    }
+
+    collect(sourceFile)
+
+    const align = (node: ts.Node): void => {
+        const original = (node as { original?: ts.Node }).original
+
+        if (
+            original !== undefined &&
+            !inTree.has(original) &&
+            node.pos >= 0 &&
+            node.end >= 0 &&
+            isNavigableGeneratedNodeKind(tsInstance, node)
+        ) {
+            ;(node as { flags: number }).flags &= ~synthesized
+        }
+
+        tsInstance.forEachChild(node, align)
+    }
+
+    align(sourceFile)
+
+    return sourceFile
+}
+
+function isNavigableGeneratedNodeKind(tsInstance: TypeScript, node: ts.Node): boolean {
+    return tsInstance.isClassDeclaration(node) ||
+        tsInstance.isClassExpression(node) ||
+        tsInstance.isInterfaceDeclaration(node) ||
+        tsInstance.isIdentifier(node) ||
+        tsInstance.isTypeParameterDeclaration(node) ||
+        tsInstance.isTypeReferenceNode(node) ||
+        tsInstance.isExpressionWithTypeArguments(node) ||
+        tsInstance.isConstructorDeclaration(node)
+}
+
 export function cloneNode<Node extends ts.Node>(tsInstance: TypeScript, node: Node): Node {
     return (tsInstance.factory as NodeFactoryWithCloneNode).cloneNode(node)
 }

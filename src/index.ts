@@ -37,6 +37,7 @@ import {
 import { buildConstructionBaseRegistry, buildMixinRegistry, hasRuntimeModuleForDeclaration } from "./registry.js"
 import {
     cloneLayeredSourceFileForTransform,
+    alignGeneratedNavigableNodesWithParseTree,
     cloneSourceFileForTransform,
     generatedTextRange,
     hasDifferentAstShape,
@@ -276,7 +277,9 @@ export function createMixinClassCompilerHost(
 
             preserveTopLevelStatementRanges(tsInstance, transformedSourceFile)
 
-            return cachePreserveSourceFile(setParentRecursivePreservingVersion(tsInstance, transformedSourceFile, sourceFile))
+            const reparented = setParentRecursivePreservingVersion(tsInstance, transformedSourceFile, sourceFile)
+
+            return cachePreserveSourceFile(alignGeneratedNavigableNodesWithParseTree(tsInstance, reparented))
         }
     }
 }

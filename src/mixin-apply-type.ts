@@ -6,7 +6,7 @@ import {
     requiredBaseType
 } from "./model.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
-import { deepCloneNode, hasModifier } from "./util.js"
+import { collapseSubtreeTextRange, deepCloneNode, hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 const manualMixinApplySyntaxCache = new WeakMap<ts.SourceFile, boolean>()
@@ -33,13 +33,25 @@ export function createSourceViewMixinApplyType(
     declaration: ts.ClassDeclaration,
     typeParameters: ts.TypeParameterDeclaration[] | undefined
 ): ts.TypeLiteralNode {
-    return createMixinApplyType(
+    const applyType = createMixinApplyType(
         tsInstance,
         declaration,
         typeParameters,
         createSourceViewMixinInstanceType(tsInstance, declaration),
         createSourceViewMixinStaticsType(tsInstance, declaration)
     )
+
+    // This `.mix` apply type only shapes `typeof MixinClass` for source view; it is
+    // never a navigation target. Its member signatures are `deepCloneNode`d from the
+    // mixin's own members, so they carry the originals' source positions. Embedded in
+    // the metadata-base cast (whose container the rich range mapping never descends
+    // into) those real-positioned identifiers strand in a SyntaxList trivia gap and
+    // crash tsserver's getChildren (source-view invariant #5). Collapse the whole
+    // subtree to a synthetic range so it owns no source position; the top-level
+    // statement range pass normalizes it to a contiguous gap-free span.
+    collapseSubtreeTextRange(tsInstance, applyType, { pos: -1, end: -1 })
+
+    return applyType
 }
 
 export function createMixinApplyType(

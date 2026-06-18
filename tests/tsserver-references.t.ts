@@ -1,7 +1,8 @@
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
-import { assertResponseBody } from "./tsserver-util.js"
+import { createTypeScriptFixture, requiredFixtureSourceFile, trimIndent } from "./util.js"
+import { assertResponseBody, positionToLineOffset, runTypeScriptServerRequest } from "./tsserver-util.js"
 import {
     consumerSuperMixinMethodArgs,
     consumerSuperMixinPropertyArgs,
@@ -16,7 +17,7 @@ import {
     superMixinPropertyArgs,
     usageArgs
 } from "./tsserver-editor-util.js"
-import type { TextSpan } from "./tsserver-editor-util.js"
+import type { DefinitionInfo, TextSpan } from "./tsserver-editor-util.js"
 
 type ReferencesBody = {
     refs? : Array<TextSpan & {
@@ -117,6 +118,78 @@ it("tsserver references resolve mixin static members from self and external usag
         }
     } finally {
         await dispose()
+    }
+})
+
+const consumerClassNameText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Tagged<T> {
+        tag?: T
+    }
+
+    class Crate<T> implements Tagged<T> {
+        contents?: T
+    }
+
+    const crate = new Crate<number>()
+    void crate
+`)
+
+it("tsserver navigation on a consumer class name reaches its own declaration", async (t: Test) => {
+    // Regression: the generated `Crate$base` interface and class were range-mapped
+    // onto the consumer's header, so they overlapped the original `Crate` name.
+    // getTokenAtPosition then resolved a click on the class name to a `$base` node,
+    // so find-all-references and go-to-definition on the consumer name missed the
+    // declaration itself — clicking the class name in the editor did nothing. The
+    // `$base` helpers are now collapsed off-screen, so the real declaration owns the
+    // position again.
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : consumerClassNameText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const declOffset  = positionToLineOffset(consumerClassNameText, consumerClassNameText.indexOf("Crate<T> implements"))
+        const usageOffset = positionToLineOffset(consumerClassNameText, consumerClassNameText.indexOf("Crate<number>"))
+
+        const references = assertResponseBody<ReferencesBody>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, consumerClassNameText, "references", {
+                file : sourceFile,
+                ...declOffset
+            })
+        ).refs ?? []
+
+        t.true(
+            references.some((ref) =>
+                ref.file === sourceFile && ref.start.line === declOffset.line && ref.start.offset === declOffset.offset),
+            "Find-all-references from the consumer class name includes its own declaration"
+        )
+        t.true(
+            references.some((ref) => ref.isDefinition === true),
+            "Find-all-references marks the consumer declaration occurrence as a definition"
+        )
+
+        const definitions = assertResponseBody<DefinitionInfo[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, consumerClassNameText, "definition", {
+                file : sourceFile,
+                ...usageOffset
+            })
+        )
+
+        t.true(
+            definitions.some((definition) =>
+                definition.file === sourceFile &&
+                definition.start.line === declOffset.line &&
+                definition.start.offset === declOffset.offset),
+            "Go-to-definition from `new Crate<number>()` lands on the consumer class declaration"
+        )
+    } finally {
+        await fixture.dispose()
     }
 })
 

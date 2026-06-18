@@ -213,217 +213,23 @@ export function preserveSourceViewGeneratedClassLikeRange<
     tsInstance.setOriginalNode(node, original)
     preserveGeneratedOriginalNodes(tsInstance, node, original)
 
-    // A decorated original (a `@mixin` class) carries its `@mixin()` decorator in
-    // leading trivia. This generated `$base` helper has no decorator and its
-    // first child is the name, so mapping its range over the original would
-    // strand the decorator's `mixin` identifier in the node's trivia gap —
-    // tsserver's getChildren / getTokenAtPosition then throws "Did not expect
-    // <kind> to have an Identifier in its trivia", crashing quickinfo and rename
-    // on the mixin name. These `$base` helpers are never navigated to, so when
-    // the original is decorated collapse the whole subtree to a zero-width range
-    // at the original start: every trivia gap is then empty, and keeping the
-    // position at `original.pos` keeps the inserted statements contiguous so the
-    // SourceFile statement list has no identifier-bearing gap either. (Undecorated
-    // originals — consumers — keep the rich range mapping below, which their
-    // required-base diagnostics depend on; their `class ` prefix is a keyword, not
-    // an identifier, so it never trips the trivia check.)
-    if (tsInstance.getDecorators(original)?.length) {
-        collapseSubtreeTextRange(tsInstance, node, { pos: -1, end: -1 })
-
-        return node
-    }
-
-    preserveTextRange(tsInstance, node, {
-        pos : original.pos,
-        end : original.members.pos
-    })
-
-    if (node.name !== undefined && original.name !== undefined) {
-        tsInstance.setOriginalNode(node.name, original.name)
-        preserveTextRange(tsInstance, node.name, {
-            pos : original.name.getStart(original.getSourceFile()),
-            end : original.name.end
-        })
-    }
-
-    if (node.typeParameters !== undefined) {
-        // When the original is generic, span the source `<...>` so the source
-        // type-parameter identifiers are owned by the generated type parameters.
-        // A range past them instead leaves each source parameter name (e.g. the
-        // `A` in `Consumer<A>`) stranded in the gap between the generated name and
-        // type-parameter list, and tsserver's getChildren throws "Did not expect
-        // <kind> to have an Identifier in its trivia". When the original has no
-        // type parameters (the `$base` added synthetic ones such as
-        // `__mixinRequiredBase0`), there is no source identifier to strand, so
-        // collapse them to a zero-width range after the name.
-        const sourceTypeParameters = original.typeParameters
-        const listRange            = sourceTypeParameters === undefined
-            ? zeroWidthRange(original.name?.end ?? original.end)
-            : { pos: sourceTypeParameters.pos, end: sourceTypeParameters.end }
-
-        preserveTextRange(tsInstance, node.typeParameters, listRange)
-
-        node.typeParameters.forEach((typeParameter, index) => {
-            // The leading generated parameters are 1:1 clones of the source
-            // parameters: map each onto its own source range so navigation lands
-            // tightly on it instead of spanning the whole `<...>` list (which made
-            // quickinfo on a later parameter resolve to the first one). Any trailing
-            // parameters are synthetic validation ones with no source — collapse
-            // them to a zero-width range at the list end so they neither strand a
-            // source identifier nor overlap a real one.
-            const sourceTypeParameter = sourceTypeParameters?.[index]
-
-            if (sourceTypeParameter === undefined) {
-                preserveSubtreeTextRange(tsInstance, typeParameter, zeroWidthRange(listRange.end))
-
-                return
-            }
-
-            preserveSubtreeTextRange(tsInstance, typeParameter, {
-                pos : sourceTypeParameter.pos,
-                end : sourceTypeParameter.end
-            })
-
-            // preserveSubtreeTextRange widened the name to the parameter's full
-            // range; re-pin it to the source name so a constrained parameter
-            // (`<T extends Base>`) still highlights just the name.
-            preserveTextRange(tsInstance, typeParameter.name, {
-                pos : sourceTypeParameter.name.getStart(original.getSourceFile()),
-                end : sourceTypeParameter.name.end
-            })
-        })
-    }
-
-    if (node.heritageClauses !== undefined) {
-        preserveSourceViewGeneratedHeritageRanges(tsInstance, node.heritageClauses, original)
-    }
-
-    if ("members" in node) {
-        const generatedHeaderEnd = node.heritageClauses?.end ?? node.typeParameters?.end ?? node.name?.end ?? original.members.pos
-
-        preserveTextRange(tsInstance, node.members, node.members.length === 0
-            ? zeroWidthRange(generatedHeaderEnd)
-            : original.members
-        )
-
-        if (node.members.length === 0) {
-            preserveTextRange(tsInstance, node, {
-                pos : node.pos,
-                end : generatedHeaderEnd
-            })
-        }
-    }
+    // The generated `$base` interface and class are internal helpers that never
+    // appear in the source and are never navigated to. Earlier this mapped their
+    // ranges onto the original class header so they overlapped it — but then a
+    // click on the original class *name* (or a generic type parameter) resolved
+    // through `getTokenAtPosition` to the overlapping `$base` node instead of the
+    // real declaration, so find-all-references / go-to-definition on a consumer
+    // class name missed the consumer's own declaration, and quickinfo on a later
+    // type parameter landed on the first one. Collapse the whole subtree to an
+    // off-screen zero-width range: `.original` is kept (declaration emit and the
+    // required-base diagnostics need it, and those diagnostics are positioned from
+    // the real consumer, not from these ranges), while every source position stays
+    // owned by the real, position-preserved declaration. A decorated `@mixin`
+    // original already relied on this for its `@mixin()` trivia; consumers now do
+    // too, so neither a decorator nor a `class ` keyword can strand an identifier.
+    collapseSubtreeTextRange(tsInstance, node, { pos: -1, end: -1 })
 
     return node
-}
-
-// Map a generated `$base`'s `extends` heritage onto the original's heritage range
-// so its cloned base/mixin references line up with the source for navigation and
-// required-base diagnostics. A clause that is a pure metadata cast (a
-// `ParenthesizedExpression`, not an entity-name reference) is instead pinned to a
-// tight synthetic range, since it has no source to map onto.
-function preserveSourceViewGeneratedHeritageRanges(
-    tsInstance: TypeScript,
-    heritageClauses: ts.NodeArray<ts.HeritageClause>,
-    original: ts.ClassDeclaration | ts.InterfaceDeclaration
-): void {
-    const originalHeritage      = original.heritageClauses
-    const originalHeritageTypes = originalHeritage?.flatMap((heritageClause) => [ ...heritageClause.types ]) ?? []
-    const originalHeritageRange = originalHeritage === undefined
-        ? zeroWidthRange(original.name?.end ?? original.end)
-        : { pos: originalHeritage.pos, end: originalHeritage.end }
-    let generatedHeritageRange: ts.TextRange | undefined
-
-    preserveTextRange(tsInstance, heritageClauses, originalHeritageRange)
-
-    heritageClauses.forEach((heritageClause, index) => {
-        const originalClause = originalHeritage?.[Math.min(index, originalHeritage.length - 1)]
-        const clauseRange    = originalClause ?? originalHeritageRange
-
-        // A generated `$base` metadata cast (`extends (Object as unknown as ...)`)
-        // has a `ParenthesizedExpression`, not an entity name, as its expression.
-        // It carries no type arguments, so mapping it onto a source heritage type
-        // that does (the implements-only consumer's `SourceClass1<T>`) leaves that
-        // type's `<...>` in a SyntaxList trivia gap (invariant #5). The cast is
-        // never navigated, so give the whole clause a tight width-1 synthetic range
-        // — positive width keeps the cast from being treated as a "missing" type
-        // (invariant #2), and a single non-identifier char stranded nothing.
-        if (heritageClause.types.some((heritageType) => tsInstance.isParenthesizedExpression(heritageType.expression))) {
-            const castRange = generatedTextRange(original.getSourceFile(), clauseRange.pos)
-
-            collapseSubtreeTextRange(tsInstance, heritageClause, castRange)
-
-            generatedHeritageRange = generatedHeritageRange === undefined
-                ? castRange
-                : {
-                    pos : Math.min(generatedHeritageRange.pos, castRange.pos),
-                    end : Math.max(generatedHeritageRange.end, castRange.end)
-                }
-
-            return
-        }
-
-        const mappedOriginalTypes           = heritageClause.types.map((_heritageType, typeIndex) => {
-            return originalHeritageTypes[typeIndex] ??
-                originalClause?.types[Math.min(typeIndex, originalClause.types.length - 1)]
-        })
-        const mappedOriginalTypesWithRanges = mappedOriginalTypes.filter((type): type is ts.ExpressionWithTypeArguments => {
-            return type !== undefined
-        })
-
-        const heritageTypesRange = mappedOriginalTypesWithRanges.length === 0
-            ? clauseRange
-            : {
-                pos : mappedOriginalTypesWithRanges[0].pos,
-                end : mappedOriginalTypesWithRanges.at(-1)!.end
-            }
-
-        const nextHeritageRange = {
-            pos : clauseRange.pos,
-            end : heritageTypesRange.end
-        }
-
-        generatedHeritageRange = generatedHeritageRange === undefined
-            ? nextHeritageRange
-            : {
-                pos : Math.min(generatedHeritageRange.pos, nextHeritageRange.pos),
-                end : Math.max(generatedHeritageRange.end, nextHeritageRange.end)
-            }
-
-        preserveTextRange(tsInstance, heritageClause, nextHeritageRange)
-        preserveTextRange(tsInstance, heritageClause.types, heritageTypesRange)
-
-        heritageClause.types.forEach((heritageType, typeIndex) => {
-            const originalType = mappedOriginalTypes[typeIndex]
-            const typeRange    = originalType ?? clauseRange
-
-            preserveTextRange(tsInstance, heritageType, typeRange)
-            preserveTextRange(tsInstance, heritageType.expression, originalType?.expression ?? typeRange)
-
-            if (heritageType.typeArguments !== undefined) {
-                const originalTypeArguments      = originalType?.typeArguments
-                const generatedTypeArgumentRange = zeroWidthRange(heritageType.expression.end)
-
-                preserveTextRange(
-                    tsInstance,
-                    heritageType.typeArguments,
-                    originalTypeArguments ?? generatedTypeArgumentRange
-                )
-
-                heritageType.typeArguments.forEach((typeArgument, argumentIndex) => {
-                    preserveSubtreeTextRange(
-                        tsInstance,
-                        typeArgument,
-                        originalTypeArguments?.[argumentIndex] ?? generatedTypeArgumentRange
-                    )
-                })
-            }
-        })
-    })
-
-    if (generatedHeritageRange !== undefined) {
-        preserveTextRange(tsInstance, heritageClauses, generatedHeritageRange)
-    }
 }
 
 export function preserveSubtreeTextRange(

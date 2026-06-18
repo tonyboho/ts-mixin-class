@@ -43,12 +43,12 @@ import {
     hasDifferentAstShape,
     preserveTextRange,
     preserveTopLevelStatementRanges,
-    printSourceFile,
+    printSourceFileWithMappings,
     scriptKindFromFileName,
     setParentRecursivePreservingVersion,
     zeroWidthRange
 } from "./util.js"
-import type { TypeScript } from "./util.js"
+import type { PrintedSourceMapping, TypeScript } from "./util.js"
 
 export * from "./base.js"
 export * from "./runtime.js"
@@ -68,6 +68,197 @@ export { printSourceFile } from "./util.js"
 // ts-patch ProgramTransformer
 
 const preserveSourceCache = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
+
+// ---------------------------------------------------------------------------
+// Emit-path diagnostic remapping
+//
+// On the emit path the transform reprints the value-cast tree to text and reparses
+// it (required: only that form emits correct runtime JS). Mixin expansion adds and
+// removes lines, so diagnostics the checker computes over the reprinted text land on
+// regenerated lines that do not exist on disk — `tsc` then reports errors at the
+// wrong line (a deal-breaker for CI). We keep the reprinted tree for emit, but stash
+// the printer's source map on each reprinted file and wrap the program's diagnostic
+// getters to translate every diagnostic position back to the real source. The
+// language-service / `--noEmit` path is position-preserving already and never reaches
+// this code.
+
+type ReprintedLineLookup = Map<number, Array<{ generatedCharacter: number, sourceLine: number, sourceCharacter: number }>>
+
+type DiagnosticRemap = {
+    originalSourceFile : ts.SourceFile,
+    mappings           : PrintedSourceMapping[],
+    byGeneratedLine?   : ReprintedLineLookup
+}
+
+const diagnosticRemapKey = "__tsMixinClassDiagnosticRemap"
+
+function attachDiagnosticRemap(
+    printedSourceFile: ts.SourceFile,
+    originalSourceFile: ts.SourceFile,
+    mappings: PrintedSourceMapping[]
+): void {
+    ;(printedSourceFile as { [diagnosticRemapKey]?: DiagnosticRemap })[diagnosticRemapKey] = {
+        originalSourceFile,
+        mappings
+    }
+}
+
+function diagnosticRemapOf(file: ts.SourceFile | undefined): DiagnosticRemap | undefined {
+    if (file === undefined) {
+        return undefined
+    }
+
+    return (file as { [diagnosticRemapKey]?: DiagnosticRemap })[diagnosticRemapKey]
+}
+
+function generatedLineLookup(remap: DiagnosticRemap): ReprintedLineLookup {
+    if (remap.byGeneratedLine !== undefined) {
+        return remap.byGeneratedLine
+    }
+
+    const byGeneratedLine: ReprintedLineLookup = new Map()
+
+    for (const mapping of remap.mappings) {
+        const entries = byGeneratedLine.get(mapping.generatedLine) ?? []
+
+        entries.push({
+            generatedCharacter : mapping.generatedCharacter,
+            sourceLine         : mapping.sourceLine,
+            sourceCharacter    : mapping.sourceCharacter
+        })
+        byGeneratedLine.set(mapping.generatedLine, entries)
+    }
+
+    for (const entries of byGeneratedLine.values()) {
+        entries.sort((left, right) => left.generatedCharacter - right.generatedCharacter)
+    }
+
+    remap.byGeneratedLine = byGeneratedLine
+
+    return byGeneratedLine
+}
+
+// Translate an offset in the reprinted text to the matching offset in the original
+// source, via the printer's source map. Returns undefined when the line carries no
+// mapping (e.g. fully generated runtime helpers) so the caller can leave such a
+// diagnostic untouched rather than move it to a bogus position.
+function mapPrintedOffsetToSource(
+    tsInstance: TypeScript,
+    remap: DiagnosticRemap,
+    printedSourceFile: ts.SourceFile,
+    printedOffset: number
+): number | undefined {
+    const generated = tsInstance.getLineAndCharacterOfPosition(printedSourceFile, printedOffset)
+    const entries   = generatedLineLookup(remap).get(generated.line)
+
+    if (entries === undefined || entries.length === 0) {
+        return undefined
+    }
+
+    let match = entries[0]
+
+    for (const entry of entries) {
+        if (entry.generatedCharacter <= generated.character) {
+            match = entry
+        } else {
+            break
+        }
+    }
+
+    const originalText = remap.originalSourceFile.text
+    const lineStarts   = remap.originalSourceFile.getLineStarts()
+
+    if (match.sourceLine >= lineStarts.length) {
+        return undefined
+    }
+
+    const lineStart     = lineStarts[match.sourceLine]
+    const nextLineStart = match.sourceLine + 1 < lineStarts.length ? lineStarts[match.sourceLine + 1] : originalText.length
+    const sourceChar    = match.sourceCharacter + (generated.character - match.generatedCharacter)
+
+    return lineStart + Math.min(Math.max(0, sourceChar), Math.max(0, nextLineStart - lineStart))
+}
+
+function remapDiagnostic<Diagnostic extends ts.Diagnostic | ts.DiagnosticRelatedInformation>(
+    tsInstance: TypeScript,
+    diagnostic: Diagnostic
+): Diagnostic {
+    const remap = diagnosticRemapOf(diagnostic.file)
+
+    if (remap === undefined || diagnostic.file === undefined) {
+        return diagnostic
+    }
+
+    const printedSourceFile = diagnostic.file
+    const start             = diagnostic.start === undefined
+        ? undefined
+        : mapPrintedOffsetToSource(tsInstance, remap, printedSourceFile, diagnostic.start)
+
+    // The position could not be mapped (generated-only line): keep the diagnostic as
+    // is rather than pin it onto the original file at a wrong offset.
+    if (diagnostic.start !== undefined && start === undefined) {
+        return diagnostic
+    }
+
+    let length = diagnostic.length
+
+    if (diagnostic.start !== undefined && diagnostic.length !== undefined && start !== undefined) {
+        const end = mapPrintedOffsetToSource(tsInstance, remap, printedSourceFile, diagnostic.start + diagnostic.length)
+
+        if (end !== undefined && end >= start) {
+            length = end - start
+        }
+    }
+
+    const relatedInformation = (diagnostic as ts.Diagnostic).relatedInformation?.map((related) => {
+        return remapDiagnostic(tsInstance, related)
+    })
+
+    return {
+        ...diagnostic,
+        file               : remap.originalSourceFile,
+        start,
+        length,
+        relatedInformation : relatedInformation ?? (diagnostic as ts.Diagnostic).relatedInformation
+    }
+}
+
+function remapDiagnostics<Diagnostic extends ts.Diagnostic>(
+    tsInstance: TypeScript,
+    diagnostics: readonly Diagnostic[]
+): Diagnostic[] {
+    return diagnostics.map((diagnostic) => remapDiagnostic(tsInstance, diagnostic))
+}
+
+// Wrap the diagnostic getters tsc reports through so emit-path positions point at the
+// real source. `getSyntacticDiagnostics` (DiagnosticWithLocation) stays well-typed
+// because the remap keeps a `file`. `emit` carries declaration-emit diagnostics.
+function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts.Program {
+    const originalGetSyntactic   = program.getSyntacticDiagnostics.bind(program)
+    const originalGetSemantic    = program.getSemanticDiagnostics.bind(program)
+    const originalGetDeclaration = program.getDeclarationDiagnostics.bind(program)
+    const originalEmit           = program.emit.bind(program)
+
+    program.getSyntacticDiagnostics   = (sourceFile, cancellationToken) => {
+        return remapDiagnostics(tsInstance, originalGetSyntactic(sourceFile, cancellationToken))
+    }
+    program.getSemanticDiagnostics    = (sourceFile, cancellationToken) => {
+        return remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken))
+    }
+    program.getDeclarationDiagnostics = (sourceFile, cancellationToken) => {
+        return remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken))
+    }
+    program.emit                      = (targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers) => {
+        const result = originalEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers)
+
+        return {
+            ...result,
+            diagnostics : remapDiagnostics(tsInstance, result.diagnostics)
+        }
+    }
+
+    return program
+}
 
 function resolveTransformOptions(config: MixinClassTransformerConfig): TransformOptions {
     return {
@@ -149,12 +340,12 @@ export default function transformProgram(
         }
     const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program)
 
-    return tsInstance.createProgram(
+    return wrapProgramDiagnostics(tsInstance, tsInstance.createProgram(
         program.getRootFileNames(),
         compilerOptions,
         nextHost,
         undefined
-    )
+    ))
 }
 
 export function createMixinClassCompilerHost(
@@ -250,13 +441,19 @@ export function createMixinClassCompilerHost(
                     return sourceFile
                 }
 
+                const printed           = printSourceFileWithMappings(tsInstance, transformedSourceFile)
                 const printedSourceFile = tsInstance.createSourceFile(
                     fileName,
-                    printSourceFile(tsInstance, transformedSourceFile),
+                    printed.text,
                     languageVersionOrOptions,
                     true,
                     scriptKindFromFileName(tsInstance, fileName)
                 )
+
+                // Remember how to translate diagnostics computed over this reprinted text
+                // back to the real source, so the program wrapper can fix emit-path line
+                // numbers without touching the (runtime-correct) reprinted tree.
+                attachDiagnosticRemap(printedSourceFile, sourceFile, printed.mappings)
 
                 setCachedSourceFile(sourceCache, sourceFile, cacheKey, printedSourceFile)
 

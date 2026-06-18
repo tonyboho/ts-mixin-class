@@ -12,6 +12,7 @@ import {
 } from "./model.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
+    collapseSubtreeTextRange,
     deepCloneNode,
     preserveGeneratedDeclarationRange
 } from "./util.js"
@@ -72,15 +73,38 @@ export function createConstructionMembers(
         ? { pos: generatedRange.pos + index, end: generatedRange.pos + index + 1 }
         : generatedRange
 
+    const finishMember = (member: ts.ClassElement, index: number): ts.ClassElement => {
+        return preserveGeneratedDeclarationRange(tsInstance, member, overloadRange(index), declaration)
+    }
+
+    // The generic overload's type parameters are `deepCloneNode`d from the class,
+    // so they keep their source positions while the method itself is pinned to a
+    // tiny synthetic overload range — those stranded identifiers crash tsserver's
+    // getChildren (invariant #5). Collapse just the clones to a synthetic range
+    // (`preserveTopLevelStatementRanges` then normalises them with the rest of the
+    // method, gap-free); positions never affect typing. The clone keeps every other
+    // child synthetic, so only the type parameters need this, and the second
+    // (implementation) overload — all factory-fresh — is left untouched so the
+    // checker's overload-success elaboration keeps a valid error span.
+    const constructionTypeParameters = declaration.typeParameters === undefined
+        ? undefined
+        : factory.createNodeArray(declaration.typeParameters.map((typeParameter) => {
+            const clone = deepCloneNode(tsInstance, typeParameter)
+
+            if (options.sourceView) {
+                collapseSubtreeTextRange(tsInstance, clone, { pos: -1, end: -1 })
+            }
+
+            return clone
+        }))
+
     return [
-        preserveGeneratedDeclarationRange(tsInstance, factory.createMethodDeclaration(
+        finishMember(factory.createMethodDeclaration(
             staticModifier,
             undefined,
             "new",
             undefined,
-            declaration.typeParameters === undefined
-                ? undefined
-                : factory.createNodeArray(declaration.typeParameters.map((typeParameter) => deepCloneNode(tsInstance, typeParameter))),
+            constructionTypeParameters,
             [ factory.createParameterDeclaration(
                 undefined,
                 undefined,
@@ -90,8 +114,8 @@ export function createConstructionMembers(
             ) ],
             consumerType,
             undefined
-        ), overloadRange(0), declaration),
-        preserveGeneratedDeclarationRange(tsInstance, factory.createMethodDeclaration(
+        ), 0),
+        finishMember(factory.createMethodDeclaration(
             staticModifier,
             undefined,
             "new",
@@ -115,7 +139,7 @@ export function createConstructionMembers(
                     [ factory.createIdentifier("props") ]
                 ))
             ], true)
-        ), overloadRange(1), declaration)
+        ), 1)
     ]
 }
 

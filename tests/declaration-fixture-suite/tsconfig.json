@@ -10,6 +10,7 @@
         "strict": true,
         "useDefineForClassFields": false,
         "skipLibCheck": true,
+        "declaration": true,
         "rootDir": "src",
         "outDir": "dist",
         "plugins": [

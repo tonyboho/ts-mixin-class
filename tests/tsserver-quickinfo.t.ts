@@ -461,6 +461,109 @@ it("tsserver quickinfo does not crash on a generic construction-base mixin", asy
     await assertQuickInfoOnClassNameDoesNotCrash(t, genericConstructionText, "Container", "class Container")
 })
 
+const genericConsumerTypeParametersText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Boxed<T> {
+        value?: T
+    }
+
+    @mixin()
+    class Labeled<A> {
+        label?: A
+    }
+
+    class Combined<T, A> implements Boxed<T>, Labeled<A> {}
+`)
+
+it("tsserver quickinfo highlights exactly the consumer's second type parameter", async (t: Test) => {
+    // Regression (source-view type-parameter ranges): every generated type-parameter
+    // clone was pinned to the whole `<T, A>` list range, so the clones overlapped.
+    // Hovering the second parameter `A` resolved to the first (`T`) with a span
+    // covering the entire list. Each clone now maps onto its own source parameter.
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : genericConsumerTypeParametersText } ]
+    })
+
+    try {
+        const sourceFile    = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const paramPosition = genericConsumerTypeParametersText.indexOf("Combined<T, A>") + "Combined<T, ".length
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                genericConsumerTypeParametersText,
+                "quickinfo",
+                { file : sourceFile, ...positionToLineOffset(genericConsumerTypeParametersText, paramPosition) }
+            )
+        )
+
+        t.match(quickInfo.displayString ?? "", "(type parameter) A",
+            "QuickInfo on the second type parameter resolves to it, not the first")
+        t.equal(positionToIndex(genericConsumerTypeParametersText, quickInfo.start), paramPosition,
+            "QuickInfo highlight starts exactly at the second type parameter")
+        t.equal(sourceSlice(genericConsumerTypeParametersText, quickInfo), "A",
+            "QuickInfo highlight covers exactly the second type parameter")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+const mixinExtendsMixinText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Animal {
+        species?: string
+    }
+
+    @mixin()
+    class Dog extends Animal {
+        breed?: string
+    }
+`)
+
+it("tsserver quickinfo highlights exactly a mixin's source base type name", async (t: Test) => {
+    // Regression (source-view mixin heritage range): a mixin's `extends Animal` is
+    // rewritten to `extends Dog$base`, whose generated reference spanned the whole
+    // heritage clause — hovering the source `Animal` highlighted all of
+    // `extends Animal`. The generated reference is now pinned onto the source base
+    // type name, so the highlight lands exactly on it. (The displayString is the
+    // generated `$base`, which these decorated `$base` helpers report as `any`; the
+    // guard here is the span, mirroring stress-quickinfo.)
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : mixinExtendsMixinText } ]
+    })
+
+    try {
+        const sourceFile   = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const basePosition = mixinExtendsMixinText.indexOf("extends Animal") + "extends ".length
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                mixinExtendsMixinText,
+                "quickinfo",
+                { file : sourceFile, ...positionToLineOffset(mixinExtendsMixinText, basePosition) }
+            )
+        )
+
+        t.equal(positionToIndex(mixinExtendsMixinText, quickInfo.start), basePosition,
+            "QuickInfo highlight starts exactly at the source base type name")
+        t.equal(sourceSlice(mixinExtendsMixinText, quickInfo), "Animal",
+            "QuickInfo highlight covers exactly the source base type name")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 const badLinearizationText = trimIndent(`
     import { mixin } from "ts-mixin-class"
 

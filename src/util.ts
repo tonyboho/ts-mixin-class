@@ -249,25 +249,48 @@ export function preserveSourceViewGeneratedClassLikeRange<
     if (node.typeParameters !== undefined) {
         // When the original is generic, span the source `<...>` so the source
         // type-parameter identifiers are owned by the generated type parameters.
-        // A zero-width range past them instead leaves each source parameter name
-        // (e.g. the `A` in `Consumer<A>`) stranded in the gap between the
-        // generated name and type-parameter list, and tsserver's getChildren
-        // throws "Did not expect <kind> to have an Identifier in its trivia". When
-        // the original has no type parameters (the `$base` added synthetic ones
-        // such as `__mixinRequiredBase0`), there is no source identifier to strand,
-        // so collapse them to a zero-width range after the name.
-        const generatedTypeParameterRange = original.typeParameters === undefined
+        // A range past them instead leaves each source parameter name (e.g. the
+        // `A` in `Consumer<A>`) stranded in the gap between the generated name and
+        // type-parameter list, and tsserver's getChildren throws "Did not expect
+        // <kind> to have an Identifier in its trivia". When the original has no
+        // type parameters (the `$base` added synthetic ones such as
+        // `__mixinRequiredBase0`), there is no source identifier to strand, so
+        // collapse them to a zero-width range after the name.
+        const sourceTypeParameters = original.typeParameters
+        const listRange            = sourceTypeParameters === undefined
             ? zeroWidthRange(original.name?.end ?? original.end)
-            : { pos: original.typeParameters.pos, end: original.typeParameters.end }
+            : { pos: sourceTypeParameters.pos, end: sourceTypeParameters.end }
 
-        preserveTextRange(tsInstance, node.typeParameters, generatedTypeParameterRange)
+        preserveTextRange(tsInstance, node.typeParameters, listRange)
 
-        node.typeParameters.forEach((typeParameter) => {
-            preserveSubtreeTextRange(
-                tsInstance,
-                typeParameter,
-                generatedTypeParameterRange
-            )
+        node.typeParameters.forEach((typeParameter, index) => {
+            // The leading generated parameters are 1:1 clones of the source
+            // parameters: map each onto its own source range so navigation lands
+            // tightly on it instead of spanning the whole `<...>` list (which made
+            // quickinfo on a later parameter resolve to the first one). Any trailing
+            // parameters are synthetic validation ones with no source — collapse
+            // them to a zero-width range at the list end so they neither strand a
+            // source identifier nor overlap a real one.
+            const sourceTypeParameter = sourceTypeParameters?.[index]
+
+            if (sourceTypeParameter === undefined) {
+                preserveSubtreeTextRange(tsInstance, typeParameter, zeroWidthRange(listRange.end))
+
+                return
+            }
+
+            preserveSubtreeTextRange(tsInstance, typeParameter, {
+                pos : sourceTypeParameter.pos,
+                end : sourceTypeParameter.end
+            })
+
+            // preserveSubtreeTextRange widened the name to the parameter's full
+            // range; re-pin it to the source name so a constrained parameter
+            // (`<T extends Base>`) still highlights just the name.
+            preserveTextRange(tsInstance, typeParameter.name, {
+                pos : sourceTypeParameter.name.getStart(original.getSourceFile()),
+                end : sourceTypeParameter.name.end
+            })
         })
     }
 

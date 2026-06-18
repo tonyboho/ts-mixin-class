@@ -262,6 +262,11 @@ function expandSourceViewMixinClass(
             sourceFile,
             declaration.heritageClauses?.pos ?? declaration.typeParameters?.end ?? declaration.name.end
         )
+    // Pin the generated `extends __X$base` reference onto the source base type so
+    // hovering the original base name (`RequiredBase` in `extends RequiredBase`)
+    // highlights just that identifier instead of the whole heritage clause.
+    // Matches how the consumer path passes `generatedHeritageTypeRange`.
+    const generatedHeritageTypeRange = extendsClause(tsInstance, declaration)?.types[0] ?? generatedHeritageRange
 
     if (dependencyHeritage.length === 0 && requiredBase === undefined) {
         const metadataExtendsClause = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
@@ -347,7 +352,7 @@ function expandSourceViewMixinClass(
         declaration.modifiers,
         declaration.name,
         declaration.typeParameters,
-        consumerHeritageClauses(tsInstance, declaration, baseName, generatedHeritageRange),
+        consumerHeritageClauses(tsInstance, declaration, baseName, generatedHeritageRange, generatedHeritageTypeRange),
         mixinMembers
     )
 

@@ -1,6 +1,6 @@
 {
     "name": "ts-mixin-class",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "TypeScript program transformer skeleton for class-level mixin decorators.",
     "type": "module",
     "packageManager": "pnpm@11.7.0",

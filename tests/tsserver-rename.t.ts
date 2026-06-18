@@ -1,6 +1,8 @@
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
+import { createTypeScriptFixture, requiredFixtureSourceFile, trimIndent } from "./util.js"
+import { assertResponseBody, positionToLineOffset, runTypeScriptServerRequest } from "./tsserver-util.js"
 import {
     assertRenameAllowed,
     consumerSuperMixinMethodArgs,
@@ -14,6 +16,50 @@ import {
     superMixinPropertyArgs,
     usageArgs
 } from "./tsserver-editor-util.js"
+
+const standaloneConstructionText = trimIndent(`
+    import { Base, mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Serializable extends Base {
+        public format?: string = "json"
+    }
+
+    const created: Serializable = Serializable.new()
+    void created
+`)
+
+it("tsserver rename does not crash on a construction-base mixin's generated .new()", async (t: Test) => {
+    // Regression: the source-view source file is built from a throwaway clone the
+    // program never binds. The generated `static new` carried an `originalNode` to
+    // the (clone) class, so rename/go-to-definition on `Serializable.new()` mapped
+    // the overload back to that unbound clone via getParseTreeNode and crashed the
+    // checker with "Cannot read properties of undefined (reading 'members')".
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : standaloneConstructionText } ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const newCall    = standaloneConstructionText.indexOf("Serializable.new()") + "Serializable.".length
+
+        const body = assertResponseBody(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                standaloneConstructionText,
+                "rename",
+                { file : sourceFile, ...positionToLineOffset(standaloneConstructionText, newCall + 1) }
+            )
+        )
+
+        t.true(body !== undefined, "Rename on a generated .new() responds instead of crashing the checker")
+    } finally {
+        await fixture.dispose()
+    }
+})
 
 it("tsserver rename updates mixin method usages from self, external and super calls", async (t: Test) => {
     const { sourceFile, dispose } = await createEditorFixture()

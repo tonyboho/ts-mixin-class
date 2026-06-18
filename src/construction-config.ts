@@ -14,7 +14,8 @@ import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js
 import {
     collapseSubtreeTextRange,
     deepCloneNode,
-    preserveGeneratedDeclarationRange
+    preserveGeneratedDeclarationRange,
+    preserveTextRange
 } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -74,6 +75,20 @@ export function createConstructionMembers(
         : generatedRange
 
     const finishMember = (member: ts.ClassElement, index: number): ts.ClassElement => {
+        // In source view, do NOT anchor the generated `static new` to the original
+        // class via `setOriginalNode`. The source-view source file is built from a
+        // throwaway clone that the program never binds; an `originalNode` pointing at
+        // the (clone) class makes tsserver's go-to-definition / rename on a call like
+        // `Mixin.new(...)` map the overload back to that unbound clone via
+        // `getParseTreeNode` and crash in the checker ("Cannot read properties of
+        // undefined (reading 'members')"). The construction members are fully
+        // synthetic, so they need no original for declaration emit (unlike the
+        // update-derived `$base`/value declarations), and their range is pinned
+        // explicitly below. Emit keeps the original for source-map fidelity.
+        if (options.sourceView) {
+            return preserveTextRange(tsInstance, member, overloadRange(index))
+        }
+
         return preserveGeneratedDeclarationRange(tsInstance, member, overloadRange(index), declaration)
     }
 

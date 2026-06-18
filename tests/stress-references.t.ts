@@ -28,10 +28,14 @@ import type { LineOffset, SymbolSite } from "./stress/symbols.js"
 //      Every symbol references itself, so a non-empty result that omits the query
 //      site means the position resolved to a generated node instead of the source
 //      declaration — exactly the bug where find-all-references on a consumer class
-//      name returned its usages but not its own declaration. A legitimately empty
-//      result (e.g. a base type name in a rewritten `extends` clause that has no
-//      navigable references) is tolerated and counted, like rename's non-renameable
-//      symbols.
+//      name returned its usages but not its own declaration, and
+//   4. an *empty* result is only tolerated where it is legitimately expected:
+//      identifiers inside a class heritage clause (the heritage-rewrite navigation
+//      gap — a rewritten `extends`/`implements` resolves its base name and type
+//      arguments to a generated node) and member names of a property access (an
+//      access to a non-existent member has no symbol). Every other empty result is
+//      a failure: a normal declaration or usage that returns no references means its
+//      position stopped resolving to its own symbol.
 //
 // All randomness comes from one seed, logged into the assertion, so a failure is
 // reproducible with `MIXIN_STRESS_SEED=<seed>`.
@@ -115,7 +119,18 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
             const refs = (response.body as ReferencesBody | undefined)?.refs ?? []
 
             if (refs.length === 0) {
-                emptyResults++
+                if (site.inHeritageClause || site.isMemberName) {
+                    emptyResults++
+                } else {
+                    failure = [
+                        "Find-all-references returned no locations for a symbol that should reference itself.",
+                        `seed=${seed}  (reproduce: MIXIN_STRESS_SEED=${seed} pnpm test)`,
+                        describe(site),
+                        "Only heritage-clause identifiers and property-access member names may be empty."
+                    ].join("\n")
+
+                    return
+                }
             } else if (refs.some((ref) => ref.file === site.file && sameLineOffset(ref.start, site.start))) {
                 withSelf++
             } else {
@@ -161,9 +176,10 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
         }
 
         t.pass(
-            `Ran ${iterations} references requests (${withSelf} included the query site, ${emptyResults} empty, ` +
-                `${spanChecks} reference spans checked) over ${sites.length} symbols in ${corpus.length} files, ` +
-                `seed=${seed}, every span exact and every non-empty result self-inclusive.`
+            `Ran ${iterations} references requests (${withSelf} included the query site, ` +
+                `${emptyResults} tolerated-empty heritage/member-name, ${spanChecks} reference spans checked) ` +
+                `over ${sites.length} symbols in ${corpus.length} files, seed=${seed}, every span exact, ` +
+                `every non-empty result self-inclusive, and no unexpected empty result.`
         )
     } finally {
         await session.close()

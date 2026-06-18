@@ -100,7 +100,8 @@ export function expandConsumerClass(
                 declaration,
                 context,
                 expansion.directMixinRefs,
-                error
+                error,
+                options
             )
         }
 
@@ -439,7 +440,8 @@ function expandConsumerClassWithLinearizationDiagnostic(
     declaration: ts.ClassDeclaration,
     context: FileMixinContext,
     directMixinRefs: ResolvedMixinRef[],
-    error: DependencyLinearizationError
+    error: DependencyLinearizationError,
+    options: TransformOptions
 ): ts.Statement[] {
     const factory = tsInstance.factory
 
@@ -472,7 +474,7 @@ function expandConsumerClassWithLinearizationDiagnostic(
         [ diagnosticValidation ]
     )
 
-    const baseInterface = preserveGeneratedDeclarationRange(tsInstance, factory.createInterfaceDeclaration(
+    const baseInterfaceNode = factory.createInterfaceDeclaration(
         undefined,
         baseName,
         checkedTypeParameters,
@@ -484,9 +486,17 @@ function expandConsumerClassWithLinearizationDiagnostic(
             ]
         ) ],
         []
-    ), generatedRange, declaration)
+    )
+    // The cloned heritage keeps its source positions; in source view route the
+    // generated `$base` through the range mapper (which maps the cloned mixin
+    // references onto the source `implements`/`extends` and keeps the helper from
+    // spanning the consumer's name) rather than the throwaway emit range, which
+    // would otherwise strand the consumer name in the helper's trivia (invariant #5).
+    const baseInterface = options.sourceView
+        ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseInterfaceNode, declaration)
+        : preserveGeneratedDeclarationRange(tsInstance, baseInterfaceNode, generatedRange, declaration)
 
-    const baseClass = preserveGeneratedDeclarationRange(tsInstance, factory.createClassDeclaration(
+    const baseClassNode = factory.createClassDeclaration(
         undefined,
         baseName,
         appendRequiredBaseValidationTypeParameters(
@@ -501,7 +511,10 @@ function expandConsumerClassWithLinearizationDiagnostic(
             )
         ]) ],
         []
-    ), generatedRange, declaration)
+    )
+    const baseClass     = options.sourceView
+        ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseClassNode, declaration)
+        : preserveGeneratedDeclarationRange(tsInstance, baseClassNode, generatedRange, declaration)
 
     const updatedConsumer = factory.updateClassDeclaration(
         declaration,

@@ -2,40 +2,26 @@ import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { createTypeScriptFixture, requiredFixtureSourceFile, trimIndent } from "./util.js"
-import { runTypeScriptServerRequest } from "./tsserver-util.js"
+import { assertResponseBody, runTypeScriptServerRequest } from "./tsserver-util.js"
 
-// Repro for a tsserver crash: under `declaration: true`, requesting semantic
-// diagnostics for a file with a *valid* `@mixin` class throws server-side, so the
-// editor receives an error response and shows **no diagnostics at all** — real type
-// errors in the file silently disappear in the IDE while `tsc` still reports them.
-// (Found via the ts-serializable package, whose tsconfig has `declaration: true`;
-// minimised here to a single mixin class. Decorator mode is irrelevant — both
-// legacy and standard decorators crash.)
+type SemanticDiagnostic = { code?: number, text?: string, message?: string }
+
+// Regression guard: under `declaration: true`, requesting semantic diagnostics for a
+// file with a valid `@mixin` class used to crash tsserver server-side, so the editor
+// received an error response and showed **no diagnostics at all** — real type errors
+// silently disappeared in the IDE while `tsc` still reported them. (Found via the
+// ts-serializable package, whose tsconfig has `declaration: true`.)
 //
-// Why this was not caught: the crash needs the intersection of three things — a
-// VALID mixin (which generates the navigable `$base` interface/class helpers),
-// `declaration: true` (so semantic diagnostics also run declaration-emit
-// diagnostics), and the tsserver/source-view path (generated nodes whose parse-tree
-// mapping does not resolve). The `declaration-fixture-suite` exercises valid mixins
-// under `declaration: true` but via batch `tsc` (the emit path, over reprinted +
-// reparsed source) — it never hits this path. The `tsserver-diagnostics.t.ts` tests
-// run under `declaration: true` via tsserver, but on INVALID mixins, which the
-// transform rejects with a custom diagnostic before generating any `$base` helpers,
-// so declaration emit has no generated node to crash on. This is the first test to
-// hit all three at once.
+// Cause: semantic diagnostics also compute declaration diagnostics when `declaration`
+// is enabled, running TypeScript's declaration-emit transform over the source-view
+// tree. It crashed in `isDeclarationAndNotVisible` (`getParseTreeNode(node).kind` on
+// `undefined`) on a fully-synthetic generated member — the construction `static new`,
+// which carries no `.original`. `alignGeneratedNavigableNodesWithParseTree` now clears
+// the `Synthesized` flag on such generated members so they resolve to themselves.
 //
-// TODO(declaration-emit diagnostics crash): KNOWN GAP. tsserver's
-// `semanticDiagnosticsSync` also computes declaration diagnostics when
-// `declaration` is enabled. That runs TypeScript's declaration-emit transform over
-// the source-view tree, which crashes in `isDeclarationAndNotVisible`
-// (`getParseTreeNode(node).kind` on `undefined`) on a generated declaration node
-// whose parse-tree mapping does not resolve — the same family as invariant #9, but
-// reached through the declaration-emit path rather than navigation. Batch `tsc`
-// reports the file's real errors; only the tsserver/source-view path crashes, and
-// quickinfo/completions keep working (different code path), which is why the IDE
-// looks merely "error-free". Workaround: `declaration: false`. The assertion below
-// states the correct behaviour (the request succeeds) and is wrapped in `t.todo` so
-// it runs and stays visible without failing the suite. See TODO.md.
+// The fixture below both triggers declaration emit (a mixin) and contains a deliberate
+// type error, so the test guards two things at once: the request no longer crashes,
+// and real semantic errors still surface through it.
 const mixinUnderDeclarationEmitText = trimIndent(`
     import { Base, mixin } from "ts-mixin-class"
 
@@ -45,9 +31,12 @@ const mixinUnderDeclarationEmitText = trimIndent(`
     }
 
     export const widget = Widget.new()
+
+    // Deliberate type error that must surface through semantic diagnostics.
+    export const broken: string = widget.value
 `)
 
-it("tsserver semantic diagnostics succeed on a mixin under declaration emit", async (t: Test) => {
+it("tsserver semantic diagnostics succeed and surface errors on a mixin under declaration emit", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : true,
         compilerOptions        : { declaration : true },
@@ -55,21 +44,21 @@ it("tsserver semantic diagnostics succeed on a mixin under declaration emit", as
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const response   = await runTypeScriptServerRequest(
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const response    = await runTypeScriptServerRequest(
             fixture.directory,
             sourceFile,
             mixinUnderDeclarationEmitText,
             "semanticDiagnosticsSync",
             { file : sourceFile }
         )
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(t, response)
+        const codes       = diagnostics.map((diagnostic) => diagnostic.code)
 
-        t.todo("semanticDiagnosticsSync does not crash under `declaration: true` (declaration-emit gap)", (t: Test) => {
-            t.true(
-                response.success,
-                `semanticDiagnosticsSync should succeed; instead the server returned: ${response.message ?? "<no message>"}`
-            )
-        })
+        t.true(
+            codes.includes(2322),
+            `Semantic diagnostics should report the deliberate type error (TS2322); got codes [${codes.join(", ")}]`
+        )
     } finally {
         await fixture.dispose()
     }

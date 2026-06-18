@@ -416,14 +416,32 @@ export function alignGeneratedNavigableNodesWithParseTree(
 
     const align = (node: ts.Node): void => {
         const original = (node as { original?: ts.Node }).original
+        const escapes  = original !== undefined && !inTree.has(original)
 
-        if (
-            original !== undefined &&
-            !inTree.has(original) &&
-            node.pos >= 0 &&
-            node.end >= 0 &&
-            isNavigableGeneratedNodeKind(tsInstance, node)
-        ) {
+        // A generated node with a positive range already lives in the bound returned
+        // tree; only the `Synthesized` flag makes `getParseTreeNode` walk `.original`
+        // — into the unbound clone, or to `undefined` when there is no original — and
+        // crash the checker (`getSymbolOfDeclaration(...).members` during a scope walk)
+        // or, in declaration emit, `isDeclarationAndNotVisible` reading
+        // `getParseTreeNode(node).kind`. Clearing the flag makes it resolve to itself;
+        // never clear a node whose `.original` resolves in-tree, where the checker must
+        // follow it (invariant #9).
+        //
+        // Two cases, deliberately narrow:
+        //   - NAVIGABLE kinds (class-likes, identifiers, type params/refs, heritage
+        //     expressions, constructors) only when their `.original` ESCAPES. These are
+        //     navigation targets; a *no-original* synthetic among them is the rewritten
+        //     heritage (`extends __X$base` pinned onto the source base name), and
+        //     clearing its flag breaks find-all-references / rename on the base name.
+        //   - GENERATED MEMBERS (the construction `static new` and generated
+        //     property/accessor) when they have NO resolvable parse-tree node at all.
+        //     They have no source counterpart, are never navigated to, and otherwise
+        //     crash declaration-emit diagnostics under `declaration: true`.
+        const clearable =
+            (escapes && isNavigableGeneratedNodeKind(tsInstance, node)) ||
+            ((escapes || original === undefined) && isGeneratedMemberNodeKind(tsInstance, node))
+
+        if (clearable && node.pos >= 0 && node.end >= 0) {
             ;(node as { flags: number }).flags &= ~synthesized
         }
 
@@ -444,6 +462,17 @@ function isNavigableGeneratedNodeKind(tsInstance: TypeScript, node: ts.Node): bo
         tsInstance.isTypeReferenceNode(node) ||
         tsInstance.isExpressionWithTypeArguments(node) ||
         tsInstance.isConstructorDeclaration(node)
+}
+
+// Generated class members declaration emit visits via `visitDeclarationSubtree`
+// (the construction `static new` and any generated property/accessor). A fully
+// synthetic member with no `.original` makes `getParseTreeNode` return `undefined`,
+// which crashes `isDeclarationAndNotVisible` under `declaration: true`.
+function isGeneratedMemberNodeKind(tsInstance: TypeScript, node: ts.Node): boolean {
+    return tsInstance.isMethodDeclaration(node) ||
+        tsInstance.isPropertyDeclaration(node) ||
+        tsInstance.isGetAccessorDeclaration(node) ||
+        tsInstance.isSetAccessorDeclaration(node)
 }
 
 export function cloneNode<Node extends ts.Node>(tsInstance: TypeScript, node: Node): Node {

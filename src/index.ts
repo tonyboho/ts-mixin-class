@@ -82,12 +82,10 @@ const preserveSourceCache = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile
 // language-service / `--noEmit` path is position-preserving already and never reaches
 // this code.
 
-type ReprintedLineLookup = Map<number, Array<{ generatedCharacter: number, sourceLine: number, sourceCharacter: number }>>
-
 type DiagnosticRemap = {
     originalSourceFile : ts.SourceFile,
     mappings           : PrintedSourceMapping[],
-    byGeneratedLine?   : ReprintedLineLookup
+    sortedMappings?    : PrintedSourceMapping[]
 }
 
 const diagnosticRemapKey = "__tsMixinClassDiagnosticRemap"
@@ -111,72 +109,101 @@ function diagnosticRemapOf(file: ts.SourceFile | undefined): DiagnosticRemap | u
     return (file as { [diagnosticRemapKey]?: DiagnosticRemap })[diagnosticRemapKey]
 }
 
-function generatedLineLookup(remap: DiagnosticRemap): ReprintedLineLookup {
-    if (remap.byGeneratedLine !== undefined) {
-        return remap.byGeneratedLine
+function sortedMappingsOf(remap: DiagnosticRemap): PrintedSourceMapping[] {
+    if (remap.sortedMappings !== undefined) {
+        return remap.sortedMappings
     }
 
-    const byGeneratedLine: ReprintedLineLookup = new Map()
+    remap.sortedMappings = [ ...remap.mappings ].sort((left, right) => {
+        return left.generatedLine - right.generatedLine ||
+            left.generatedCharacter - right.generatedCharacter
+    })
 
-    for (const mapping of remap.mappings) {
-        const entries = byGeneratedLine.get(mapping.generatedLine) ?? []
+    return remap.sortedMappings
+}
 
-        entries.push({
-            generatedCharacter : mapping.generatedCharacter,
-            sourceLine         : mapping.sourceLine,
-            sourceCharacter    : mapping.sourceCharacter
-        })
-        byGeneratedLine.set(mapping.generatedLine, entries)
+// Index of the greatest source-map entry whose generated position is `<=` the queried
+// one, by binary search; -1 when the query precedes every entry. The entry on the
+// *same* generated line gives a column-accurate translation; when the queried line has
+// no entry — a fully generated line, e.g. a transformer-emitted diagnostic anchored to
+// synthetic code — the nearest preceding entry still recovers the correct source line.
+function precedingMappingIndex(
+    sortedMappings: PrintedSourceMapping[],
+    generatedLine: number,
+    generatedCharacter: number
+): number {
+    let low   = 0
+    let high  = sortedMappings.length - 1
+    let match = -1
+
+    while (low <= high) {
+        const mid     = (low + high) >> 1
+        const mapping = sortedMappings[mid]
+        const ordered = mapping.generatedLine < generatedLine ||
+            mapping.generatedLine === generatedLine && mapping.generatedCharacter <= generatedCharacter
+
+        if (ordered) {
+            match = mid
+            low   = mid + 1
+        } else {
+            high = mid - 1
+        }
     }
 
-    for (const entries of byGeneratedLine.values()) {
-        entries.sort((left, right) => left.generatedCharacter - right.generatedCharacter)
-    }
-
-    remap.byGeneratedLine = byGeneratedLine
-
-    return byGeneratedLine
+    return match
 }
 
 // Translate an offset in the reprinted text to the matching offset in the original
-// source, via the printer's source map. Returns undefined when the line carries no
-// mapping (e.g. fully generated runtime helpers) so the caller can leave such a
-// diagnostic untouched rather than move it to a bogus position.
+// source, via the printer's source map. Returns undefined only when the file carries
+// no usable mapping (nothing to anchor to).
 function mapPrintedOffsetToSource(
     tsInstance: TypeScript,
     remap: DiagnosticRemap,
     printedSourceFile: ts.SourceFile,
     printedOffset: number
 ): number | undefined {
-    const generated = tsInstance.getLineAndCharacterOfPosition(printedSourceFile, printedOffset)
-    const entries   = generatedLineLookup(remap).get(generated.line)
+    const generated      = tsInstance.getLineAndCharacterOfPosition(printedSourceFile, printedOffset)
+    const sortedMappings = sortedMappingsOf(remap)
+    const matchIndex     = precedingMappingIndex(sortedMappings, generated.line, generated.character)
 
-    if (entries === undefined || entries.length === 0) {
+    if (matchIndex < 0) {
         return undefined
     }
 
-    let match = entries[0]
-
-    for (const entry of entries) {
-        if (entry.generatedCharacter <= generated.character) {
-            match = entry
-        } else {
-            break
-        }
-    }
-
-    const originalText = remap.originalSourceFile.text
-    const lineStarts   = remap.originalSourceFile.getLineStarts()
+    const match      = sortedMappings[matchIndex]
+    const lineStarts = remap.originalSourceFile.getLineStarts()
 
     if (match.sourceLine >= lineStarts.length) {
         return undefined
     }
 
     const lineStart     = lineStarts[match.sourceLine]
-    const nextLineStart = match.sourceLine + 1 < lineStarts.length ? lineStarts[match.sourceLine + 1] : originalText.length
-    const sourceChar    = match.sourceCharacter + (generated.character - match.generatedCharacter)
+    const nextLineStart = match.sourceLine + 1 < lineStarts.length
+        ? lineStarts[match.sourceLine + 1]
+        : remap.originalSourceFile.text.length
 
-    return lineStart + Math.min(Math.max(0, sourceChar), Math.max(0, nextLineStart - lineStart))
+    // On the same generated line, advance from the matched entry's source column by the
+    // generated-column delta — but a *generated* run (e.g. a long error-alias) can
+    // collapse many printed columns onto one source column, so the next entry on the
+    // same generated+source line caps how far the column may advance. Off the matched
+    // generated line (preceding-line fallback) keep the entry's own source column.
+    let sourceCharacter = match.sourceCharacter
+
+    if (match.generatedLine === generated.line) {
+        const next   = sortedMappings[matchIndex + 1]
+        const capped = next !== undefined &&
+            next.generatedLine === generated.line &&
+            next.sourceLine === match.sourceLine
+            ? next.sourceCharacter
+            : Number.POSITIVE_INFINITY
+
+        sourceCharacter = Math.min(match.sourceCharacter + (generated.character - match.generatedCharacter), capped)
+    }
+
+    const offset = lineStart + Math.max(0, sourceCharacter)
+
+    // Never let an extrapolated column cross into the next source line.
+    return nextLineStart > lineStart ? Math.min(offset, nextLineStart - 1) : offset
 }
 
 function remapDiagnostic<Diagnostic extends ts.Diagnostic | ts.DiagnosticRelatedInformation>(

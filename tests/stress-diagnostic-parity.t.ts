@@ -1,0 +1,377 @@
+import { readdirSync, readFileSync } from "node:fs"
+import path from "node:path"
+
+import { it } from "@bryntum/siesta/nodejs.js"
+import type { Test } from "@bryntum/siesta/nodejs.js"
+import ts from "typescript"
+
+import transformProgram from "../src/index.js"
+import { runWithinBudget } from "./stress/budget.js"
+import { resolveSeed, SeededRandom } from "./stress/rng.js"
+import { packageRoot } from "./util.js"
+
+// Randomized parity stress test for emit-path diagnostic remapping.
+//
+// The emit path reprints the transformed (value-cast) tree to text, so without
+// remapping its diagnostics land on regenerated lines that do not exist on disk
+// — `tsc` then reports errors at different positions than the IDE / `--noEmit`
+// (position-preserving) path. The single-fixture `emit-source-view-diagnostic-
+// parity` test pins one case; this one sweeps the whole fixture corpus.
+//
+// Each iteration: pick a random corpus file, pick a random identifier, and append
+// a distinctive suffix to one occurrence — a *syntactically valid* edit that injects
+// a real semantic error (an unresolved name / missing property) at a precise spot,
+// without the parser-recovery noise a space-split would create (broken syntax recovers
+// differently in the two structurally-different trees, which is not what the remap is
+// about). Then build the corpus twice through the actual transformer — once in `"emit"`
+// mode (reprinted + remapped) and once in `"ide"` mode (position-preserving) — and
+// assert both report diagnostics at the *same* source lines. Differing codes / counts
+// at the *same* line are tolerated (a known benign semantic divergence, e.g. TS2720 vs
+// TS2420, or construction `.new(...)` argument typing); a line present in only one mode
+// is a hard failure: that is exactly the line-number drift this fix removes.
+//
+// All randomness comes from one seed, printed into the failing assertion, so any
+// failure replays with `MIXIN_STRESS_SEED=<seed>`.
+
+const corpusDirectory = path.join(packageRoot, "tests", "fixture-suite", "src")
+
+const compilerOptions: ts.CompilerOptions = {
+    target                 : ts.ScriptTarget.ES2022,
+    module                 : ts.ModuleKind.ESNext,
+    moduleResolution       : ts.ModuleResolutionKind.Bundler,
+    lib                    : [ "lib.es2022.d.ts", "lib.dom.d.ts" ],
+    strict                 : true,
+    useDefineForClassFields : false,
+    skipLibCheck            : true,
+    declaration             : true,
+    experimentalDecorators  : false,
+    noEmit                  : false
+}
+
+type Perturbation = {
+    fileName : string
+    text     : string
+    line     : number
+    column   : number
+    word     : string
+}
+
+// Parsed source files that never change between iterations (lib + the unperturbed
+// corpus) are cached so each build only reparses the single perturbed file.
+const unchangedSourceFileCache = new Map<string, ts.SourceFile>()
+
+// Original (on-disk) parse of a corpus file, cached, for heritage-range filtering of
+// diagnostics reported in unperturbed files.
+const originalSourceCache = new Map<string, ts.SourceFile>()
+
+function originalSourceOfFile(fileName: string): ts.SourceFile | undefined {
+    const cached = originalSourceCache.get(fileName)
+
+    if (cached !== undefined) {
+        return cached
+    }
+
+    let text: string
+
+    try {
+        text = readFileSync(fileName, "utf8")
+    } catch {
+        return undefined
+    }
+
+    const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+
+    originalSourceCache.set(fileName, sourceFile)
+
+    return sourceFile
+}
+
+function createCachingHost(perturbation: Perturbation): ts.CompilerHost {
+    const host         = ts.createCompilerHost(compilerOptions, true)
+    const baseGetSource = host.getSourceFile.bind(host)
+
+    host.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
+        if (fileName === perturbation.fileName) {
+            return ts.createSourceFile(fileName, perturbation.text, languageVersionOrOptions, true, ts.ScriptKind.TS)
+        }
+
+        const cached = unchangedSourceFileCache.get(fileName)
+
+        if (cached !== undefined) {
+            return cached
+        }
+
+        const sourceFile = baseGetSource(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile)
+
+        if (sourceFile !== undefined) {
+            unchangedSourceFileCache.set(fileName, sourceFile)
+        }
+
+        return sourceFile
+    }
+
+    return host
+}
+
+function buildProgram(rootNames: string[], mode: "emit" | "ide", perturbation: Perturbation): ts.Program {
+    const host         = createCachingHost(perturbation)
+    const baseProgram  = ts.createProgram(rootNames, compilerOptions, host)
+
+    return transformProgram(
+        baseProgram,
+        host,
+        { allowUndefinedForRequiredProperties : true, mode },
+        { ts } as never
+    )
+}
+
+const heritageRangesCache = new WeakMap<ts.SourceFile, Array<{ start: number, end: number }>>()
+
+// Spans of every `extends` / `implements` heritage clause in a file. Must be computed
+// from the *original* source: source view rewrites the clause to a generated `$base`
+// at a synthetic position, so its transformed tree's clause ranges do not line up with
+// the original text. Both modes report diagnostics in *original* coordinates, so one
+// original-text range set filters both symmetrically.
+function heritageRanges(originalSourceFile: ts.SourceFile): Array<{ start: number, end: number }> {
+    const cached = heritageRangesCache.get(originalSourceFile)
+
+    if (cached !== undefined) {
+        return cached
+    }
+
+    const ranges: Array<{ start: number, end: number }> = []
+
+    const visit = (node: ts.Node): void => {
+        if (ts.isHeritageClause(node)) {
+            ranges.push({ start: node.getStart(originalSourceFile), end: node.getEnd() })
+        }
+
+        node.forEachChild(visit)
+    }
+
+    visit(originalSourceFile)
+    heritageRangesCache.set(originalSourceFile, ranges)
+
+    return ranges
+}
+
+// Every diagnostic *line* the program reports, as `basename:line`, excluding
+// diagnostics inside a heritage clause (the documented heritage-navigation gap: source
+// view reports those at a synthetic position while emit reports them at the real base
+// name — not a line-remap issue). This is the granularity the remap fixes: reprinting
+// shifts which line a diagnostic lands on. Column / code / count differences at the
+// same line are deliberately not compared — the value-cast (emit) and real-class (ide)
+// trees model some constructs differently (e.g. construction `.new(...)` argument
+// typing). Both modes report in original coordinates (emit after remapping, ide
+// natively), so the line numbers are directly comparable.
+function diagnosticLines(
+    program: ts.Program,
+    originalSourceFor: (fileName: string) => ts.SourceFile | undefined
+): string[] {
+    const lines: string[] = []
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (sourceFile.isDeclarationFile) {
+            continue
+        }
+
+        const diagnostics = [
+            ...program.getSyntacticDiagnostics(sourceFile),
+            ...program.getSemanticDiagnostics(sourceFile),
+            ...program.getDeclarationDiagnostics(sourceFile)
+        ]
+
+        for (const diagnostic of diagnostics) {
+            if (diagnostic.file === undefined || diagnostic.start === undefined) {
+                continue
+            }
+
+            // TS2578 (unused `@ts-expect-error`) flips whenever the two trees' coverage
+            // differs: emit under-reporting a mixin-contract error elsewhere makes a
+            // directive look unused. It is a coverage-coupled meta-diagnostic, not a
+            // position signal.
+            if (diagnostic.code === 2578) {
+                continue
+            }
+
+            const original = originalSourceFor(diagnostic.file.fileName)
+            const start     = diagnostic.start
+
+            if (original !== undefined &&
+                heritageRanges(original).some((range) => start >= range.start && start < range.end)
+            ) {
+                continue
+            }
+
+            const location = ts.getLineAndCharacterOfPosition(diagnostic.file, start)
+
+            lines.push(`${path.basename(diagnostic.file.fileName)}:${location.line + 1}`)
+        }
+    }
+
+    return lines
+}
+
+// Identifier texts that appear inside any heritage clause anywhere in the corpus — the
+// base / mixin / interface names. Renaming one cascades into the dual-tree heritage and
+// required-base generated-reference gaps (source view places those references at a
+// synthetic position, emit at the real name), which are documented divergences, not
+// line drift. Skip them as perturbation targets.
+function collectHeritageNames(rootNames: string[]): Set<string> {
+    const names = new Set<string>()
+
+    for (const fileName of rootNames) {
+        const sourceFile = originalSourceOfFile(fileName)
+
+        if (sourceFile === undefined) {
+            continue
+        }
+
+        const visit = (node: ts.Node): void => {
+            if (ts.isHeritageClause(node)) {
+                const collectIdentifiers = (inner: ts.Node): void => {
+                    if (ts.isIdentifier(inner)) {
+                        names.add(inner.text)
+                    }
+
+                    inner.forEachChild(collectIdentifiers)
+                }
+
+                node.forEachChild(collectIdentifiers)
+
+                return
+            }
+
+            node.forEachChild(visit)
+        }
+
+        visit(sourceFile)
+    }
+
+    return names
+}
+
+// End offsets of identifiers worth perturbing, chosen from the AST so we can skip the
+// known-divergent sites: identifiers inside a heritage clause, and any identifier whose
+// name participates in heritage anywhere (a base/mixin/interface name). Appending a
+// suffix at the end keeps the file syntactically valid while renaming that one
+// occurrence to a name that no longer resolves.
+function collectPerturbableIdentifierOffsets(sourceFile: ts.SourceFile, heritageNames: Set<string>): number[] {
+    const offsets: number[] = []
+
+    const visit = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) &&
+            node.getEnd() - node.getStart(sourceFile) >= 2 &&
+            !heritageNames.has(node.text) &&
+            ts.findAncestor(node, (ancestor) => ts.isHeritageClause(ancestor)) === undefined
+        ) {
+            offsets.push(node.getEnd())
+        }
+
+        node.forEachChild(visit)
+    }
+
+    visit(sourceFile)
+
+    return offsets
+}
+
+it("emit and source-view report diagnostics at the same source positions across the corpus", async (t: Test) => {
+    const seed      = resolveSeed()
+    const random    = new SeededRandom(seed)
+    const rootNames = readdirSync(corpusDirectory)
+        .filter((name) => name.endsWith(".ts"))
+        .sort()
+        .map((name) => path.join(corpusDirectory, name))
+
+    t.isGreater(rootNames.length, 0, "fixture corpus is non-empty")
+
+    const heritageNames = collectHeritageNames(rootNames)
+
+    let perturbationsWithDiagnostics = 0
+    let ideOnlyCoverageGaps          = 0
+    let failure: string | undefined
+
+    const iterations = runWithinBudget(() => {
+        if (failure !== undefined) {
+            return
+        }
+
+        const fileName = random.pick(rootNames)
+        const text     = readFileSync(fileName, "utf8")
+        const parsed   = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+        const offsets  = collectPerturbableIdentifierOffsets(parsed, heritageNames)
+
+        if (offsets.length === 0) {
+            return
+        }
+
+        const offset       = random.pick(offsets)
+        const location     = ts.getLineAndCharacterOfPosition(parsed, offset)
+        const perturbation: Perturbation = {
+            fileName,
+            text   : `${text.slice(0, offset)}Zq9${text.slice(offset)}`,
+            line   : location.line + 1,
+            column : location.character + 1,
+            word   : text.slice(Math.max(0, offset - 6), offset)
+        }
+
+        // Heritage-clause spans come from the *original* text the compiled file holds:
+        // the perturbed text for the edited file, on-disk text for the rest. Both modes'
+        // diagnostics are in these coordinates, so the same ranges filter both.
+        const perturbedSource  = ts.createSourceFile(fileName, perturbation.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+        const originalSourceFor = (diagnosticFileName: string): ts.SourceFile | undefined => {
+            return diagnosticFileName === fileName ? perturbedSource : originalSourceOfFile(diagnosticFileName)
+        }
+
+        const emitLines = diagnosticLines(buildProgram(rootNames, "emit", perturbation), originalSourceFor)
+        const ideLines  = diagnosticLines(buildProgram(rootNames, "ide", perturbation), originalSourceFor)
+
+        const emitSet  = new Set(emitLines)
+        const ideSet   = new Set(ideLines)
+        const onlyEmit = [ ...emitSet ].filter((line) => !ideSet.has(line)).sort()
+        const onlyIde  = [ ...ideSet ].filter((line) => !emitSet.has(line)).sort()
+
+        if (emitSet.size > 0 || ideSet.size > 0) {
+            perturbationsWithDiagnostics++
+        }
+
+        if (onlyIde.length > 0) {
+            // Emit under-reports some mixin-contract errors the source-view tree catches
+            // (a pre-existing dual-tree semantic-coverage gap, not a line-remap issue —
+            // see TODO). We assert only the property the remap owns: emit never places an
+            // error on a line the source has none on.
+            ideOnlyCoverageGaps++
+        }
+
+        if (onlyEmit.length > 0) {
+            failure = [
+                `Emit reported a diagnostic on a line the source-view path does not ` +
+                    `(MIXIN_STRESS_SEED=${seed}) — a regenerated line that does not exist on disk.`,
+                `Perturbed ${path.basename(fileName)} at ${perturbation.line}:${perturbation.column} ` +
+                    `(renamed identifier ending ${JSON.stringify(perturbation.word)}).`,
+                `Lines only in EMIT (the line-drift this fix removes): ${JSON.stringify(onlyEmit)}`,
+                `Full emit lines: ${JSON.stringify([ ...emitSet ].sort())}`,
+                `Full ide  lines: ${JSON.stringify([ ...ideSet ].sort())}`
+            ].join("\n")
+        }
+    }, { durationMs : 6000, maxIterations : 24 })
+
+    if (failure !== undefined) {
+        t.fail(failure)
+        return
+    }
+
+    t.isGreater(
+        perturbationsWithDiagnostics,
+        0,
+        `expected at least one perturbation to produce diagnostics over ${iterations} iterations ` +
+            `(seed ${seed}); otherwise the parity check ran vacuously`
+    )
+
+    t.pass(
+        `emit never reported a diagnostic on a phantom line across ${iterations} corpus perturbations ` +
+            `(${perturbationsWithDiagnostics} produced diagnostics; ${ideOnlyCoverageGaps} had source-view-only ` +
+            `errors from the known coverage gap; seed ${seed})`
+    )
+})

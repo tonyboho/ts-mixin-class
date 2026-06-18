@@ -342,3 +342,147 @@ it("tsserver quickinfo does not crash on a construction-base mixin's class name"
         await fixture.dispose()
     }
 })
+
+// Each of the following reproduces a distinct source-view "Did not expect <kind>
+// to have an Identifier in its trivia" crash (source-view invariants #5 / #8): a
+// generated declaration stranded a source identifier in a `SyntaxList` trivia gap,
+// so tsserver's getTokenAtPosition / getChildren threw when quickinfo navigated to
+// the named class. The shared whole-suite guard is `source-view-trivia.t.ts`; these
+// pin the individual generation sites at the tsserver layer. `assertResponseBody`
+// fails on the tsserver error, so a regression surfaces as a failed quickinfo here.
+async function assertQuickInfoOnClassNameDoesNotCrash(
+    t: Test,
+    text: string,
+    className: string,
+    expectedDisplay: string
+): Promise<void> {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile   = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const namePosition = text.indexOf(className)
+
+        if (namePosition < 0) {
+            t.fail(`Cannot find ${className} declaration.`)
+            return
+        }
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                text,
+                "quickinfo",
+                { file : sourceFile, ...positionToLineOffset(text, namePosition + 1) }
+            )
+        )
+
+        t.match(quickInfo.displayString ?? "", expectedDisplay,
+            `QuickInfo on ${className} reports its declaration instead of crashing`)
+        t.equal(positionToIndex(text, quickInfo.start), namePosition,
+            `QuickInfo highlight starts exactly at ${className}`)
+        t.equal(sourceSlice(text, quickInfo), className,
+            `QuickInfo highlight covers exactly ${className}`)
+    } finally {
+        await fixture.dispose()
+    }
+}
+
+const manualMixApplyText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Named {
+        static mixinStatic(): string {
+            return "mixinStatic"
+        }
+
+        label(): string {
+            return "label"
+        }
+    }
+
+    class NamedUserBase {
+        prefix: string = ""
+    }
+
+    class ManualUser extends Named.mix(NamedUserBase) {}
+`)
+
+it("tsserver quickinfo does not crash on a mixin used with manual .mix() syntax", async (t: Test) => {
+    // Regression (apply type): the source-view `.mix` apply type deep-clones the
+    // mixin's member signatures, which keep their source positions inside the
+    // metadata-base cast and stranded the cloned member names (`mixinStatic`,
+    // `label`) in a SyntaxList trivia gap.
+    await assertQuickInfoOnClassNameDoesNotCrash(t, manualMixApplyText, "Named", "class Named")
+})
+
+const implementsOnlyConsumerText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Boxed<T> {
+        value?: T
+    }
+
+    @mixin()
+    class Labeled<A> {
+        label?: A
+    }
+
+    class Combined<T, A> implements Boxed<T>, Labeled<A> {}
+`)
+
+it("tsserver quickinfo does not crash on an implements-only mixin consumer", async (t: Test) => {
+    // Regression (implements-only consumer): the dropped `implements` clause and the
+    // generated `extends $base` / metadata cast stretched over the multi-type
+    // `implements Boxed<T>, Labeled<A>` stranded the source types and their `<...>`
+    // arguments.
+    await assertQuickInfoOnClassNameDoesNotCrash(t, implementsOnlyConsumerText, "Combined", "class Combined")
+})
+
+const genericConstructionText = trimIndent(`
+    import { Base, mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Container<T> extends Base {
+        item?: T
+    }
+`)
+
+it("tsserver quickinfo does not crash on a generic construction-base mixin", async (t: Test) => {
+    // Regression (generic construction `static new<T>`): the generated overload
+    // deep-clones the class type parameters, which kept their source positions while
+    // the method was pinned to a tiny synthetic range, stranding `T`.
+    await assertQuickInfoOnClassNameDoesNotCrash(t, genericConstructionText, "Container", "class Container")
+})
+
+const badLinearizationText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin() class LinA {}
+    @mixin() class LinB {}
+    @mixin() class LinX implements LinA, LinB {}
+    @mixin() class LinY implements LinB, LinA {}
+    @mixin() class BadLinearizationMixin implements LinX, LinY {}
+
+    // @ts-expect-error BadLinearizationMixin has inconsistent C3 requirements.
+    class BadLinearizationConsumer implements BadLinearizationMixin {}
+`)
+
+it("tsserver quickinfo does not crash on a consumer whose mixins fail C3 linearization", async (t: Test) => {
+    // Regression (diagnostic `$base` path): a consumer whose mixins fail C3
+    // linearization built its diagnostic `$base` with the throwaway emit range, so
+    // the cloned heritage's source positions expanded the helper over the consumer
+    // and stranded its name.
+    await assertQuickInfoOnClassNameDoesNotCrash(
+        t,
+        badLinearizationText,
+        "BadLinearizationConsumer",
+        "class BadLinearizationConsumer"
+    )
+})

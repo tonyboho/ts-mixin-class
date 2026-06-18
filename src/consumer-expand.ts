@@ -63,6 +63,7 @@ type ConsumerExpansionContext = {
     generatedRange             : ts.TextRange,
     sourceViewGeneratedRange   : ts.TextRange,
     originalExtendsClause      : ts.HeritageClause | undefined,
+    keepsSourceImplements      : boolean,
     generatedHeritageRange     : ts.TextRange,
     generatedHeritageTypeRange : ts.TextRange
 }
@@ -263,7 +264,7 @@ export function expandConsumerClass(
             expansion.generatedHeritageRange,
             expansion.generatedHeritageTypeRange,
             consumerValidations.map((validation) => validation.typeArgument),
-            !options.sourceView || expansion.originalExtendsClause !== undefined
+            !options.sourceView || expansion.originalExtendsClause !== undefined || expansion.keepsSourceImplements
         ),
         updatedConsumerMembers
     )
@@ -299,21 +300,30 @@ function createConsumerExpansionContext(
         throw new MixinTransformError(sourceFile, declaration, "A mixin consumer class must have a name")
     }
 
-    const name                       = declaration.name.text
-    const originalExtendsClause      = extendsClause(tsInstance, declaration)
-    const extendsType                = originalExtendsClause?.types[0]
-    const generatedRange             = options.sourceView ? declaration : generatedTextRange(sourceFile, declaration.pos)
-    const sourceViewGeneratedRange   = generatedTextRange(sourceFile, declaration.pos)
-    const firstHeritageType          = declaration.heritageClauses?.[0]?.types[0]
+    const name                     = declaration.name.text
+    const originalExtendsClause    = extendsClause(tsInstance, declaration)
+    const extendsType              = originalExtendsClause?.types[0]
+    const generatedRange           = options.sourceView ? declaration : generatedTextRange(sourceFile, declaration.pos)
+    const sourceViewGeneratedRange = generatedTextRange(sourceFile, declaration.pos)
+    const firstHeritageType        = declaration.heritageClauses?.[0]?.types[0]
+    // A source-view consumer with no `extends` but an `implements` clause keeps its
+    // real `implements` clause (like the emit path) so its source mixin references
+    // (`SourceClass1<T>, SourceClass2<A>`) stay navigable. The generated `extends
+    // $base` has no source text of its own, so anchor it at a tight synthetic
+    // width-1 range before the `implements` keyword rather than stretching a single
+    // `$base<...>` over the whole multi-type clause — that stranded the dropped
+    // source types and their type arguments in SyntaxList trivia gaps (invariant #5).
+    const keepsSourceImplements      = options.sourceView &&
+        originalExtendsClause === undefined &&
+        declaration.heritageClauses !== undefined
     const generatedHeritageRange     = originalExtendsClause ??
-        (options.sourceView && declaration.heritageClauses !== undefined
-            ? { pos: declaration.heritageClauses.pos, end: declaration.heritageClauses.end }
+        (keepsSourceImplements
+            ? generatedTextRange(sourceFile, declaration.heritageClauses!.pos)
             : generatedTextRange(
                 sourceFile,
                 declaration.heritageClauses?.pos ?? declaration.name.end
             ))
-    const generatedHeritageTypeRange = extendsType ??
-        (options.sourceView && firstHeritageType !== undefined ? firstHeritageType : generatedHeritageRange)
+    const generatedHeritageTypeRange = extendsType ?? generatedHeritageRange
 
     return {
         name,
@@ -323,6 +333,7 @@ function createConsumerExpansionContext(
         generatedRange,
         sourceViewGeneratedRange,
         originalExtendsClause,
+        keepsSourceImplements,
         generatedHeritageRange,
         generatedHeritageTypeRange
     }

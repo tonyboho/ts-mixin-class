@@ -272,79 +272,7 @@ export function preserveSourceViewGeneratedClassLikeRange<
     }
 
     if (node.heritageClauses !== undefined) {
-        const originalHeritage      = original.heritageClauses
-        const originalHeritageTypes = originalHeritage?.flatMap((heritageClause) => [ ...heritageClause.types ]) ?? []
-        const originalHeritageRange = originalHeritage === undefined
-            ? zeroWidthRange(original.name?.end ?? original.end)
-            : { pos: originalHeritage.pos, end: originalHeritage.end }
-        let generatedHeritageRange: ts.TextRange | undefined
-
-        preserveTextRange(tsInstance, node.heritageClauses, originalHeritageRange)
-
-        node.heritageClauses.forEach((heritageClause, index) => {
-            const originalClause                = originalHeritage?.[Math.min(index, originalHeritage.length - 1)]
-            const clauseRange                   = originalClause ?? originalHeritageRange
-            const mappedOriginalTypes           = heritageClause.types.map((_heritageType, typeIndex) => {
-                return originalHeritageTypes[typeIndex] ??
-                    originalClause?.types[Math.min(typeIndex, originalClause.types.length - 1)]
-            })
-            const mappedOriginalTypesWithRanges = mappedOriginalTypes.filter((type): type is ts.ExpressionWithTypeArguments => {
-                return type !== undefined
-            })
-
-            const heritageTypesRange = mappedOriginalTypesWithRanges.length === 0
-                ? clauseRange
-                : {
-                    pos : mappedOriginalTypesWithRanges[0].pos,
-                    end : mappedOriginalTypesWithRanges.at(-1)!.end
-                }
-
-            const nextHeritageRange = {
-                pos : clauseRange.pos,
-                end : heritageTypesRange.end
-            }
-
-            generatedHeritageRange = generatedHeritageRange === undefined
-                ? nextHeritageRange
-                : {
-                    pos : Math.min(generatedHeritageRange.pos, nextHeritageRange.pos),
-                    end : Math.max(generatedHeritageRange.end, nextHeritageRange.end)
-                }
-
-            preserveTextRange(tsInstance, heritageClause, nextHeritageRange)
-            preserveTextRange(tsInstance, heritageClause.types, heritageTypesRange)
-
-            heritageClause.types.forEach((heritageType, typeIndex) => {
-                const originalType = mappedOriginalTypes[typeIndex]
-                const typeRange    = originalType ?? clauseRange
-
-                preserveTextRange(tsInstance, heritageType, typeRange)
-                preserveTextRange(tsInstance, heritageType.expression, originalType?.expression ?? typeRange)
-
-                if (heritageType.typeArguments !== undefined) {
-                    const originalTypeArguments      = originalType?.typeArguments
-                    const generatedTypeArgumentRange = zeroWidthRange(heritageType.expression.end)
-
-                    preserveTextRange(
-                        tsInstance,
-                        heritageType.typeArguments,
-                        originalTypeArguments ?? generatedTypeArgumentRange
-                    )
-
-                    heritageType.typeArguments.forEach((typeArgument, argumentIndex) => {
-                        preserveSubtreeTextRange(
-                            tsInstance,
-                            typeArgument,
-                            originalTypeArguments?.[argumentIndex] ?? generatedTypeArgumentRange
-                        )
-                    })
-                }
-            })
-        })
-
-        if (generatedHeritageRange !== undefined) {
-            preserveTextRange(tsInstance, node.heritageClauses, generatedHeritageRange)
-        }
+        preserveSourceViewGeneratedHeritageRanges(tsInstance, node.heritageClauses, original)
     }
 
     if ("members" in node) {
@@ -364,6 +292,115 @@ export function preserveSourceViewGeneratedClassLikeRange<
     }
 
     return node
+}
+
+// Map a generated `$base`'s `extends` heritage onto the original's heritage range
+// so its cloned base/mixin references line up with the source for navigation and
+// required-base diagnostics. A clause that is a pure metadata cast (a
+// `ParenthesizedExpression`, not an entity-name reference) is instead pinned to a
+// tight synthetic range, since it has no source to map onto.
+function preserveSourceViewGeneratedHeritageRanges(
+    tsInstance: TypeScript,
+    heritageClauses: ts.NodeArray<ts.HeritageClause>,
+    original: ts.ClassDeclaration | ts.InterfaceDeclaration
+): void {
+    const originalHeritage      = original.heritageClauses
+    const originalHeritageTypes = originalHeritage?.flatMap((heritageClause) => [ ...heritageClause.types ]) ?? []
+    const originalHeritageRange = originalHeritage === undefined
+        ? zeroWidthRange(original.name?.end ?? original.end)
+        : { pos: originalHeritage.pos, end: originalHeritage.end }
+    let generatedHeritageRange: ts.TextRange | undefined
+
+    preserveTextRange(tsInstance, heritageClauses, originalHeritageRange)
+
+    heritageClauses.forEach((heritageClause, index) => {
+        const originalClause = originalHeritage?.[Math.min(index, originalHeritage.length - 1)]
+        const clauseRange    = originalClause ?? originalHeritageRange
+
+        // A generated `$base` metadata cast (`extends (Object as unknown as ...)`)
+        // has a `ParenthesizedExpression`, not an entity name, as its expression.
+        // It carries no type arguments, so mapping it onto a source heritage type
+        // that does (the implements-only consumer's `SourceClass1<T>`) leaves that
+        // type's `<...>` in a SyntaxList trivia gap (invariant #5). The cast is
+        // never navigated, so give the whole clause a tight width-1 synthetic range
+        // — positive width keeps the cast from being treated as a "missing" type
+        // (invariant #2), and a single non-identifier char stranded nothing.
+        if (heritageClause.types.some((heritageType) => tsInstance.isParenthesizedExpression(heritageType.expression))) {
+            const castRange = generatedTextRange(original.getSourceFile(), clauseRange.pos)
+
+            collapseSubtreeTextRange(tsInstance, heritageClause, castRange)
+
+            generatedHeritageRange = generatedHeritageRange === undefined
+                ? castRange
+                : {
+                    pos : Math.min(generatedHeritageRange.pos, castRange.pos),
+                    end : Math.max(generatedHeritageRange.end, castRange.end)
+                }
+
+            return
+        }
+
+        const mappedOriginalTypes           = heritageClause.types.map((_heritageType, typeIndex) => {
+            return originalHeritageTypes[typeIndex] ??
+                originalClause?.types[Math.min(typeIndex, originalClause.types.length - 1)]
+        })
+        const mappedOriginalTypesWithRanges = mappedOriginalTypes.filter((type): type is ts.ExpressionWithTypeArguments => {
+            return type !== undefined
+        })
+
+        const heritageTypesRange = mappedOriginalTypesWithRanges.length === 0
+            ? clauseRange
+            : {
+                pos : mappedOriginalTypesWithRanges[0].pos,
+                end : mappedOriginalTypesWithRanges.at(-1)!.end
+            }
+
+        const nextHeritageRange = {
+            pos : clauseRange.pos,
+            end : heritageTypesRange.end
+        }
+
+        generatedHeritageRange = generatedHeritageRange === undefined
+            ? nextHeritageRange
+            : {
+                pos : Math.min(generatedHeritageRange.pos, nextHeritageRange.pos),
+                end : Math.max(generatedHeritageRange.end, nextHeritageRange.end)
+            }
+
+        preserveTextRange(tsInstance, heritageClause, nextHeritageRange)
+        preserveTextRange(tsInstance, heritageClause.types, heritageTypesRange)
+
+        heritageClause.types.forEach((heritageType, typeIndex) => {
+            const originalType = mappedOriginalTypes[typeIndex]
+            const typeRange    = originalType ?? clauseRange
+
+            preserveTextRange(tsInstance, heritageType, typeRange)
+            preserveTextRange(tsInstance, heritageType.expression, originalType?.expression ?? typeRange)
+
+            if (heritageType.typeArguments !== undefined) {
+                const originalTypeArguments      = originalType?.typeArguments
+                const generatedTypeArgumentRange = zeroWidthRange(heritageType.expression.end)
+
+                preserveTextRange(
+                    tsInstance,
+                    heritageType.typeArguments,
+                    originalTypeArguments ?? generatedTypeArgumentRange
+                )
+
+                heritageType.typeArguments.forEach((typeArgument, argumentIndex) => {
+                    preserveSubtreeTextRange(
+                        tsInstance,
+                        typeArgument,
+                        originalTypeArguments?.[argumentIndex] ?? generatedTypeArgumentRange
+                    )
+                })
+            }
+        })
+    })
+
+    if (generatedHeritageRange !== undefined) {
+        preserveTextRange(tsInstance, heritageClauses, generatedHeritageRange)
+    }
 }
 
 export function preserveSubtreeTextRange(

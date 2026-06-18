@@ -17,7 +17,7 @@ import {
     superMixinPropertyArgs,
     usageArgs
 } from "./tsserver-editor-util.js"
-import type { DefinitionInfo, TextSpan } from "./tsserver-editor-util.js"
+import type { DefinitionInfo, QuickInfoBody, TextSpan } from "./tsserver-editor-util.js"
 
 type ReferencesBody = {
     refs? : Array<TextSpan & {
@@ -188,6 +188,87 @@ it("tsserver navigation on a consumer class name reaches its own declaration", a
                 definition.start.offset === declOffset.offset),
             "Go-to-definition from `new Crate<number>()` lands on the consumer class declaration"
         )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+const consumerExtendsLocalBaseText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    class LocalBase {
+        baseValue: number = 0
+    }
+
+    @mixin()
+    class Feature {
+        feature?: string
+    }
+
+    class Widget extends LocalBase implements Feature {
+        widget?: boolean
+    }
+`)
+
+it("tsserver navigation on a base type in an extends clause reaches the base class", async (t: Test) => {
+    // The base type name in a consumer's `extends LocalBase` must navigate to the
+    // real `class LocalBase`, like it would without the transform. In source view
+    // the consumer's `extends LocalBase` is rewritten to `extends Widget$base` and
+    // the generated `$base` reference is pinned onto the source `LocalBase` position,
+    // so today clicking the base name resolves to the internal `$base` instead:
+    // find-all-references and go-to-definition come back empty and quickinfo reports
+    // `any`. This test asserts the correct behaviour and currently FAILS — it marks
+    // the heritage-rewrite navigation gap (the same family as quickinfo reporting
+    // `any` on a base name in generated heritage). It should go green when the gap
+    // is fixed (e.g. keeping the source `extends LocalBase` navigable while mixing
+    // members in via interface merging).
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : consumerExtendsLocalBaseText } ]
+    })
+
+    try {
+        const sourceFile    = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const declOffset    = positionToLineOffset(consumerExtendsLocalBaseText, consumerExtendsLocalBaseText.indexOf("class LocalBase") + "class ".length)
+        const extendsOffset = positionToLineOffset(consumerExtendsLocalBaseText, consumerExtendsLocalBaseText.indexOf("extends LocalBase") + "extends ".length)
+
+        const landsOnDeclaration = (span: { file?: string, start: { line: number, offset: number } }): boolean =>
+            (span.file === undefined || span.file === sourceFile) &&
+            span.start.line === declOffset.line &&
+            span.start.offset === declOffset.offset
+
+        const definitions = assertResponseBody<DefinitionInfo[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, consumerExtendsLocalBaseText, "definition", {
+                file : sourceFile,
+                ...extendsOffset
+            })
+        )
+
+        t.true(definitions.some(landsOnDeclaration),
+            "Go-to-definition on the base name in `extends LocalBase` lands on `class LocalBase`")
+
+        const references = assertResponseBody<ReferencesBody>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, consumerExtendsLocalBaseText, "references", {
+                file : sourceFile,
+                ...extendsOffset
+            })
+        ).refs ?? []
+
+        t.true(references.some(landsOnDeclaration),
+            "Find-all-references from the base name in `extends LocalBase` includes the `class LocalBase` declaration")
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, consumerExtendsLocalBaseText, "quickinfo", {
+                file : sourceFile,
+                ...extendsOffset
+            })
+        )
+
+        t.equal(quickInfo.displayString, "class LocalBase",
+            "Quickinfo on the base name in `extends LocalBase` reports the base class, not the internal `$base`")
     } finally {
         await fixture.dispose()
     }

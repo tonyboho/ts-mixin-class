@@ -196,15 +196,26 @@ export function consumerHeritageClauses(
                 originalGeneratedTypeRange.typeArguments ?? generatedTypeArgumentRange
             )
 
+            const sourceTypeArguments    = originalGeneratedTypeRange.typeArguments
+            const lastSourceTypeArgument = sourceTypeArguments?.[sourceTypeArguments.length - 1]
+
             extendsType.typeArguments.forEach((typeArgument, index) => {
-                const originalTypeArgument = originalGeneratedTypeRange.typeArguments?.[index]
+                const originalTypeArgument = sourceTypeArguments?.[index]
 
                 if (originalTypeArgument !== undefined) {
-                    preserveSubtreeTextRange(
-                        tsInstance,
-                        typeArgument,
-                        originalTypeArgument
-                    )
+                    preserveSubtreeTextRange(tsInstance, typeArgument, originalTypeArgument)
+                } else if (index < ownTypeArguments.length && lastSourceTypeArgument !== undefined) {
+                    // The consumer's own type params re-referenced past the source
+                    // heritage's type-argument count (the `A` in `__C$base<T, A>`
+                    // positioned over `SourceClass1<T>`) have no source counterpart.
+                    // Left unranged they inherit a wide ancestor range that strands
+                    // the source type identifiers in a SyntaxList trivia gap
+                    // (invariant #5). Overlap the last source argument: width >= 1
+                    // (not "missing"/`any`, invariant #2) and ending at the list end
+                    // so no trailing gap is scanned. Validation type arguments
+                    // (index >= ownTypeArguments.length) keep their own diagnostic
+                    // ranges and must not be touched here.
+                    preserveSubtreeTextRange(tsInstance, typeArgument, lastSourceTypeArgument)
                 }
             })
         }

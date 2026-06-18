@@ -55,6 +55,7 @@ Before writing a throwaway debug script, use the reusable ones in `scripts/` (co
 - `node dist/scripts/print-transformed.js [--mode emit|ide|both]` — emitted code for a single file/snippet.
 - `node dist/scripts/print-ast.js [--mode ide|emit]` — AST tree with `[pos,end]`, flagging `⚠ NEGATIVE` / `⚠ ZERO-WIDTH` ranges and each class/interface `<members[]>` range (the range bugs behind invariants #2/#4/#5).
 - `node dist/scripts/program-diagnostics.js [--file <substr>] [--mode emit|ide] [--print] [--types <prop>]` — real cross-file ProgramTransformer over a tsconfig (default fixture-suite), printing semantic diagnostics and, with `--types new`, the resolved type/return of every `.new` access. This is the only one that exercises the cross-file registry; prefer it for "what does the IDE see" questions (`--mode ide`).
+- `node dist/scripts/find-trivia-crashes.js [--file <substr>] [--tsconfig <path>]` — enumerate every "Identifier in trivia" crash site (invariants #5/#8) across a whole suite in one in-process source-view pass, reporting each node's kind/range and the exact stranded identifier text/offset (which points at the generation site that mis-ranged it). The `source-view-trivia.t.ts` test asserts this count is zero; this script gives the per-site detail to fix them.
 
 If you do need a one-off, the lower-level reproduction trick below still applies.
 

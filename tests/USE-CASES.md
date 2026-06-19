@@ -194,6 +194,30 @@ plain consumer / manual construction instead). See §9.
 
 ## Open questions / discovered gaps
 
+- **Go-to-definition on a member reached through a manual `.mix(Base)` does not land on the
+  member's real declaration.** `class X extends Main.mix(UserBase)` then `this.mainMethod()`:
+  the diagnostic is clean and the type resolves, but definition jumps to a collapsed span
+  (for a *dependent* mixin, even the wrong class) instead of `Main.mainMethod`. The
+  `implements`-consumer path is unaffected (it resolves correctly). Recorded as a **skipped**
+  (`xit`) test in `tsserver-definition.t.ts` → "tsserver go-to-definition resolves a member
+  reached through a manual .mix of a dependent mixin" (fix deferred).
+  - *Why.* The member is reached through the synthetic `.mix` apply type, whose instance type
+    is an inline member literal; that subtree is collapsed to a non-source range to avoid a
+    source-view stranding crash (invariant #5), so navigation resolves onto the collapsed
+    span. Navigating to the *real* code needs the instance type to reference the mixin by
+    name (`Main`), like the `implements` path — but `.mix` lives in the mixin's OWN base
+    expression (`class Main extends __Main$base`, `.mix` on the base cast), so referencing
+    `Main` there is a self-base-reference (`TS2506`/`TS2310` "recursively references itself as
+    a base type"). The inline literal exists precisely to avoid naming the mixin in its own
+    base. Verified: the name-reference fix compiles the definition test green but regresses
+    generic-required-base, diagnostic parity, and stress-references with the circular error.
+  - *Possible deeper fixes (not attempted).* Move `.mix` off the mixin's base chain (a direct
+    static on the class, so a self-returning static is non-circular), or generate a separate
+    top-level navigable interface for the mixin's own members and reference that. Both are
+    larger, position-sensitive changes. Same trilemma family as the §12.9 quickinfo
+    limitation: navigable real positions strand → crash; collapsed → no navigation; name
+    reference → circular.
+
 - **Quickinfo on a `<ClassName>Config` reference renders the alias *name* as the class
   brace (§12.9), cosmetic.** Hovering a reference (`config?: AccountConfig`) shows
   `type } = Pick<Account, "id" | "balance"> & Partial<Pick<Account, "label">>` — the body

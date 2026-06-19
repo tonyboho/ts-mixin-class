@@ -12,7 +12,6 @@ import {
     isNamedClassElement,
     mixinClassValueName,
     mixinFactoryName,
-    mixinImplementsName,
     requiredBaseType,
     runtimeMixinClassName,
     type FileMixinContext,
@@ -189,66 +188,7 @@ export function expandMixinClass(
         ), generatedTextRange(sourceFile, declaration.end)) ]
         : []
 
-    const conformanceChecks = createMixinImplementsConformanceCheck(tsInstance, declaration, ref, typeParameters)
-
-    return [
-        interfaceDeclaration,
-        ...diagnosticAliases,
-        factoryStatement,
-        valueStatement,
-        ...conformanceChecks,
-        ...defaultExportStatement
-    ]
-}
-
-// Type-only assertion that the runtime mixin body satisfies the contracts it
-// `implements`. The value-cast emit form (`as unknown as <type>`) erases that check
-// and the generated `interface X extends Contract` *inherits* the contract's members
-// instead of checking the class against them, so `tsc` stayed silent on a missing
-// member while the IDE flagged it. This alias references `MixinImplements<Instance,
-// Contract>` over the *runtime* instance type (`InstanceType<ReturnType<typeof
-// factory>>` — the actual body + required base + dependency members, not the declared
-// interface), whose constraint re-imposes the check and reports the missing/mismatched
-// member. It is a `type` alias, so it emits no runtime code; its range is pinned to the
-// mixin's name, so the diagnostic lands on the same source line the IDE reports TS2420.
-function createMixinImplementsConformanceCheck(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    ref: ResolvedMixinRef,
-    typeParameters: ts.TypeParameterDeclaration[] | undefined
-): ts.TypeAliasDeclaration[] {
-    // Generic mixins are out of scope: the runtime instance type would need the mixin's
-    // own type parameters re-bound, and an `implements` contract may reference them
-    // (`class Box<T> implements Container<T>`), which are not in scope on this top-level
-    // alias. A non-generic mixin's contracts carry no free type parameters.
-    if (typeParameters !== undefined || declaration.name === undefined) {
-        return []
-    }
-
-    const contracts = implementsTypes(tsInstance, declaration)
-
-    if (contracts.length === 0) {
-        return []
-    }
-
-    const factory      = tsInstance.factory
-    const contractType = contracts.length === 1
-        ? heritageTypeToTypeReference(tsInstance, contracts[0])
-        : factory.createIntersectionTypeNode(
-            contracts.map((contract) => heritageTypeToTypeReference(tsInstance, contract))
-        )
-    const instanceType = factory.createTypeReferenceNode("InstanceType", [
-        factory.createTypeReferenceNode("ReturnType", [
-            factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName))
-        ])
-    ])
-
-    return [ preserveGeneratedDeclarationRange(tsInstance, factory.createTypeAliasDeclaration(
-        undefined,
-        generatedName(ref.className, "$implementsCheck"),
-        undefined,
-        factory.createTypeReferenceNode(mixinImplementsName, [ instanceType, contractType ])
-    ), declaration.name, declaration) ]
+    return [ interfaceDeclaration, ...diagnosticAliases, factoryStatement, valueStatement, ...defaultExportStatement ]
 }
 
 function createMixinDeclarationDiagnosticAliases(
@@ -487,17 +427,59 @@ function createMixinFactoryExpression(
         [ createBaseParameter(tsInstance, declaration, context) ],
         undefined,
         factory.createBlock([
-            factory.createReturnStatement(factory.createClassExpression(
-                undefined,
-                undefined,
-                undefined,
-                [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-                    factory.createExpressionWithTypeArguments(factory.createIdentifier("base"), undefined)
-                ]) ],
-                mixinRuntimeMembers(tsInstance, declaration, options)
-            ))
+            factory.createReturnStatement(
+                // Pin the synthetic class expression's range to the mixin's source name.
+                // TS2420 ("incorrectly implements") on an anonymous class is reported at
+                // the `class` keyword; pinning the expression makes the emit source map
+                // place it on the mixin's declaration line, where the IDE / source-view
+                // path also reports TS2420 — without it the reprinted class keyword maps
+                // to whatever source-map entry happens to precede it (the class body's
+                // closing brace), drifting the diagnostic onto the wrong line.
+                preserveTextRange(
+                    tsInstance,
+                    factory.createClassExpression(
+                        undefined,
+                        undefined,
+                        undefined,
+                        mixinFactoryHeritageClauses(tsInstance, declaration),
+                        mixinRuntimeMembers(tsInstance, declaration, options)
+                    ),
+                    declaration.name ?? declaration
+                )
+            )
         ], true)
     )
+}
+
+// Heritage of the factory's inner runtime class: `extends base`, plus the mixin's own
+// `implements` contracts. The `implements` clause is type-only (erased in JS), so it
+// adds no runtime code — but it makes the checker verify the *real* runtime body against
+// each contract, the check the value-cast (`as unknown as`) otherwise erases. `base` is
+// typed `AnyConstructor<RequiredBase & deps>`, so members the contract inherits from the
+// required base / dependencies are satisfied through `extends base`, exactly as source
+// view's real class is. Works uniformly for generic and non-generic mixins (the mixin's
+// type parameters are in scope inside the factory).
+function mixinFactoryHeritageClauses(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration
+): ts.HeritageClause[] {
+    const factory       = tsInstance.factory
+    const contracts     = implementsTypes(tsInstance, declaration)
+    const extendsClause = factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+        factory.createExpressionWithTypeArguments(factory.createIdentifier("base"), undefined)
+    ])
+
+    if (contracts.length === 0) {
+        return [ extendsClause ]
+    }
+
+    return [
+        extendsClause,
+        factory.createHeritageClause(
+            tsInstance.SyntaxKind.ImplementsKeyword,
+            contracts.map((contract) => cloneExpressionWithTypeArguments(tsInstance, contract))
+        )
+    ]
 }
 
 function mixinRuntimeMembers(

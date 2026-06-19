@@ -37,15 +37,17 @@ consumer that relies on one.
 | TS2720 | Class incorrectly implements class | `Class 'ValueLabel<T>' incorrectly implements class 'Stored…'` |
 | TS2339 | Property does not exist | `Property 'value' does not exist on type 'Box<T>'` |
 
-**Status:** pre-existing dual-tree gap, **not** a line/column remap issue. **Partially
-closed:** the mixin *declaration* site is now checked in emit — a `@mixin` class that does
-not satisfy the contract it `implements` is flagged by `tsc` (TS2344, at the mixin's
-source line, co-located with the source-view TS2420) via a type-only `MixinImplements<
-InstanceType<ReturnType<typeof factory>>, Contract>` assertion (see AGENTS.md "Emit-path
-implements conformance"). So `tsc` no longer stays silent when a non-generic mixin is
-missing a required member. **Still open:** downstream-*consumer* propagation (a consumer
-using the mixin where the contract is expected — source view's TS2741 at the consumer has
-no emit counterpart yet) and generic mixins. Tracked in `TODO.md`.
+**Status:** pre-existing dual-tree gap, **not** a line/column remap issue. **Largely
+closed at the declaration site:** a `@mixin` class that does not satisfy the contract it
+`implements` is now flagged by `tsc` with the **same TS2420 the IDE reports, at the same
+line and column** — for generic and non-generic mixins alike — by carrying the
+`implements` clause on the factory's inner runtime class (`return class extends base
+implements Contract {…}`, type-only / erased in JS; see AGENTS.md "Emit-path implements
+conformance"). So `tsc` no longer stays silent when a mixin is missing a required member.
+**Still open:** downstream-*consumer* propagation — a consumer using the mixin where the
+contract is expected sees the generated `interface X` (which *inherited* the contract
+members), so source view's consumer-side TS2741 has no emit counterpart yet. Tracked in
+`TODO.md`.
 
 ## 2. IDE under-reports / mis-positions — compiler-only errors (heritage gap)
 

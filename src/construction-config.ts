@@ -174,6 +174,13 @@ export function createConstructionMembers(
             consumerType,
             undefined
         ), 0),
+        // The implementation overload (never visible to callers; the typed overload above is
+        // what they resolve to). Its parameter MUST stay `any`, not `unknown`: the body
+        // forwards `props` to `super.new(props)`, and in a construction *subclass* `super.new`
+        // resolves to the PARENT's typed overload `new(props: ParentConfig)` — only `any` is
+        // assignable to an arbitrary parent config (contravariantly); `unknown` is rejected
+        // (TS2345). The return type is `unknown` (better than `any`): callers never see it,
+        // and the body's `super.new(props)` (typed `Base`) is assignable to `unknown`.
         finishMember(factory.createMethodDeclaration(
             staticModifier,
             undefined,
@@ -187,7 +194,7 @@ export function createConstructionMembers(
                 factory.createToken(tsInstance.SyntaxKind.QuestionToken),
                 factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
             ) ],
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword),
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
             factory.createBlock([
                 factory.createReturnStatement(factory.createCallExpression(
                     factory.createPropertyAccessExpression(

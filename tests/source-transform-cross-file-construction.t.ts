@@ -147,6 +147,50 @@ it("regenerates construction members for an ordinary class extending an imported
     }
 })
 
+// A FAILING `.new(...)` call (missing a required field) on a cross-file construction
+// class must report an ordinary type error, never crash the compiler. The generated
+// `static new` is an overload set; a failed call makes the checker elaborate against the
+// (synthetic) implementation overload, computing an error span on its `new` name node —
+// which has no source position in the position-preserving source-view tree, tripping a
+// `Debug.assert` in `getErrorSpanForNode` (TS issue #20809). The name must carry a span
+// the checker can resolve.
+it("reports a failing cross-file `.new(...)` call as a type error without crashing the compiler", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            { fileName : "provider.ts", text : providerText },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { AppBase } from "./provider.js"
+
+                    class OrdinaryDerived extends AppBase {
+                        public ownValue: number = 0
+                    }
+
+                    const bad = OrdinaryDerived.new({})
+
+                    void bad
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+        const output = commandOutput(result)
+
+        t.notMatch(output, "Debug Failure",
+            `A failing cross-file .new() must not crash the compiler:\n${output}`)
+        t.notMatch(output, "20809",
+            `A failing cross-file .new() must not trip the getErrorSpanForNode assertion:\n${output}`)
+        t.match(output, /error TS2345|error TS2554/,
+            `A failing cross-file .new() should report an ordinary argument type error:\n${output}`)
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("regenerates construction members for a consumer of an imported Base-descendant mixin", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

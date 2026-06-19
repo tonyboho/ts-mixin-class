@@ -131,6 +131,7 @@ plain consumer / manual construction instead). See §9.
 | 10.10 | Construction config (incl. transitive) survives a `.d.ts` package round-trip — standalone construction-base mixin `.new` | ✅ | `source-transform-cross-file-construction.t.ts` ("carries transitive construction config through a declaration (.d.ts) package") |
 | 10.11 | A **consumer** that `implements` an imported `.d.ts` construction-base mixin gets its own `.new` (with aggregated, transitive config) | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a consumer of a declaration (.d.ts) construction-base mixin construction-enabled") |
 | 10.12 | A **subclass** of an imported `.d.ts` construction base (`extends Base` published as declarations) gets its own `.new` aggregating inherited config | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a subclass of an imported declaration (.d.ts) construction base construction-enabled") |
+| 10.13 | A **failing** `.new(...)` call (missing required field) across files reports a normal type error, never crashes the compiler | ✅ | `source-transform-cross-file-construction.t.ts` ("reports a failing cross-file `.new(...)` call as a type error without crashing the compiler") |
 
 ## 11. Diagnostics (custom, friendly messages)
 
@@ -176,14 +177,6 @@ plain consumer / manual construction instead). See §9.
 
 None outstanding.
 
-### Known fragility (not a config gap)
-
-- **A failing `.new(...)` call across files crashes `tsc`** (`addImplementationSuccessElaboration`
-  → `getErrorSpanForNode`, TS issue #20809) when checking a multi-file program through the
-  plugin. So cross-file/declaration construction tests assert only positive `.new` calls; the
-  *required*-ness of an aggregated field is pinned by the local `construction-deep-subclass`
-  fixture (emit mode, which does not crash). Not a config-aggregation issue.
-
 ## Resolved (kept here for history)
 
 - **Deep construction subclassing — local (§7.12).** Fixed: `baseConfigProperties`
@@ -206,3 +199,9 @@ None outstanding.
   construction-base registry now also scans `.d.ts` classes, reading their aggregated
   config off the emitted `static new(props: Pick<…>)`. Covered by the two declaration
   tests in `source-transform-cross-file-construction.t.ts`.
+- **Compiler crash on a failing cross-file `.new(...)` (§10.13).** Fixed: a failed
+  overloaded `.new` call elaborates against the synthetic implementation overload, whose
+  `new` name had no source position in the source-view tree — `getErrorSpanForNode`
+  asserted (`skipTrivia(-1)` overrun, TS #20809) and crashed `tsc`. The name is now pinned
+  to the first overload's real anchor (`createConstructionMembers`, source-view branch), so
+  the span resolves and a normal type error is reported.

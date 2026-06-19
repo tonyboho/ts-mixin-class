@@ -87,7 +87,21 @@ export function createConstructionMembers(
         // update-derived `$base`/value declarations), and their range is pinned
         // explicitly below. Emit keeps the original for source-map fidelity.
         if (options.sourceView) {
-            return preserveTextRange(tsInstance, member, overloadRange(index))
+            const pinned = preserveTextRange(tsInstance, member, overloadRange(index))
+
+            // Give the `new` name a resolvable, non-synthetic span. A FAILING `.new(...)`
+            // call makes the checker elaborate the failure against the implementation
+            // overload (`addImplementationSuccessElaboration`), computing an error span on
+            // its name node. A factory-fresh name (pos/end = -1) trips `getErrorSpanForNode`
+            // (`skipTrivia(-1)` overruns the node end → Debug.assert / TS #20809) and CRASHES
+            // the compiler. Anchor it at the first overload's range — a real, non-trivia
+            // source position — so the span resolves. (The method node keeps its own
+            // per-overload range for the checker's overload-adjacency check.)
+            if (tsInstance.isMethodDeclaration(pinned) && tsInstance.isIdentifier(pinned.name)) {
+                preserveTextRange(tsInstance, pinned.name, overloadRange(0))
+            }
+
+            return pinned
         }
 
         // Pin the WHOLE member subtree (config type, return type, …) to the single

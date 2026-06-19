@@ -297,9 +297,17 @@ instance type) has its own rules:
    (ii) A `.d.ts` construction *class* carries its fully aggregated config on the emitted `static
    new(props: Pick<Self, …>)`; `buildConstructionBaseRegistry` scans declaration files and reads the
    config straight off that parameter (no recursion). Both are guarded by the declaration tests in
-   `source-transform-cross-file-construction.t.ts`. Note: a *failing* `.new(...)` call across files
-   crashes `tsc` (`addImplementationSuccessElaboration`, TS #20809), so those tests assert positive
-   calls only; required-ness is pinned by the local emit-mode fixture.
+   `source-transform-cross-file-construction.t.ts`.
+
+8. **The generated `static new` name needs a real source span in source view.** A FAILING
+   `.new(...)` call elaborates the failure against the *implementation* overload
+   (`addImplementationSuccessElaboration`), computing an error span on its `new` name. A
+   factory-fresh name (pos/end = -1) trips `getErrorSpanForNode` (`skipTrivia(-1)` overruns the node
+   end → `Debug.assert` / TS #20809) and **crashes the compiler** — only across files / in source
+   view (emit reprints to real positions; single-file source view happens not to elaborate). Pin the
+   name to the first overload's anchor (`createConstructionMembers`, source-view branch); the method
+   node keeps its own per-overload range for the overload-adjacency check. Guarded by the "without
+   crashing the compiler" test.
 
 ## Emit-path diagnostic remapping
 

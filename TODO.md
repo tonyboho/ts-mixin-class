@@ -32,13 +32,18 @@ Full report: `COMPILER-VS-IDE-DIAGNOSTICS.md`. These are pre-existing difference
 *what* the value-cast (emit) and real-class (ide) trees check, surfaced by the sweep and
 deliberately excluded from the parity assertion:
 
-- **Coverage gap — emit under-reports mixin-contract errors.** Renaming a mixin member
-  (e.g. `contractMethod`) makes the source-view tree flag consumers (TS2741/TS2551/
-  TS2420) while emit reports *nothing*. So `tsc` can pass while the IDE shows real
-  errors. This is the "different sources" risk: the two trees are not type-equivalent for
-  mixin member contracts. Fixing it means making the value-cast emit model type-check
-  like source view — a large, separate effort. The sweep tolerates source-view-only lines
-  and counts them.
+- **Coverage gap — emit under-reports mixin-contract errors.** Partially closed. The
+  *mixin-declaration* site is now checked in emit: a `@mixin` class that does not satisfy
+  the contract it `implements` is flagged by `tsc` (a type-only `MixinImplements<
+  InstanceType<ReturnType<typeof factory>>, Contract>` assertion, see AGENTS.md "Emit-path
+  implements conformance"), at the mixin's source line — emit TS2344 co-located with the
+  source-view TS2420. So `tsc` no longer stays silent when a mixin is missing a required
+  member. **Still open:** (a) *downstream consumer* propagation — when a consumer uses the
+  mixin where the contract is expected, source view reports TS2741 at the consumer while
+  emit does not (the value-cast type still does not carry the precise contract); (b)
+  *generic* mixins are skipped (the runtime instance type would need the mixin's own type
+  parameters re-bound, and a contract may reference them). The sweep tolerates remaining
+  source-view-only lines and counts them.
 - **Heritage-navigation gap** (already tracked below): source view reports `extends`/
   `implements` base-name errors at a synthetic `$base` position; emit reports them at the
   real base name (emit is the *correct* one here). The sweep filters diagnostics inside

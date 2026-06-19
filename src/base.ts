@@ -1,5 +1,14 @@
 export type AnyConstructor<T extends object = object> = new (...args: any[]) => T
 
+// Type-only conformance assertion. The emit path lowers a `@mixin` class to a value
+// cast `const X = defineMixinClass(...) as unknown as <type>`, whose `as unknown as`
+// erases the structural check between the runtime mixin body and the contracts it
+// `implements`. Referencing this alias over the runtime instance type and the contract
+// re-imposes that check (the constraint `TInstance extends TContract` reports the
+// missing/mismatched member) without emitting any runtime code, so `tsc` flags a mixin
+// that does not satisfy its `implements` contract just like the IDE / `--noEmit` path.
+export type MixinImplements<TInstance extends TContract, TContract> = TInstance
+
 export type ClassStatics<C> = Omit<C, "prototype">
 
 export type MixinFactory = (base: AnyConstructor<any>) => AnyConstructor<any>

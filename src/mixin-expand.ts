@@ -12,6 +12,7 @@ import {
     isNamedClassElement,
     mixinClassValueName,
     mixinFactoryName,
+    mixinImplementsName,
     requiredBaseType,
     runtimeMixinClassName,
     type FileMixinContext,
@@ -188,7 +189,66 @@ export function expandMixinClass(
         ), generatedTextRange(sourceFile, declaration.end)) ]
         : []
 
-    return [ interfaceDeclaration, ...diagnosticAliases, factoryStatement, valueStatement, ...defaultExportStatement ]
+    const conformanceChecks = createMixinImplementsConformanceCheck(tsInstance, declaration, ref, typeParameters)
+
+    return [
+        interfaceDeclaration,
+        ...diagnosticAliases,
+        factoryStatement,
+        valueStatement,
+        ...conformanceChecks,
+        ...defaultExportStatement
+    ]
+}
+
+// Type-only assertion that the runtime mixin body satisfies the contracts it
+// `implements`. The value-cast emit form (`as unknown as <type>`) erases that check
+// and the generated `interface X extends Contract` *inherits* the contract's members
+// instead of checking the class against them, so `tsc` stayed silent on a missing
+// member while the IDE flagged it. This alias references `MixinImplements<Instance,
+// Contract>` over the *runtime* instance type (`InstanceType<ReturnType<typeof
+// factory>>` — the actual body + required base + dependency members, not the declared
+// interface), whose constraint re-imposes the check and reports the missing/mismatched
+// member. It is a `type` alias, so it emits no runtime code; its range is pinned to the
+// mixin's name, so the diagnostic lands on the same source line the IDE reports TS2420.
+function createMixinImplementsConformanceCheck(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef,
+    typeParameters: ts.TypeParameterDeclaration[] | undefined
+): ts.TypeAliasDeclaration[] {
+    // Generic mixins are out of scope: the runtime instance type would need the mixin's
+    // own type parameters re-bound, and an `implements` contract may reference them
+    // (`class Box<T> implements Container<T>`), which are not in scope on this top-level
+    // alias. A non-generic mixin's contracts carry no free type parameters.
+    if (typeParameters !== undefined || declaration.name === undefined) {
+        return []
+    }
+
+    const contracts = implementsTypes(tsInstance, declaration)
+
+    if (contracts.length === 0) {
+        return []
+    }
+
+    const factory      = tsInstance.factory
+    const contractType = contracts.length === 1
+        ? heritageTypeToTypeReference(tsInstance, contracts[0])
+        : factory.createIntersectionTypeNode(
+            contracts.map((contract) => heritageTypeToTypeReference(tsInstance, contract))
+        )
+    const instanceType = factory.createTypeReferenceNode("InstanceType", [
+        factory.createTypeReferenceNode("ReturnType", [
+            factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName))
+        ])
+    ])
+
+    return [ preserveGeneratedDeclarationRange(tsInstance, factory.createTypeAliasDeclaration(
+        undefined,
+        generatedName(ref.className, "$implementsCheck"),
+        undefined,
+        factory.createTypeReferenceNode(mixinImplementsName, [ instanceType, contractType ])
+    ), declaration.name, declaration) ]
 }
 
 function createMixinDeclarationDiagnosticAliases(

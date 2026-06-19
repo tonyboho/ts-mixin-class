@@ -63,7 +63,7 @@ it("expands an imported class-level @mixin() class into interface + factory + co
         printed,
         "import { defineMixinClass, mixinChain, type AnyConstructor, type ClassStatics, " +
             "type MixinApplication, type MixinFactory, type StaticNeverConflictKeys, type base as __mixinBase, " +
-            "type RuntimeMixinClass, type MixinClassValue } from \"ts-mixin-class\"",
+            "type RuntimeMixinClass, type MixinClassValue, type MixinImplements } from \"ts-mixin-class\"",
         "Helper import is added"
     )
     t.match(printed, "function <T>(base: AnyConstructor)",
@@ -149,7 +149,7 @@ it("supports custom package and decorator options", async (t: Test) => {
         printSourceFile(ts, transformedFile),
         "import { defineMixinClass, mixinChain, type AnyConstructor, type ClassStatics, " +
             "type MixinApplication, type MixinFactory, type StaticNeverConflictKeys, type base as __mixinBase, " +
-            "type RuntimeMixinClass, type MixinClassValue } from \"custom-mixin-package\"",
+            "type RuntimeMixinClass, type MixinClassValue, type MixinImplements } from \"custom-mixin-package\"",
         "Helper import uses the custom package name"
     )
 })

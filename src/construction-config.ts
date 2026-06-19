@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import { MixinTransformError } from "./expand-util.js"
 import {
+    accumulateRegisteredMixinConfig,
     registryKey,
     uniqueConfigProperties,
     type ConfigProperty,
@@ -88,6 +89,16 @@ export function createConstructionMembers(
         if (options.sourceView) {
             return preserveTextRange(tsInstance, member, overloadRange(index))
         }
+
+        // Pin the WHOLE member subtree (config type, return type, …) to the single
+        // anchor, then set the original for source-map fidelity. A diagnostic on a node
+        // *inside* the synthetic member (e.g. a perturbed config key in the `Pick<…>`)
+        // otherwise has no source mapping of its own: the emit remap extrapolates its
+        // column forward from the member anchor and caps it at the line end, landing one
+        // column past the source-view position (which reads the anchor directly). With
+        // the subtree collapsed, every interior node maps to the anchor, so both modes
+        // agree on the column too.
+        collapseSubtreeTextRange(tsInstance, member, overloadRange(index))
 
         return preserveGeneratedDeclarationRange(tsInstance, member, overloadRange(index), declaration)
     }
@@ -459,7 +470,7 @@ function staticConstructionConfigProperties(
     baseImportMap?: Map<string, ImportedNameBinding>
 ): ConfigProperty[] {
     return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap),
+        ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
         ...mixinRefs.flatMap((ref) => ref.configProperties),
         ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? [])
     ])
@@ -478,27 +489,82 @@ function literalKeyUnionType(
         }))
 }
 
+// Accumulates the full construction config a base contributes to a subclass's
+// `.new(...)`: the base's own public fields, those inherited up its own `extends`
+// chain, and those of every mixin it consumes - recursively. A local base may itself
+// be a construction consumer (it extends another construction base and/or implements
+// mixins), so reading only its own fields drops inherited config and breaks the
+// static-side `new` along the chain (TS2417). Imported bases are read from the
+// cross-file registry, which carries the accumulated extends-chain config.
 function baseConfigProperties(
     tsInstance: TypeScript,
     baseType: ts.ExpressionWithTypeArguments | undefined,
     facts: SourceFileFacts,
-    crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    seen: Set<string>
 ): ConfigProperty[] {
     if (baseType === undefined || !tsInstance.isIdentifier(baseType.expression)) {
         return []
     }
 
-    const baseName  = baseType.expression.text
-    const localBase = facts.classesByName.get(baseName)
+    return configPropertiesForName(tsInstance, baseType.expression.text, facts, crossFile, baseImportMap, seen)
+}
 
-    if (localBase !== undefined) {
-        return localBase.configProperties
+function configPropertiesForName(
+    tsInstance: TypeScript,
+    name: string,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    seen: Set<string>
+): ConfigProperty[] {
+    if (seen.has(name)) {
+        return []
     }
 
-    // Imported base: the cross-file registry carries the accumulated config fields
-    // of the base and all of its ancestors up to `Base`.
-    return resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)?.configProperties ?? []
+    seen.add(name)
+
+    const localClass = facts.classesByName.get(name)
+
+    if (localClass !== undefined) {
+        return uniqueConfigProperties([
+            ...baseConfigProperties(tsInstance, localClass.extendsType, facts, crossFile, baseImportMap, seen),
+            ...localClass.implementsIdentifierNames.flatMap((implemented) =>
+                configPropertiesForName(tsInstance, implemented, facts, crossFile, baseImportMap, seen)),
+            ...localClass.configProperties
+        ])
+    }
+
+    // Not declared in this file: an imported construction base (its accumulated
+    // extends-chain config lives in the cross-file registry) or an imported mixin
+    // (its own plus dependency config lives in the mixin registry).
+    const baseEntry = resolveCrossFileConstructionBase(name, crossFile, baseImportMap)
+
+    if (baseEntry !== undefined) {
+        return baseEntry.configProperties
+    }
+
+    return importedMixinConfigProperties(name, crossFile, baseImportMap, seen)
+}
+
+function importedMixinConfigProperties(
+    name: string,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    seen: Set<string>
+): ConfigProperty[] {
+    const imported = baseImportMap?.get(name)
+
+    if (imported === undefined || crossFile === undefined) {
+        return []
+    }
+
+    return accumulateRegisteredMixinConfig(
+        registryKey(imported.resolvedFileName, imported.importedName),
+        crossFile.registry,
+        seen
+    )
 }
 
 function createConsumerInstanceType(

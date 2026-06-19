@@ -38,6 +38,17 @@ const providerText = `
             this.tag = "init:" + this.mixinValue
         }
     }
+
+    @mixin()
+    export class TagMixin {
+        public label: string = ""
+    }
+
+    // A construction *consumer* exported for another file to subclass. Its config
+    // includes the consumed mixin's \`label\`, which the subclass's \`.new\` must see.
+    export class TaggedBase extends Base implements TagMixin {
+        public ownBaseValue: string = ""
+    }
 `
 
 it("regenerates construction members for an ordinary class extending an imported Base descendant", async (t: Test) => {
@@ -147,6 +158,51 @@ it("supports a consumer of an imported mixin that extends Base directly, includi
         t.isStrict(run.exitCode, 0, `Emitted consumer runs:\n${commandOutput(run)}`)
         t.match(run.stdout, `RESULT:${JSON.stringify({ a : 7, b : true, tag : "init:7" })}`,
             "The mixin's initialize override (which calls super.initialize on Base) runs for the consumer")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// Subclassing an imported construction *consumer* in another file: the subclass's
+// generated `.new` must aggregate the imported base's config including the field
+// contributed by the mixin that base consumes (`TaggedBase implements TagMixin`).
+// The cross-file construction-base registry resolves the imported base's consumed
+// mixins, not only its `extends` chain.
+it("aggregates an imported construction consumer's mixin config when subclassed across files", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            { fileName : "provider.ts", text : providerText },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { TaggedBase } from "./provider.js"
+
+                    class TaggedSubclass extends TaggedBase {
+                        public extra: string = ""
+                    }
+
+                    // Passing the imported base's mixin field (\`label\`) must typecheck:
+                    // if the registry dropped it, this would be a TS2353 unknown-property
+                    // error. The local fixture (construction-deep-subclass) pins that the
+                    // aggregated field is also *required*.
+                    const instance = TaggedSubclass.new({ ownBaseValue : "x", label : "y", extra : "z" })
+
+                    const a: string = instance.ownBaseValue
+                    const b: string = instance.label
+                    const c: string = instance.extra
+
+                    void [ a, b, c ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(result.exitCode, 0,
+            `Subclass of an imported construction consumer aggregates the base mixin's config field:\n${commandOutput(result)}`)
     } finally {
         await fixture.dispose()
     }

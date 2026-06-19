@@ -326,9 +326,10 @@ const ok  = User.new({ firstName : "Ada", lastName : "Lovelace" })
 const bad = new User({ firstName : "Ada" })
 ```
 
-A class that declares its own constructor opts back into manual construction (its
-`super(...)` call keeps working and `new` is allowed) - the guard only applies to the
-cooperative `initialize` pattern where the class has no constructor of its own.
+A class that extends `Base` must not declare its own constructor: construction always
+runs through `.new` and the cooperative `initialize` pattern. If you need a custom
+constructor, do not extend `Base` - use a plain mixin consumer (manual construction)
+instead.
 
 ### Instantiation with generics
 

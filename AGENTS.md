@@ -266,6 +266,28 @@ instance type) has its own rules:
      mixin-less construction path — which never requests generated imports — needs none.
    - **Runtime is untouched** (the brand lives only in the `as unknown as` cast, erased on emit), so
      `new X()` still *runs*; it is purely a compile-time guard.
+   - **Diagnostic position parity for the generated `static new`.** A diagnostic *inside* the
+     synthetic member (e.g. a perturbed config key in `Pick<…>` failing `keyof X`) must land on the
+     same source line+column in emit and source-view. Anchor the members at `declaration.members.end`
+     in **both** modes (`createConstructionMembers` callers) — `declaration.pos` includes leading
+     trivia and remaps emit onto the *previous* class's `}`. And in emit, `collapseSubtreeTextRange`
+     the whole member to that anchor: otherwise an interior node has no mapping of its own and the
+     emit remap extrapolates its column to the line end, one past source-view. `stress-diagnostic-parity`
+     guards both (it perturbs `@mixin` names, which cascade into a subclass's generated config).
+
+6. **A base contributes its *fully accumulated* config to a subclass's `.new`, not just its own
+   fields.** A construction class can extend another construction class, which may itself be a
+   consumer (it extends a further base **and** implements mixins). The generated `.new` config for
+   the subclass must fold in, recursively: the base's `extends` chain, every mixin the base consumes
+   (and those mixins' transitive mixin dependencies), and the base's own `public` fields. Reading
+   only the immediate base's own fields silently drops inherited config **and** makes the subclass's
+   `static new` an incompatible static-side override along the chain (TS2417). Two code paths must
+   stay in sync: `baseConfigProperties` / `configPropertiesForName` (`construction-config.ts`) for a
+   **local** base, and `buildConstructionBaseRegistry` (`registry.ts`) for an **imported** base —
+   the latter now resolves the base's `implements` mixins through the mixin registry, not only its
+   `extends` chain. Both share `accumulateRegisteredMixinConfig` (`model.ts`). This regressed once
+   because the only fixtures were one level deep (`X extends Base` directly); keep
+   `construction-deep-subclass.t.ts` and the cross-file deep-subclass test honest.
 
 ## Emit-path diagnostic remapping
 

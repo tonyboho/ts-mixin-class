@@ -200,6 +200,33 @@ export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty
     return [ ...byName.values() ]
 }
 
+// Accumulates the full construction config a registered mixin contributes: its own
+// public fields plus those of every mixin it depends on, transitively. Used both when
+// a consumer applies the mixin and when an ordinary class consuming the mixin is used
+// as a construction base for a subclass (so the subclass's `.new` sees the field).
+export function accumulateRegisteredMixinConfig(
+    key: string,
+    registry: MixinRegistry,
+    seen: Set<string>
+): ConfigProperty[] {
+    if (seen.has(key)) {
+        return []
+    }
+
+    seen.add(key)
+
+    const registered = registry.get(key)
+
+    if (registered === undefined) {
+        return []
+    }
+
+    return uniqueConfigProperties([
+        ...registered.dependencies.flatMap((dependency) => accumulateRegisteredMixinConfig(dependency, registry, seen)),
+        ...registered.configProperties
+    ])
+}
+
 export function registryKey(fileName: string, name: string): string {
     return `${normalizePath(fileName)}::${name}`
 }

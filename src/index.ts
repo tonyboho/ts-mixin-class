@@ -355,7 +355,7 @@ export default function transformProgram(
     }
 
     const registry          = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
-    const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName)
+    const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName, registry)
     const crossFile         = registry.size === 0 && constructionBases.size === 0
         ? undefined
         : {
@@ -659,9 +659,12 @@ function expandConstructionBaseClass(
         undefined,
         [],
         options,
-        options.sourceView
-            ? generatedTextRange(sourceFile, declaration.members.end)
-            : generatedTextRange(sourceFile, declaration.pos),
+        // Anchor the generated `static new` to the END of the class body in BOTH modes.
+        // `declaration.pos` (used for emit before) includes leading trivia, so it points
+        // at the previous sibling's `}`; a diagnostic on the generated member (e.g. a
+        // perturbed config key) then remaps onto the *previous* class, diverging from the
+        // source-view position. `members.end` keeps it inside this class (parity).
+        generatedTextRange(sourceFile, declaration.members.end),
         crossFile,
         baseImportMap
     )

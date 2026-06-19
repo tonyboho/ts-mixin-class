@@ -2,6 +2,7 @@ import type * as ts from "typescript"
 import { isPackageBaseExpression } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
+    accumulateRegisteredMixinConfig,
     defaultTransformOptions,
     normalizePath,
     propertyNameText,
@@ -143,7 +144,8 @@ export function buildConstructionBaseRegistry(
     tsInstance: TypeScript,
     program: ts.Program,
     options: Partial<TransformOptions> = {},
-    resolveModuleFileName?: (specifier: string, containingFile: string) => string | undefined
+    resolveModuleFileName?: (specifier: string, containingFile: string) => string | undefined,
+    mixinRegistry?: MixinRegistry
 ): ConstructionBaseRegistry {
     const resolvedOptions = {
         ...defaultTransformOptions,
@@ -151,12 +153,13 @@ export function buildConstructionBaseRegistry(
     }
 
     type ConstructionBaseCandidate = {
-        fileName            : string,
-        name                : string,
-        baseName            : string | undefined,
-        extendsPackageBase  : boolean,
-        ownConfigProperties : ConfigProperty[],
-        importMap           : Map<string, ImportedNameBinding>
+        fileName             : string,
+        name                 : string,
+        baseName             : string | undefined,
+        extendsPackageBase   : boolean,
+        ownConfigProperties  : ConfigProperty[],
+        mixinDependencyNames : string[],
+        importMap            : Map<string, ImportedNameBinding>
     }
 
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
@@ -186,11 +189,12 @@ export function buildConstructionBaseRegistry(
 
             const baseExpression                       = classFacts.extendsType.expression
             const candidate: ConstructionBaseCandidate = {
-                fileName            : sourceFile.fileName,
-                name                : classFacts.name,
-                baseName            : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
-                extendsPackageBase  : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts),
-                ownConfigProperties : classFacts.configProperties,
+                fileName             : sourceFile.fileName,
+                name                 : classFacts.name,
+                baseName             : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
+                extendsPackageBase   : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts),
+                ownConfigProperties  : classFacts.configProperties,
+                mixinDependencyNames : classFacts.implementsIdentifierNames,
                 importMap
             }
 
@@ -200,6 +204,42 @@ export function buildConstructionBaseRegistry(
     }
 
     const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[] }>()
+
+    const candidateMixinConfig = (candidate: ConstructionBaseCandidate): ConfigProperty[] => {
+        if (mixinRegistry === undefined) {
+            return []
+        }
+
+        return uniqueConfigProperties(candidate.mixinDependencyNames.flatMap((name) => {
+            const sameFileKey = registryKey(candidate.fileName, name)
+
+            if (mixinRegistry.has(sameFileKey)) {
+                return accumulateRegisteredMixinConfig(sameFileKey, mixinRegistry, new Set())
+            }
+
+            const imported = candidate.importMap.get(name)
+
+            if (imported !== undefined) {
+                const importedKey = registryKey(imported.resolvedFileName, imported.importedName)
+
+                if (mixinRegistry.has(importedKey)) {
+                    return accumulateRegisteredMixinConfig(importedKey, mixinRegistry, new Set())
+                }
+            }
+
+            return []
+        }))
+    }
+
+    // The construction config an ordinary class contributes on its own: its public
+    // fields plus those of every mixin it consumes (transitively). Without the mixin
+    // half, subclassing an imported construction *consumer* would drop the base's
+    // mixin config from the subclass's `.new`.
+    const ownPlusMixinConfig = (candidate: ConstructionBaseCandidate): ConfigProperty[] =>
+        uniqueConfigProperties([
+            ...candidateMixinConfig(candidate),
+            ...candidate.ownConfigProperties
+        ])
 
     const resolve = (
         candidate: ConstructionBaseCandidate,
@@ -213,13 +253,13 @@ export function buildConstructionBaseRegistry(
         }
 
         if (seen.has(key)) {
-            return { isBaseDescendant: false, configProperties: candidate.ownConfigProperties }
+            return { isBaseDescendant: false, configProperties: ownPlusMixinConfig(candidate) }
         }
 
         seen.add(key)
 
         if (candidate.extendsPackageBase) {
-            const result = { isBaseDescendant: true, configProperties: candidate.ownConfigProperties }
+            const result = { isBaseDescendant: true, configProperties: ownPlusMixinConfig(candidate) }
 
             resolved.set(key, result)
 
@@ -232,7 +272,7 @@ export function buildConstructionBaseRegistry(
                 resolveImportedConstructionBaseCandidate(candidate, candidatesByKey)
 
         if (baseCandidate === undefined) {
-            const result = { isBaseDescendant: false, configProperties: candidate.ownConfigProperties }
+            const result = { isBaseDescendant: false, configProperties: ownPlusMixinConfig(candidate) }
 
             resolved.set(key, result)
 
@@ -242,7 +282,7 @@ export function buildConstructionBaseRegistry(
         const baseResolved = resolve(baseCandidate, seen)
         const result       = {
             isBaseDescendant : baseResolved.isBaseDescendant,
-            configProperties : uniqueConfigProperties([ ...baseResolved.configProperties, ...candidate.ownConfigProperties ])
+            configProperties : uniqueConfigProperties([ ...baseResolved.configProperties, ...ownPlusMixinConfig(candidate) ])
         }
 
         resolved.set(key, result)

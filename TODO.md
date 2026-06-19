@@ -1,71 +1,43 @@
 # TODO
 
-Open transformer bugs found against real consumers (notably the `ts-serializable`
+Open transformer divergences found against real consumers (notably the `ts-serializable`
 package). Not published — `package.json` `files` whitelists only `dist/src` + `README.md`.
+
+The two transform paths (emit value-cast vs. source-view real class) are not type-
+equivalent and stock TS gives one declaration only one face, so a few differences remain.
+Full report: `COMPILER-VS-IDE-DIAGNOSTICS.md`.
 
 ---
 
-## Emit / source-view diagnostic position parity (`stress-diagnostic-parity`)
+## Heritage-clause navigation gap
 
-The corpus sweep (rename a random AST identifier → inject a real error, compare emit vs
-source-view diagnostic *lines*) now passes: **emit never reports a diagnostic on a line
-the source has no error on.** Goal had been "lines first, then columns."
+go-to-def / find-all-references / quickinfo on a base type name *inside* a rewritten
+`extends` / `implements` clause (e.g. `Base` in `class Consumer extends Base`, even when
+`class Base` is local) resolve to the internal generated `$base`: refs/def come back empty,
+quickinfo shows `any`, and `Base`'s own references omit the `extends Base` use. Source view
+genuinely rewrites `extends Base` → `extends Consumer$base` and pins the generated `$base`
+ref onto the source `Base` position, so no node there carries the real `Base` symbol — the
+collapse trick can't fix it (the source base ref is *replaced*, and `.original` does not
+redirect navigation, which goes by the node's symbol). A real fix is architectural (keep
+source `extends Base` navigable while mixing members via interface merging — touches
+runtime/construction). Characterized, not fixed. Compiler reports heritage base-name errors
+at the *real* name, so emit is the correct path here. Guard: `tsserver-references.t.ts`
+"navigation on a base type in a rewritten heritage clause is a KNOWN GAP" asserts the
+current broken state so a future fix flips it red; `stress-references` tolerates these
+empties. Documented in `AGENTS.md` invariant #9.
 
-1. **Generated transformer diagnostics now remap correctly.** ✅ A transformer-emitted
-   diagnostic (e.g. the `Invalid mixin class declaration` validation alias, TS2344) sits
-   on a *generated* node whose reprinted line collapses many printed columns onto one
-   source column. The remap now binary-searches the nearest preceding source-map entry
-   (line-accurate even on fully-generated lines) and caps the column advance at the next
-   entry on the same source line (so a long alias no longer overshoots onto the next
-   source line). Was `8:1` vs `7:5`; now both `7:5`.
+## Downstream-consumer contract coverage divergence
 
-2. **Column parity.** ✅ The stress sweep now also asserts columns: for a diagnostic both
-   trees report (matched on `file:line:code:message`, so two different errors sharing a
-   line+code are not conflated), the remapped emit column equals the source-view column. A
-   filtered audit over all 1273 non-heritage/non-base perturbations found **0 column
-   mismatches**. Full breakdown of compiler-vs-IDE diagnostic differences:
-   `COMPILER-VS-IDE-DIAGNOSTICS.md`.
-
-### Known dual-tree divergences (not line-remap issues — out of scope for the remap)
-
-Full report: `COMPILER-VS-IDE-DIAGNOSTICS.md`. These are pre-existing differences in
-*what* the value-cast (emit) and real-class (ide) trees check, surfaced by the sweep and
-deliberately excluded from the parity assertion:
-
-- **Coverage gap — emit under-reports mixin-contract errors.** Largely closed at the
-  *mixin-declaration* site: the mixin's `implements` clause is now carried on the factory's
-  inner runtime class (`return class extends base implements Contract {…}`, see AGENTS.md
-  "Emit-path implements conformance"), so `tsc` verifies the real body against each
-  contract and emits the **same TS2420 the IDE does, on the same line and column** —
-  uniformly for generic and non-generic mixins. So `tsc` no longer stays silent when a
-  mixin is missing a required member. **Documented divergence (not a fix — low severity,
-  see README "Limitations"):** *downstream consumer* locality — when a consumer uses the
-  mixin where the contract is expected, source view *also* reports TS2741 at the consumer
-  while emit reports the violation only on the mixin declaration. This is **not** a tsc-
-  green hole: the body is checked at the declaration (`class extends base implements
-  Contract`), so a violation never compiles either way — the difference is only that the
-  editor additionally flags the use sites. (The value-cast value's type is the generated
-  `interface X` that *inherited* the contract members, so a consumer sees a type that
-  structurally "has" them; a real consumer-site error is therefore always shadowed by the
-  declaration error.) The sweep tolerates these source-view-only lines and counts them as
-  `ideOnlyCoverageGaps` — it only fails on emit-only lines, so this divergence cannot make
-  the parity test red.
-- **Heritage-navigation gap** (already tracked below): source view reports `extends`/
-  `implements` base-name errors at a synthetic `$base` position; emit reports them at the
-  real base name (emit is the *correct* one here). The sweep filters diagnostics inside
-  heritage clauses and skips perturbing base/mixin/interface names.
-- **`@ts-expect-error` coupling (TS2578).** When coverage differs, a directive that
-  expected the missing error becomes "unused"; the sweep excludes TS2578.
-
-### Recently resolved
-
-- **Diagnostic line numbers differed between `tsc` emit and `tsc --noEmit` / IDE.**
-  Mixin expansion adds/removes lines, and the emit path reprints the value-cast tree
-  to text, so diagnostics landed on regenerated lines that did not exist on disk. The
-  obvious fix (reuse the source-view tree for emit) is impossible — that tree is
-  types-only and emits incorrect runtime JS, and a non-reparsed value-cast tree makes
-  the checker invent diagnostics (TS2391 etc.). Resolved instead by keeping the
-  reprinted tree for emit but capturing the printer's source map and remapping every
-  emit-path diagnostic back to the real source position (`printSourceFileWithMappings`
-  + `wrapProgramDiagnostics` in `src/index.ts`). Covered by
-  `tests/emit-source-view-diagnostic-parity.t.ts`.
+A `@mixin` class that does not satisfy the contract it `implements` is now flagged by `tsc`
+on the *mixin declaration* (same TS2420 the IDE reports, same line and column — the
+`implements` clause is carried on the factory's inner runtime class). What still differs:
+when a *consumer* uses the mixin where the contract is expected, source view *also* reports
+TS2741 at the consumer use-site while emit reports the violation only at the declaration.
+This is **not** a tsc-green hole — the body is checked at the declaration, so a violation
+never compiles either way; the difference is only that the editor additionally flags the
+use sites (the value-cast value's type is the generated `interface X` that *inherited* the
+contract members, so a consumer sees a type that structurally "has" them). Low severity,
+documented in README "Limitations". The parity sweep tolerates these source-view-only lines
+(`ideOnlyCoverageGaps`) — it only fails on emit-only lines, so this cannot make the parity
+test red. Closing it would need the value-cast instance type to be the real body type rather
+than the inherited interface.

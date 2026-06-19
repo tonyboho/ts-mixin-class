@@ -6,55 +6,53 @@ differ in the diagnostics they report. Not published (dev doc).
 
 ## Method
 
-Sweep the whole fixture corpus: for **every** identifier (1485 of them), append a
-suffix to one occurrence — a syntactically valid edit that injects a real semantic error
-— then compile the corpus twice (emit vs source-view) through the actual transformer and
-diff the diagnostics. Reproduce with the categorising probe pattern in
-`tests/stress-diagnostic-parity.t.ts` (which asserts the line/column guarantees) and the
-ad-hoc audit used to build this report.
+Sweep the whole fixture corpus: for **every** identifier, append a suffix to one
+occurrence — a syntactically valid edit that injects a real semantic error — then compile
+the corpus twice (emit vs source-view) through the actual transformer and diff the
+diagnostics. Reproduce with the categorising probe pattern in
+`tests/stress-diagnostic-parity.t.ts`.
 
-## Headline
+## Position parity holds — no line or column difference
 
-For a diagnostic **both** paths report, they now agree on **line and column**. A filtered
-audit (1273 single-identifier renames — excluding the documented divergences below)
-recorded **0 line drifts and 0 column mismatches**. Every residual position difference in
-the raw, unfiltered sweep traces to one of the documented dual-tree divergences below, not
-to the reprint. What genuinely differs is *which* diagnostics each path reports (the two
-trees are not type-equivalent), summarised next.
+For a diagnostic **both** paths report (matched on `file:line:code:message`, so two
+different errors sharing a line + code are not conflated), they agree on **line and
+column**. A filtered audit over 1273 single-identifier renames recorded **0 line drifts
+and 0 column mismatches**. The emit path reprints the value-cast tree to text, so its raw
+diagnostics land on regenerated lines; every emit diagnostic is remapped back through the
+printer's source map to the real source position (`printSourceFileWithMappings` +
+`wrapProgramDiagnostics` in `src/index.ts`, see `AGENTS.md` "Emit-path diagnostic
+remapping"). So there is **no** position difference between the two paths — only a
+difference in *which* diagnostics each reports, below.
 
-## 1. Compiler under-reports — IDE-only errors (the important one)
+## Real difference 1 — downstream-consumer contract coverage (compiler under-reports)
 
-The value-cast emit tree types mixin members / contracts **more loosely** than the
-real-class source-view tree, so the IDE flags errors `tsc` stays silent on. **`tsc` /
-CI can pass while the editor shows red.** Triggered by renaming a mixin member or a
-consumer that relies on one.
+The value-cast emit tree types a consumer's view of a mixin more loosely than the
+real-class source-view tree. A `@mixin` class that does not satisfy the contract it
+`implements` is now flagged by **both** paths on the mixin *declaration* (the same TS2420,
+same line and column — the `implements` clause is carried on the factory's inner runtime
+class; see `AGENTS.md` "Emit-path implements conformance"). What still differs is the
+*consumer* use-site:
 
-| Code | Meaning | Example |
+| Code | Meaning | Where |
 | --- | --- | --- |
-| TS2741 | Property missing in type | `Property 'contractMethod' is missing in type '}'` |
-| TS2551 | Property does not exist (did you mean) | `Property 'contractMethod' does not exist on type 'Contract…'` |
-| TS2420 | Class incorrectly implements interface | `Class 'ContractMixin' incorrectly implements interface…` |
-| TS2720 | Class incorrectly implements class | `Class 'ValueLabel<T>' incorrectly implements class 'Stored…'` |
-| TS2339 | Property does not exist | `Property 'value' does not exist on type 'Box<T>'` |
+| TS2741 | Property missing in type | a consumer used where the mixin's contract is expected |
+| TS2551 | Property does not exist (did you mean) | consumer relying on a contract member |
+| TS2339 | Property does not exist | consumer relying on a contract member |
 
-**Status:** pre-existing dual-tree gap, **not** a line/column remap issue. **Largely
-closed at the declaration site:** a `@mixin` class that does not satisfy the contract it
-`implements` is now flagged by `tsc` with the **same TS2420 the IDE reports, at the same
-line and column** — for generic and non-generic mixins alike — by carrying the
-`implements` clause on the factory's inner runtime class (`return class extends base
-implements Contract {…}`, type-only / erased in JS; see AGENTS.md "Emit-path implements
-conformance"). So `tsc` no longer stays silent when a mixin is missing a required member.
-**Still open:** downstream-*consumer* propagation — a consumer using the mixin where the
-contract is expected sees the generated `interface X` (which *inherited* the contract
-members), so source view's consumer-side TS2741 has no emit counterpart yet. Tracked in
+The consumer sees the generated `interface X` that *inherited* the contract members, so it
+has a type that structurally "has" them, and emit reports no consumer-side error. This is
+**not** a `tsc`-green hole: the body is checked at the declaration (`class extends base
+implements Contract`), so a contract violation never compiles either way — the editor
+merely flags the use sites in addition. The sweep tolerates these source-view-only lines
+and counts them as `ideOnlyCoverageGaps`; it only fails on emit-only lines. Tracked in
 `TODO.md`.
 
-## 2. IDE under-reports / mis-positions — compiler-only errors (heritage gap)
+## Real difference 2 — heritage-clause navigation (IDE mis-positions)
 
 For a base name inside `extends` / `implements`, source view rewrites the clause to a
 generated `$base`, so it reports the error at a **synthetic position** with a garbled
-message (`Cannot find name '}'`, `… named '"'`), while the compiler reports it at the
-**real** base name. Here the **compiler is the correct one.**
+message, while the compiler reports it at the **real** base name. Here the **compiler is
+the correct one.**
 
 | Code | Compiler (correct) | IDE (synthetic) |
 | --- | --- | --- |
@@ -62,36 +60,18 @@ message (`Cannot find name '}'`, `… named '"'`), while the compiler reports it
 | TS2552 | `Cannot find name 'UndefinedShapeBase'` at the real name | `Cannot find name '}'. Did you mean…` |
 | TS2724 | `'"./mixins.js"' has no exported member named 'RequiredBase'` | `… named '"'` |
 
-**Status:** the documented heritage-navigation gap (see `AGENTS.md` invariant #9 "Known
-gap"). The parity test ignores diagnostics inside heritage clauses and does not perturb
-base/mixin/interface names.
+This is the heritage-navigation gap (`AGENTS.md` invariant #9, `TODO.md`). The parity test
+ignores diagnostics inside heritage clauses and does not perturb base/mixin/interface
+names. Every same-line+code column difference the raw sweep finds traces to this category
+(a synthetic `$base` position) or to conflation of two *different* errors sharing a line +
+code — never to a genuine column shift of the same diagnostic.
 
-## 3. Same error, different column — none genuine
+## What the parity test deliberately ignores
 
-Every same-line+code column difference the sweep found is one of:
-
-- a **heritage** artifact (category 2 — e.g. TS2552 emit col 2 vs IDE col 1 on the `}`),
-- an **IDE synthetic-position** artifact (category 2 — e.g. TS2724 `'"'`),
-- **conflation** of two *different* errors that share a line + code — e.g. on
-  `return \`${this.prefix}/${this.label()}\``, the compiler flags `label` (one column)
-  while the IDE flags `prefix` (another). Different errors, not a shifted column. The
-  parity test matches on `file:line:code:message`, so these no longer count as a column
-  mismatch.
-
-There is **no** case where the same diagnostic (same message) lands on a different
-column in the two paths.
-
-## 4. What the parity test deliberately ignores
-
-To assert the remap's guarantee (no line drift, matching columns for shared diagnostics)
-without tripping over the dual-tree divergences above, the sweep excludes:
-
-- **Diagnostics inside a heritage clause** — category 2 (compiler correct, IDE synthetic).
-- **Perturbing base / mixin / interface names** — renaming a base cascades into the
-  heritage and required-base generated-reference gaps.
-- **TS2578 `Unused '@ts-expect-error'`** — a meta-diagnostic that flips whenever coverage
-  differs (category 1 makes a directive look unused), not a position signal.
-- **Source-view-only diagnostics** (category 1) — tolerated and counted, not failed.
-
-The remaining assertion is strict: emit never reports on a line the source has no error
-on, and matches the source-view column wherever both report the same `file:line:code:message`.
+To assert position parity without tripping over the two differences above, the sweep
+excludes: diagnostics inside a heritage clause (difference 2); perturbing
+base / mixin / interface names (cascades into heritage); `TS2578 Unused '@ts-expect-error'`
+(flips whenever coverage differs); and source-view-only diagnostics (difference 1 —
+tolerated and counted, not failed). The remaining assertion is strict: emit never reports
+on a line the source has no error on, and matches the source-view column wherever both
+report the same `file:line:code:message`.

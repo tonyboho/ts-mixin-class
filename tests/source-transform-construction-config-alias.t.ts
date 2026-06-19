@@ -258,6 +258,38 @@ it("supports an initialize override through a mixin dependency chain", async (t:
     t.is(messages, "", "A consumer of a mixin chain whose members override initialize typechecks")
 })
 
+it("lets a plain class extend a construction mixin and add a required config field", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class Timestamped extends Base {
+            public createdAt: Date = new Date()
+        }
+
+        // NOTE: extending a mixin directly is NOT the idiomatic pattern - a class should
+        // INCLUDE a mixin via \`implements\` (or extend a plain class / \`Base\`), not inherit
+        // from the mixin itself. But we support it anyway: the mixin's value-cast \`new\` is a
+        // method (not a contravariant function-typed property), so a subclass that adds a
+        // REQUIRED field keeps an assignable generated \`static new(props: EventConfig)\` - no
+        // TS2417 static-side clash.
+        class Event extends Timestamped {
+            public name: string = ""
+        }
+
+        const created = Event.new({ createdAt : new Date(), name : "x" })
+
+        // @ts-expect-error - 'name' is required in the subclass config
+        const missingName = Event.new({ createdAt : new Date() })
+
+        void [ created, missingName ]
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.is(messages, "", "Extending a construction mixin and adding a required field typechecks (no TS2417 static-side clash)")
+})
+
 it("supports a three-level chain where each construction mixin/consumer overrides initialize with its own config", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { mixin } from "ts-mixin-class"

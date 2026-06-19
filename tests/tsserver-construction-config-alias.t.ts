@@ -429,3 +429,59 @@ it("tsserver rename on a mixin's initialize override responds instead of crashin
         await fixture.dispose()
     }
 })
+
+// A plain class that extends a construction mixin directly and adds a required config
+// field. Not the idiomatic pattern (prefer `implements`), but supported: the mixin's `new`
+// is a (bivariant) method, so the subclass's `static new(props: EventConfig)` does not clash
+// (TS2417). Guards the editor view (the emit-path probe alone would not cover source view).
+const extendsMixinText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Timestamped extends Base {
+        public createdAt: Date = new Date()
+    }
+
+    class Event extends Timestamped {
+        public name: string = ""
+    }
+
+    const created = Event.new({ createdAt : new Date(), name : "x" })
+
+    // @ts-expect-error - 'name' is required in the subclass config
+    const missingName = Event.new({ createdAt : new Date() })
+
+    void [ created, missingName ]
+`)
+
+it("tsserver reports no static-side errors in the editor when a class extends a construction mixin and adds a required field", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : extendsMixinText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                extendsMixinText,
+                "semanticDiagnosticsSync",
+                { file : sourceFile }
+            )
+        )
+
+        // No TS2417 (the static-side `new` stays assignable) and no TS2578 (the expect-error
+        // fires, i.e. the subclass config really requires `name`).
+        t.equal(
+            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
+            "",
+            "Extending a construction mixin and adding a required field is clean in the editor; the subclass config requires the field"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})

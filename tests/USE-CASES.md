@@ -238,8 +238,18 @@ plain consumer / manual construction instead). See §9.
   `Synthesized` flag (`MethodSignature` added to the navigable kinds) so rename/definition on
   a user `initialize` does not crash. Override the parameter as required
   (`config: <ClassName>Config`), or `| undefined` for an all-optional class; `config?:` also
-  works. The static-side `TS2417` from `class X extends <mixin>` adding required fields is a
-  separate, pre-existing limitation, unrelated to `initialize`.
+  works.
+- **Subclassing a construction mixin directly (§7.15).** A class that `extends` a construction
+  mixin and adds a required config field used to hit a static-side `TS2417`: the subclass's
+  generated `static new(props: SubConfig)` was not assignable to the mixin's inherited `new`,
+  exposed in the value cast as a function-typed **property** (`new: (props) => …`) which is
+  checked contravariantly under `strictFunctionTypes`. Fixed by emitting that `new` as a
+  **method** with a string-literal name (`"new"(props): …`) in `createMixinConstructionNewType`
+  — method parameters are bivariant, so the required-field subclass stays assignable, and
+  `"new"` (not a bare `new`, which parses as a construct signature) keeps `.new(...)` callable.
+  (Extending a mixin directly is not the idiomatic pattern — prefer `implements` — but it now
+  works.) Covered by `source-transform-construction-config-alias.t.ts` and
+  `tsserver-construction-config-alias.t.ts`.
 - **Deep construction subclassing — local (§7.12).** Fixed: `baseConfigProperties`
   (`construction-config.ts`) now recurses the `extends` chain and the mixins each
   intermediate base consumes (transitively), which also restores static-side `new`

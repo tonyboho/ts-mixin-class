@@ -271,29 +271,28 @@ export function createMixinConstructionNewType(
     // and the `static new` (source view) forms so the symbol exists in both.
     const aliasName = constructionConfigAliasName(tsInstance, sourceFile, declaration)
 
-    // A property signature (`new: (props?) => Instance`), not a method signature:
-    // inside a type literal `new(...)` parses as a construct signature, which
-    // would not provide a callable `.new` member. Consumers that apply this mixin
-    // exclude its `new` from the inherited statics (see createMixinStaticsType),
-    // so the property's strict parameter checking does not clash with a consumer's
-    // own generated `static new`.
+    // A method signature with a STRING-LITERAL name (`"new"(props?): Instance`), not a
+    // property (`new: (props?) => Instance`): a method's parameters are checked
+    // bivariantly, so a subclass that `extends` this mixin and adds a required config
+    // field still has an assignable `static new` (a property's function type is checked
+    // contravariantly under `strictFunctionTypes`, which rejects it - TS2417). The name
+    // must be a string literal because a bare `new(...)` in a type literal parses as a
+    // construct signature; `"new"(...)` parses as a callable `.new` method.
     return {
         newType : factory.createTypeLiteralNode([
-            factory.createPropertySignature(
+            factory.createMethodSignature(
                 undefined,
-                "new",
+                factory.createStringLiteral("new"),
                 undefined,
-                factory.createFunctionTypeNode(
+                undefined,
+                [ factory.createParameterDeclaration(
                     undefined,
-                    [ factory.createParameterDeclaration(
-                        undefined,
-                        undefined,
-                        "props",
-                        config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                        createConfigAliasReference(tsInstance, declaration, aliasName)
-                    ) ],
-                    createConsumerInstanceType(tsInstance, declaration)
-                )
+                    undefined,
+                    "props",
+                    config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                    createConfigAliasReference(tsInstance, declaration, aliasName)
+                ) ],
+                createConsumerInstanceType(tsInstance, declaration)
             )
         ]),
         configAlias : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)

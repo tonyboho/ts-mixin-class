@@ -292,7 +292,7 @@ it("gives a standalone construction-base mixin its own construction `new` in the
 
     t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
         "Construction-base mixin emits a named config alias")
-    t.match(printed, "new: (props?: SerializableConfig) => Serializable;",
+    t.match(printed, "\"new\"(props?: SerializableConfig): Serializable;",
         "Value cast prepends a construction `new` referencing the named config alias")
 
     t.expect(typecheckText(printed)).toEqual([])

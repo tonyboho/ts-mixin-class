@@ -461,19 +461,6 @@ never compiles. In short: `tsc` never passes a contract violation silently; it j
 at the declaration rather than also at every consumer.
 
 
-## Future Work
-
-- Support dynamic consumer base expressions while preserving evaluation order, instance
-  typing, static typing, declaration emit, and runtime behavior.
-- Provide an exact generated type for `initialize(config)`. Today `Config<this>` is a
-  broad structural helper: it can filter methods out of the instance type, but it cannot
-  know which public fields were selected by the transformer for the generated config, and
-  it cannot reproduce the exact required/optional split from the
-  generated `new(...)` adapter. A future design could expose a generated per-class config
-  type or constructor-based helper so user overrides can write something like
-  `initialize(config?: ExactConfig<typeof User>)` and get exactly the same shape as
-  `User.new(...)`.
-
 ## Technical Notes
 
 The package is a `ts-patch` ProgramTransformer. It transforms source files before

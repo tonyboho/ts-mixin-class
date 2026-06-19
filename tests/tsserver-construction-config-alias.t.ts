@@ -323,6 +323,82 @@ it("tsserver reports no merge/config errors in the editor for a construction mix
     }
 })
 
+// A three-level chain where every level overrides `initialize` with its own config and the
+// middle one is a construction mixin (`extends Base implements Mixin1`). Its `__Mixin2$base`
+// interface extends Base + Mixin1 but - unlike the emit structural interface - never carries
+// the class's own `initialize`, so it needs the protocol member injected even though Mixin2
+// declares `initialize`. This is editor-only: emit is clean even without the fix, so only a
+// source-view diagnostics check guards it.
+const chainText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Mixin1 extends Base {
+        public one: string = ""
+        override initialize(config: Mixin1Config): void { super.initialize(config) }
+    }
+
+    @mixin()
+    class Mixin2 extends Base implements Mixin1 {
+        public two: number = 0
+        override initialize(config: Mixin2Config): void { super.initialize(config) }
+    }
+
+    class Consumer extends Base implements Mixin2 {
+        public three: boolean = false
+        override initialize(config: ConsumerConfig): void { super.initialize(config) }
+    }
+
+    const created = Consumer.new({ one : "x", two : 1, three : true })
+
+    // The merged config requires every contributed field and rejects unknown ones; an
+    // expect-error directive that does not fire surfaces as TS2578 below.
+
+    // @ts-expect-error - 'one' (from Mixin1) is required in the merged config
+    const missingOne = Consumer.new({ two : 1, three : true })
+    // @ts-expect-error - 'two' (from Mixin2) is required in the merged config
+    const missingTwo = Consumer.new({ one : "x", three : true })
+    // @ts-expect-error - 'three' (Consumer's own field) is required in the merged config
+    const missingThree = Consumer.new({ one : "x", two : 1 })
+    // @ts-expect-error - 'nope' is not a known config property
+    const unexpected = Consumer.new({ one : "x", two : 1, three : true, nope : 0 })
+
+    void [ created, missingOne, missingTwo, missingThree, unexpected ]
+`)
+
+it("tsserver reports no merge/config errors in the editor for a chain where a construction mixin overrides initialize and depends on another", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : chainText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                chainText,
+                "semanticDiagnosticsSync",
+                { file : sourceFile }
+            )
+        )
+
+        // No TS2320 (the chain's `__Mixin2$base` merge is fixed) and no TS2578 (every
+        // expect-error directive is used, i.e. the merged config requires each field and
+        // rejects unknown ones).
+        t.equal(
+            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
+            "",
+            "A construction mixin in a chain is clean in the editor; the merged config requires every field and rejects unknown ones"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver rename on a mixin's initialize override responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

@@ -346,13 +346,16 @@ function expandSourceViewMixinClass(
 
     // A construction-base mixin applying (implementing) other mixins generates
     // `interface __X$base extends Base, Dep, …`. If a dependency overrides `initialize`
-    // with its own config the inherited members are not identical (TS2320) and the mixin
-    // does not declare its own override, inject the `Base.initialize` protocol member - the
-    // same fix the consumer `$base` interface uses. The member is synthetic; in source view
-    // it normalizes onto the off-screen `$base` range and the alignment pass clears its
-    // `Synthesized` flag (`MethodSignature` is a navigable kind), so navigation does not crash.
+    // with its own config the inherited members are not identical (TS2320), so inject the
+    // `Base.initialize` protocol member - the same fix the consumer `$base` interface uses.
+    // Unlike the emit structural `interface X` (whose body carries the class's own
+    // `initialize` override, which would itself resolve the conflict), this `__X$base` NEVER
+    // contains the class members - the mixin's own override lives on the real class that
+    // `extends __X$base` - so the member is needed even when the class declares `initialize`.
+    // The member is synthetic; in source view it normalizes onto the off-screen `$base` range
+    // and the alignment pass clears its `Synthesized` flag (`MethodSignature` is a navigable
+    // kind), so navigation does not crash.
     const needsProtocolInitialize = dependencyRefs.length > 0 &&
-        !declaresInstanceInitialize(tsInstance, declaration) &&
         isConstructionBaseOptIn(
             tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
         )

@@ -258,6 +258,47 @@ it("supports an initialize override through a mixin dependency chain", async (t:
     t.is(messages, "", "A consumer of a mixin chain whose members override initialize typechecks")
 })
 
+it("supports a three-level chain where each construction mixin/consumer overrides initialize with its own config", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class Mixin1 extends Base {
+            public one: string = ""
+            override initialize(config: Mixin1Config): void { super.initialize(config) }
+        }
+
+        // Extends Base (so it has its own Mixin2Config) AND depends on Mixin1; overrides
+        // initialize with its own config. Its generated $base extends Base + Mixin1, so it
+        // gets the protocol member even though the class declares its own initialize.
+        @mixin()
+        class Mixin2 extends Base implements Mixin1 {
+            public two: number = 0
+            override initialize(config: Mixin2Config): void { super.initialize(config) }
+        }
+
+        class Consumer extends Base implements Mixin2 {
+            public three: boolean = false
+            override initialize(config: ConsumerConfig): void { super.initialize(config) }
+        }
+
+        const created = Consumer.new({ one : "x", two : 1, three : true })
+
+        // @ts-expect-error - 'one' (from Mixin1) is required in the merged config
+        const missingOne = Consumer.new({ two : 1, three : true })
+        // @ts-expect-error - 'two' (from Mixin2) is required in the merged config
+        const missingTwo = Consumer.new({ one : "x", three : true })
+        // @ts-expect-error - 'three' (Consumer's own field) is required in the merged config
+        const missingThree = Consumer.new({ one : "x", two : 1 })
+
+        void [ created, missingOne, missingTwo, missingThree ]
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.is(messages, "", "A three-level chain each overriding initialize with its own config typechecks and accumulates the config")
+})
+
 it("lets a construction mixin apply several initialize-overriding mixins without its own override", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { mixin } from "ts-mixin-class"

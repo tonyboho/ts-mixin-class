@@ -211,22 +211,18 @@ const consumerExtendsLocalBaseText = trimIndent(`
 `)
 
 it("tsserver navigation on a base type in an extends clause reaches the base class", async (t: Test) => {
-    // The base type name in a consumer's `extends LocalBase` should navigate to the
-    // real `class LocalBase`, like it would without the transform.
+    // The base type name in a consumer's `extends LocalBase` navigates to the real
+    // `class LocalBase`, like it would without the transform.
     //
-    // TODO(heritage-rewrite navigation): KNOWN GAP. In source view the consumer's
-    // `extends LocalBase` is rewritten to `extends Widget$base` and the generated
-    // `$base` reference is pinned onto the source `LocalBase` position, so clicking
-    // the base name resolves to the internal `$base`: find-all-references and
-    // go-to-definition come back empty and quickinfo reports `any`. `.original`
-    // cannot redirect the target — `getDefinitionAtPosition` takes it strictly from
-    // `getSymbolAtLocation(node).declarations`, never from `.original` (verified in
-    // services.ts). Closing the gap is architectural (e.g. keep the source `extends
-    // LocalBase` navigable while mixing members in via interface merging), not a
-    // range tweak — see AGENTS.md invariant #9 "Known gap (heritage-rewrite
-    // navigation)". The assertions below state the *correct* behaviour; they are
-    // wrapped in `t.todo` so they run and stay visible (reported as TODO) but their
-    // failure does NOT fail the suite. When the gap is fixed they should pass.
+    // This used to be a KNOWN GAP: source view rewrote `extends LocalBase` to
+    // `extends Widget$base` and pinned the generated `$base` reference onto the
+    // source `LocalBase` position, so the base name resolved to the internal
+    // `$base`. It is now fixed for a well-typed NON-GENERIC, non-construction
+    // consumer: the navigable-base fast path re-extends the real base under a
+    // single-source cast (`extends (LocalBase as unknown as <cast>)`), keeping the
+    // real `LocalBase` identifier on its source position. Generic and
+    // construction-base consumers still go through `$base` (see AGENTS.md invariant
+    // #9 "Known gap"), so navigation on their base name remains unresolved.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [ { fileName : "source.ts", text : consumerExtendsLocalBaseText } ]
@@ -266,16 +262,14 @@ it("tsserver navigation on a base type in an extends clause reaches the base cla
             })
         )
 
-        t.todo("base name in `extends LocalBase` resolves to the base class (heritage-rewrite gap)", (t: Test) => {
-            t.true(definitions.some(landsOnDeclaration),
-                "Go-to-definition on the base name in `extends LocalBase` lands on `class LocalBase`")
+        t.true(definitions.some(landsOnDeclaration),
+            "Go-to-definition on the base name in `extends LocalBase` lands on `class LocalBase`")
 
-            t.true(references.some(landsOnDeclaration),
-                "Find-all-references from the base name in `extends LocalBase` includes the `class LocalBase` declaration")
+        t.true(references.some(landsOnDeclaration),
+            "Find-all-references from the base name in `extends LocalBase` includes the `class LocalBase` declaration")
 
-            t.equal(quickInfo.displayString, "class LocalBase",
-                "Quickinfo on the base name in `extends LocalBase` reports the base class, not the internal `$base`")
-        })
+        t.equal(quickInfo.displayString, "class LocalBase",
+            "Quickinfo on the base name in `extends LocalBase` reports the base class, not the internal `$base`")
     } finally {
         await fixture.dispose()
     }

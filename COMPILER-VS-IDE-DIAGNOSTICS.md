@@ -47,12 +47,16 @@ merely flags the use sites in addition. The sweep tolerates these source-view-on
 and counts them as `ideOnlyCoverageGaps`; it only fails on emit-only lines. Tracked in
 `TODO.md`.
 
-## Real difference 2 — heritage-clause navigation (IDE mis-positions)
+## Real difference 2 — heritage-clause navigation (IDE mis-positions; residual)
 
 For a base name inside `extends` / `implements`, source view rewrites the clause to a
 generated `$base`, so it reports the error at a **synthetic position** with a garbled
 message, while the compiler reports it at the **real** base name. Here the **compiler is
-the correct one.**
+the correct one.** This now only applies to **generic** consumers, **construction-base**
+consumers, and consumers emitting diagnostic validations — those keep the `$base` rewrite.
+A well-typed **non-generic, non-construction** consumer takes the navigable-base fast path
+(`extends (Base as unknown as <cast>)`, real base on its source position), so there the IDE
+agrees with the compiler.
 
 | Code | Compiler (correct) | IDE (synthetic) |
 | --- | --- | --- |

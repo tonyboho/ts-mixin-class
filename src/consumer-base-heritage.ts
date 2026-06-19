@@ -3,6 +3,7 @@ import {
     cloneExpressionWithTypeArguments,
     createSourceViewConsumerBaseHeadType,
     expressionToEntityName,
+    heritageTypeToTypeReference,
     mixinValueIdentifier
 } from "./expand-util.js"
 import {
@@ -12,7 +13,11 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { cloneNode } from "./util.js"
+import {
+    cloneNode,
+    preserveSubtreeTextRange,
+    preserveTextRange
+} from "./util.js"
 import type { TypeScript } from "./util.js"
 
 // Statics a consumer inherits from an applied mixin: the mixin's own statics
@@ -154,6 +159,118 @@ export function consumerBaseClassHeritage(
             ),
             undefined
         )
+    ])
+}
+
+// Source-view "navigable base" fast path. When a NON-GENERIC consumer has an
+// explicit `extends Base` and produces no diagnostic validations (i.e. well-typed
+// code), we skip the generated `$base` indirection entirely: the consumer's own
+// heritage becomes `extends (Base as unknown as <cast>)` with the REAL base
+// expression pinned onto the source base position, so go-to-definition /
+// find-all-references / quickinfo on the base name reach the real base class
+// instead of the internal `$base`. The cast (see createNavigableConsumerBaseCastType)
+// carries the base + every mixin instance and the statics, so `super.<mixinMember>`,
+// statics and own members all keep resolving.
+//
+// Position handling: the real base identifier is pinned onto the source base name
+// (`extends Base` → the `Base` token) so navigation lands there. The synthetic
+// `as unknown as <cast>` type machinery covers the remainder of the source
+// heritage-type span (the `<...>` type arguments and trailing trivia) so no source
+// text is stranded in a SyntaxList gap (invariant #5) while no synthetic node
+// overlaps the base name itself.
+export function navigableConsumerBaseClassHeritage(
+    tsInstance: TypeScript,
+    extendsType: ts.ExpressionWithTypeArguments,
+    mixinHeritage: ts.ExpressionWithTypeArguments[],
+    linearizedMixinRefs: ResolvedMixinRef[],
+    generatedHeritageTypeRange: ts.ExpressionWithTypeArguments
+): ts.HeritageClause {
+    const factory = tsInstance.factory
+
+    const baseExpression = cloneNode(tsInstance, extendsType.expression)
+    const castType       = createNavigableConsumerBaseCastType(
+        tsInstance,
+        extendsType,
+        mixinHeritage,
+        linearizedMixinRefs
+    )
+    const innerAs        = factory.createAsExpression(
+        baseExpression,
+        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+    )
+    const outerAs        = factory.createAsExpression(innerAs, castType)
+    const extendsExpr    = factory.createExpressionWithTypeArguments(outerAs, undefined)
+
+    // The source heritage type spans `Base<...>`. The navigable real base identifier
+    // is stretched over that whole span so the base name resolves AND no source
+    // character is stranded in a SyntaxList gap (invariant #5); its ancestors share
+    // the same range. The `as unknown as <cast>` machinery is left SYNTHETIC
+    // (negative positions): collapsing it onto source text would make the checker
+    // re-read the synthetic `Omit<…, "prototype" | "new">` string literals from the
+    // source, blanking them into `Omit<…, >` so the cast degrades to `any` and the
+    // base loses its members (TS4112/TS2339). Synthetic type nodes keep their own
+    // factory text and claim no source range, so they neither corrupt nor strand.
+    const fullRange = generatedHeritageTypeRange
+
+    preserveSubtreeTextRange(tsInstance, baseExpression, fullRange)
+    preserveTextRange(tsInstance, innerAs, fullRange)
+    preserveTextRange(tsInstance, outerAs, fullRange)
+    preserveTextRange(tsInstance, extendsExpr, fullRange)
+
+    const heritageClause = factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [ extendsExpr ])
+
+    preserveTextRange(tsInstance, heritageClause.types, fullRange)
+
+    return preserveTextRange(tsInstance, heritageClause, fullRange)
+}
+
+// The cast for the navigable fast path is "single source": unlike the `$base`
+// split (a generated interface for instance members + a class for statics), here
+// the consumer extends this cast directly, so the cast's constructor instance type
+// must carry the base AND every applied mixin's instance members — that is what a
+// `super.<mixinMember>` access resolves against. Statics are deliberately
+// `Omit<typeof X, "prototype" | "new">` property bags carrying NO construct
+// signature — a second construct signature (e.g. a bare `typeof Base`) would
+// compete with the instance constructor and strand the mixin members, breaking
+// `super.<mixinMember>`, `implements` and `override` (TS2720/TS4112). Only safe for
+// a non-generic consumer: referencing the base/mixin instance types here cannot
+// mention the consumer's own type parameters, so it never trips TS2562.
+function createNavigableConsumerBaseCastType(
+    tsInstance: TypeScript,
+    extendsType: ts.ExpressionWithTypeArguments,
+    mixinHeritage: ts.ExpressionWithTypeArguments[],
+    linearizedMixinRefs: ResolvedMixinRef[]
+): ts.TypeNode {
+    const factory = tsInstance.factory
+
+    const instanceTypes       = [
+        heritageTypeToTypeReference(tsInstance, extendsType),
+        ...mixinHeritage.map((heritageType) => heritageTypeToTypeReference(tsInstance, heritageType))
+    ]
+    const instanceConstructor = factory.createTypeReferenceNode(anyConstructorName, [
+        instanceTypes.length === 1 ? instanceTypes[0] : factory.createIntersectionTypeNode(instanceTypes)
+    ])
+    const staticsTypes        = [
+        createStaticsBag(tsInstance, expressionToEntityName(tsInstance, extendsType.expression)),
+        ...linearizedMixinRefs
+            .filter((ref) => ref.localValueName !== undefined)
+            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
+    ]
+
+    return factory.createIntersectionTypeNode([ instanceConstructor, ...staticsTypes ])
+}
+
+// `Omit<typeof <entity>, "prototype" | "new">`: an entity's static side as a plain
+// property bag, with no construct signature (see createNavigableConsumerBaseCastType).
+function createStaticsBag(tsInstance: TypeScript, entityName: ts.EntityName): ts.TypeNode {
+    const factory = tsInstance.factory
+
+    return factory.createTypeReferenceNode("Omit", [
+        factory.createTypeQueryNode(entityName),
+        factory.createUnionTypeNode([
+            factory.createLiteralTypeNode(factory.createStringLiteral("prototype")),
+            factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+        ])
     ])
 }
 

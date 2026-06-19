@@ -3,6 +3,7 @@ import {
     consumerBaseClassHeritage,
     consumerRuntimeBaseType,
     isSupportedBaseExpression,
+    navigableConsumerBaseClassHeritage,
     unsupportedBaseConsumerHeritage
 } from "./consumer-base-heritage.js"
 import {
@@ -242,18 +243,53 @@ export function expandConsumerClass(
         declaration.members,
         expansion.originalExtendsClause === undefined
     )
-    const consumerMembers          = isConstructionBaseOptIn(
+    const isConstructionConsumer   = isConstructionBaseOptIn(
         tsInstance,
         sourceFile,
         expansion.extendsType ?? implicitRequiredBase,
         options
     )
+    const consumerMembers          = isConstructionConsumer
         ? rewritePublicOnlyUndefinedInitializers(tsInstance, consumerMembersWithSuper, options)
         : consumerMembersWithSuper
     const updatedConsumerMembers   = constructionMembers.length === 0
         ? consumerMembers
         : preserveTextRange(tsInstance, factory.createNodeArray([ ...consumerMembers, ...constructionMembers ]), consumerMembers)
-    const updatedConsumer          = factory.updateClassDeclaration(
+
+    // Source-view navigable-base fast path: a well-typed NON-GENERIC consumer with
+    // an explicit `extends Base` and no diagnostic validations needs no `$base`
+    // indirection. The consumer re-extends the real base under a single-source cast
+    // (`extends (Base as unknown as <ctor carrying base + mixin instances> &
+    // <statics>)`), so the base name in `extends Base` resolves to the real base
+    // class — closing the heritage-navigation gap — while `super.<mixinMember>`,
+    // statics and own members all keep resolving. A GENERIC consumer is excluded:
+    // its instance members must thread the consumer type parameter, which can only
+    // live on a generic base declaration the consumer extends (the `$base`
+    // interface), so a generic `super.<mixinMember>` genuinely needs `$base`.
+    // Diagnostic validations only arise on broken code; those keep the `$base`
+    // carrier below, which positions their diagnostics onto the source base name.
+    // Construction-base consumers are excluded too: their generated construction
+    // members and synthetic `super.initialize(...)` calls are wired against the
+    // `$base` declaration, so they keep it.
+    const isGenericConsumer = declaration.typeParameters !== undefined && declaration.typeParameters.length > 0
+
+    if (options.sourceView &&
+        consumerValidations.length === 0 &&
+        expansion.extendsType !== undefined &&
+        !isGenericConsumer &&
+        !isConstructionConsumer) {
+        return expandNavigableSourceViewConsumer(
+            tsInstance,
+            sourceFile,
+            declaration,
+            expansion.extendsType,
+            reducedMixinHeritage,
+            linearized,
+            updatedConsumerMembers
+        )
+    }
+
+    const updatedConsumer = factory.updateClassDeclaration(
         declaration,
         declaration.modifiers,
         declaration.name,
@@ -287,6 +323,55 @@ export function expandConsumerClass(
             ) ]
 
     return [ ...emptyBaseClass, baseInterface, baseClass, updatedConsumer ]
+}
+
+// Builds the source-view navigable-base fast path (non-generic consumer): the
+// consumer class re-extends the real base under a single-source cast carrying the
+// base + mixin instances and statics. No generated `$base` is emitted. See the
+// call site in `expandConsumerClass` for when this applies.
+function expandNavigableSourceViewConsumer(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    extendsType: ts.ExpressionWithTypeArguments,
+    reducedMixinHeritage: ts.ExpressionWithTypeArguments[],
+    linearizedMixinRefs: ResolvedMixinRef[],
+    members: ts.NodeArray<ts.ClassElement>
+): ts.Statement[] {
+    const factory = tsInstance.factory
+
+    if (declaration.name === undefined) {
+        throw new MixinTransformError(sourceFile, declaration, "A mixin consumer class must have a name")
+    }
+
+    const navigableExtends = navigableConsumerBaseClassHeritage(
+        tsInstance,
+        extendsType,
+        reducedMixinHeritage,
+        linearizedMixinRefs,
+        extendsType
+    )
+    const implementsClause = declaration.heritageClauses?.find((heritageClause) => {
+        return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword
+    })
+    const heritageClauses  = preserveTextRange(
+        tsInstance,
+        factory.createNodeArray(implementsClause === undefined
+            ? [ navigableExtends ]
+            : [ navigableExtends, implementsClause ]),
+        declaration.heritageClauses ?? extendsType
+    )
+
+    const updatedConsumer = factory.updateClassDeclaration(
+        declaration,
+        declaration.modifiers,
+        declaration.name,
+        declaration.typeParameters,
+        heritageClauses,
+        members
+    )
+
+    return [ updatedConsumer ]
 }
 
 function createConsumerExpansionContext(

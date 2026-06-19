@@ -29,7 +29,6 @@ export class Base {
     // signatures to be IDENTICAL - so a mixin's `initialize` override must also use
     // `unknown`, not its own alias.)
     initialize(props?: unknown): void {
-        // `Object.assign` ignores a nullish source, so no `undefined` guard is needed.
         Object.assign(this, props)
     }
 

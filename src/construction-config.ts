@@ -25,13 +25,14 @@ type ConstructionConfig = {
     optionalParameter : boolean
 }
 
-// A unique marker placed as the first statement of the generated `static new`
-// implementation body (`void "<marker>"`). It survives the emit-path reprint+reparse (it is
-// real code, not a comment, so `removeComments` cannot drop it) and is detected structurally
-// by the JS-emit strip transformer (`stripGeneratedStaticNew` in index.ts) to unambiguously
-// identify and remove the runtime-redundant factory. Declaration emit keeps the typed
-// `static new`, so the public `<Class>.new(props: <Class>Config): <Class>` survives in `.d.ts`.
-export const generatedStaticNewMarker = "ts-mixin-class:generated-static-new-factory"
+// A short, improbable marker placed as the first statement of the generated `static new`
+// implementation body (`void "$tmc$"`). It survives the emit-path reprint+reparse (real code,
+// not a comment, so `removeComments` cannot drop it) and is what the JS-emit strip transformer
+// (`stripGeneratedStaticNew` in index.ts) matches to drop the runtime-redundant factory.
+// Correctness rests on the exact `void "$tmc$"` shape, not the string length, so it is kept
+// short (a faster `indexOf` file gate); the only cost of a coincidental match elsewhere is a
+// skipped fast-path, never a wrong strip. Declaration emit keeps the typed `static new`.
+export const generatedStaticNewMarker = "$tmc$"
 
 
 // The generated construction members for a class: the `static new` overloads plus

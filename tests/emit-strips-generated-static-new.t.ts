@@ -6,6 +6,7 @@ import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
+import { generatedStaticNewMarker } from "../src/construction-config.js"
 
 // The generated `static new` factory on a construction class only forwards to the inherited
 // `Base.new`, so it is redundant JS. A `before` emit transformer strips it from the JS
@@ -50,7 +51,7 @@ it("strips the redundant generated static new from JS emit but keeps it in decla
         t.match(emittedJs, "class Account", "the construction class is still emitted")
         t.notMatch(emittedJs, "static new", "the generated static new factory is stripped from JS")
         t.notMatch(emittedJs, "super.new", "the forwarding `super.new(props)` body is gone")
-        t.notMatch(emittedJs, "generated-static-new", "the internal strip marker never reaches the output")
+        t.notMatch(emittedJs, generatedStaticNewMarker, "the internal strip marker never reaches the output")
 
         // Declarations: the typed factory survives so consumers keep `Account.new(...)`.
         t.match(declaration, "static new(props: AccountConfig): Account", "declaration keeps the typed static new")

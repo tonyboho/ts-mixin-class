@@ -44,7 +44,6 @@ import {
     cloneSourceFileForTransform,
     generatedTextRange,
     hasDifferentAstShape,
-    hasModifier,
     preserveTextRange,
     preserveTopLevelStatementRanges,
     printSourceFileWithMappings,
@@ -305,55 +304,36 @@ function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts
     return program
 }
 
-// A `before` emit transformer that removes the generated, runtime-redundant `static new`
-// factories from JS output. The class keeps every other member; the inherited `Base.new`
-// provides the actual runtime factory. Declaration emit is unaffected, so the typed
-// `static new` survives in `.d.ts`.
+// A `before` emit transformer that drops the generated, runtime-redundant `static new`
+// factory from JS output (it only forwards to the inherited `Base.new`). It hooks the method
+// node directly: a `static new` whose body opens with the `void "$tmc$"` marker is removed
+// (return `undefined`), and `visitEachChild` rebuilds the members array only for the class
+// that actually carried it. Removing just the marked IMPLEMENTATION suffices — its sibling
+// typed overload signature has no body and so emits nothing in JS, while declaration emit
+// keeps it, preserving the public `static new(props: <Class>Config): <Class>` in `.d.ts`.
 //
-// Performance: the marker (`generatedStaticNewMarker`) is a unique string that the reprint
-// bakes into the file text, so a single `indexOf` gate skips every file without a generated
-// factory (the vast majority) with NO AST traversal. Only files that contain it are walked,
-// and there each member check is name-gated before the (rarely-reached) marker check; the
-// members array is rebuilt only for a class that actually carries the factory.
+// The marker is a unique string the reprint bakes into the file text, so a single `indexOf`
+// gate skips every file without a generated factory (the vast majority) with NO AST traversal.
 function stripGeneratedStaticNew(tsInstance: TypeScript): ts.TransformerFactory<ts.SourceFile> {
-    const isMarkerStatement = (statement: ts.Statement): boolean => {
-        return tsInstance.isExpressionStatement(statement) &&
-            tsInstance.isVoidExpression(statement.expression) &&
-            tsInstance.isStringLiteral(statement.expression.expression) &&
-            statement.expression.expression.text === generatedStaticNewMarker
-    }
-
-    const isGeneratedStaticNewImpl = (member: ts.ClassElement): boolean => {
-        return tsInstance.isMethodDeclaration(member) &&
-            tsInstance.isIdentifier(member.name) &&
-            member.name.text === "new" &&
-            member.body !== undefined &&
-            member.body.statements.length > 0 &&
-            isMarkerStatement(member.body.statements[0])
-    }
-
-    const isStaticNewMember = (member: ts.ClassElement): boolean => {
-        return tsInstance.isMethodDeclaration(member) &&
-            tsInstance.isIdentifier(member.name) &&
-            member.name.text === "new" &&
-            hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)
-    }
-
     return (context) => {
-        const visit = (node: ts.Node): ts.Node => {
-            if ((tsInstance.isClassDeclaration(node) || tsInstance.isClassExpression(node)) &&
-                node.members.some(isGeneratedStaticNewImpl)
+        // The match is inlined (no per-node helper call): drop a `static new` whose body opens
+        // with the `void "$tmc$"` marker statement; otherwise recurse.
+        const visit = (node: ts.Node): ts.Node | undefined => {
+            if (tsInstance.isMethodDeclaration(node) &&
+                tsInstance.isIdentifier(node.name) &&
+                node.name.text === "new" &&
+                node.body !== undefined &&
+                node.body.statements.length > 0
             ) {
-                const members = tsInstance.factory.createNodeArray(node.members.filter((member) => !isStaticNewMember(member)))
-                const updated = tsInstance.isClassDeclaration(node)
-                    ? tsInstance.factory.updateClassDeclaration(
-                        node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members
-                    )
-                    : tsInstance.factory.updateClassExpression(
-                        node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members
-                    )
+                const first = node.body.statements[0]
 
-                return tsInstance.visitEachChild(updated, visit, context)
+                if (tsInstance.isExpressionStatement(first) &&
+                    tsInstance.isVoidExpression(first.expression) &&
+                    tsInstance.isStringLiteral(first.expression.expression) &&
+                    first.expression.expression.text === generatedStaticNewMarker
+                ) {
+                    return undefined
+                }
             }
 
             return tsInstance.visitEachChild(node, visit, context)

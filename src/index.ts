@@ -5,6 +5,7 @@ import { brandedConstructionBaseHeritage } from "./consumer-base-heritage.js"
 import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
 import {
     createConstructionMembers,
+    generatedStaticNewMarker,
     importsPackageBase,
     isConstructionBaseOptIn,
     positionConstructionConfigAlias,
@@ -43,6 +44,7 @@ import {
     cloneSourceFileForTransform,
     generatedTextRange,
     hasDifferentAstShape,
+    hasModifier,
     preserveTextRange,
     preserveTopLevelStatementRanges,
     printSourceFileWithMappings,
@@ -278,7 +280,21 @@ function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts
         return remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken))
     }
     program.emit                      = (targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers) => {
-        const result = originalEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers)
+        // Strip the redundant generated `static new` factories from JS emit (they only
+        // forward to the inherited `Base.new`). A `before` transformer runs after type
+        // checking but only affects the JS pipeline — declaration emit keeps the typed
+        // `static new`, so the public factory type survives in `.d.ts`. No-op for
+        // declaration-only emit.
+        const mergedTransformers: ts.CustomTransformers | undefined = emitOnlyDtsFiles === true
+            ? customTransformers
+            : {
+                ...customTransformers,
+                before : [
+                    ...(customTransformers?.before ?? []),
+                    stripGeneratedStaticNew(tsInstance)
+                ]
+            }
+        const result                                                = originalEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, mergedTransformers)
 
         return {
             ...result,
@@ -287,6 +303,71 @@ function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts
     }
 
     return program
+}
+
+// A `before` emit transformer that removes the generated, runtime-redundant `static new`
+// factories from JS output. The class keeps every other member; the inherited `Base.new`
+// provides the actual runtime factory. Declaration emit is unaffected, so the typed
+// `static new` survives in `.d.ts`.
+//
+// Performance: the marker (`generatedStaticNewMarker`) is a unique string that the reprint
+// bakes into the file text, so a single `indexOf` gate skips every file without a generated
+// factory (the vast majority) with NO AST traversal. Only files that contain it are walked,
+// and there each member check is name-gated before the (rarely-reached) marker check; the
+// members array is rebuilt only for a class that actually carries the factory.
+function stripGeneratedStaticNew(tsInstance: TypeScript): ts.TransformerFactory<ts.SourceFile> {
+    const isMarkerStatement = (statement: ts.Statement): boolean => {
+        return tsInstance.isExpressionStatement(statement) &&
+            tsInstance.isVoidExpression(statement.expression) &&
+            tsInstance.isStringLiteral(statement.expression.expression) &&
+            statement.expression.expression.text === generatedStaticNewMarker
+    }
+
+    const isGeneratedStaticNewImpl = (member: ts.ClassElement): boolean => {
+        return tsInstance.isMethodDeclaration(member) &&
+            tsInstance.isIdentifier(member.name) &&
+            member.name.text === "new" &&
+            member.body !== undefined &&
+            member.body.statements.length > 0 &&
+            isMarkerStatement(member.body.statements[0])
+    }
+
+    const isStaticNewMember = (member: ts.ClassElement): boolean => {
+        return tsInstance.isMethodDeclaration(member) &&
+            tsInstance.isIdentifier(member.name) &&
+            member.name.text === "new" &&
+            hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)
+    }
+
+    return (context) => {
+        const visit = (node: ts.Node): ts.Node => {
+            if ((tsInstance.isClassDeclaration(node) || tsInstance.isClassExpression(node)) &&
+                node.members.some(isGeneratedStaticNewImpl)
+            ) {
+                const members = tsInstance.factory.createNodeArray(node.members.filter((member) => !isStaticNewMember(member)))
+                const updated = tsInstance.isClassDeclaration(node)
+                    ? tsInstance.factory.updateClassDeclaration(
+                        node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members
+                    )
+                    : tsInstance.factory.updateClassExpression(
+                        node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members
+                    )
+
+                return tsInstance.visitEachChild(updated, visit, context)
+            }
+
+            return tsInstance.visitEachChild(node, visit, context)
+        }
+
+        return (sourceFile) => {
+            // Fast path: no generated factory anywhere in this file — skip AST traversal.
+            if (sourceFile.text.indexOf(generatedStaticNewMarker) === -1) {
+                return sourceFile
+            }
+
+            return tsInstance.visitNode(sourceFile, visit) as ts.SourceFile
+        }
+    }
 }
 
 function resolveTransformOptions(config: MixinClassTransformerConfig): TransformOptions {

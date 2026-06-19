@@ -183,6 +183,7 @@ plain consumer / manual construction instead). See §9.
 | 13.1 | `.d.ts` output builds and the declared types run | ✅ | `declaration-fixture-build-and-runtime.t.ts`, `declaration-fixture-suite/` |
 | 13.2 | tsserver declaration-emit diagnostics | ✅ | `tsserver-declaration-emit-diagnostics.t.ts` |
 | 13.3 | Emit contract conformance | ✅ | `emit-contract-conformance.t.ts` |
+| 13.4 | The generated `static new` factory is **stripped from JS emit** (it only forwards to the inherited `Base.new`) while declaration emit **keeps** the typed `static new(props: <Class>Config): <Class>` — runtime uses the inherited `Base.new` | ✅ | `emit-strips-generated-static-new.t.ts` |
 
 ## 14. Stress / fuzz
 

@@ -25,6 +25,15 @@ type ConstructionConfig = {
     optionalParameter : boolean
 }
 
+// A unique marker placed as the first statement of the generated `static new`
+// implementation body (`void "<marker>"`). It survives the emit-path reprint+reparse (it is
+// real code, not a comment, so `removeComments` cannot drop it) and is detected structurally
+// by the JS-emit strip transformer (`stripGeneratedStaticNew` in index.ts) to unambiguously
+// identify and remove the runtime-redundant factory. Declaration emit keeps the typed
+// `static new`, so the public `<Class>.new(props: <Class>Config): <Class>` survives in `.d.ts`.
+export const generatedStaticNewMarker = "ts-mixin-class:generated-static-new-factory"
+
+
 // The generated construction members for a class: the `static new` overloads plus
 // the exported `<ClassName>Config` type alias they reference. The alias is a sibling
 // top-level declaration, so the caller (which owns the surrounding statement list and
@@ -196,6 +205,10 @@ export function createConstructionMembers(
             ) ],
             factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
             factory.createBlock([
+                // Marker for the JS-emit strip transformer (see `generatedStaticNewMarker`).
+                factory.createExpressionStatement(
+                    factory.createVoidExpression(factory.createStringLiteral(generatedStaticNewMarker))
+                ),
                 factory.createReturnStatement(factory.createCallExpression(
                     factory.createPropertyAccessExpression(
                         factory.createSuper(),

@@ -10,28 +10,60 @@ import { runWithinBudget } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 import { packageRoot } from "./util.js"
 
-// Randomized parity stress test for emit-path diagnostic remapping.
+// Randomized parity stress test for emit-path diagnostic remapping — and the
+// reference for how the two paths differ in the diagnostics they report:
+//   - emit  (`tsc` / `mode "emit"`): value-cast tree reprinted to text;
+//   - IDE   (`--noEmit` / tsserver / `mode "ide"`): position-preserving source-view tree.
 //
-// The emit path reprints the transformed (value-cast) tree to text, so without
-// remapping its diagnostics land on regenerated lines that do not exist on disk
-// — `tsc` then reports errors at different positions than the IDE / `--noEmit`
-// (position-preserving) path. The single-fixture `emit-source-view-diagnostic-
-// parity` test pins one case; this one sweeps the whole fixture corpus.
-//
-// Each iteration: pick a random corpus file, pick a random identifier, and append
-// a distinctive suffix to one occurrence — a *syntactically valid* edit that injects
-// a real semantic error (an unresolved name / missing property) at a precise spot,
-// without the parser-recovery noise a space-split would create (broken syntax recovers
+// METHOD. Sweep the whole fixture corpus: pick a random file and identifier and append
+// a distinctive suffix to one occurrence — a *syntactically valid* edit that injects a
+// real semantic error (unresolved name / missing property) at a precise spot, without
+// the parser-recovery noise a space-split would create (broken syntax recovers
 // differently in the two structurally-different trees, which is not what the remap is
-// about). Then build the corpus twice through the actual transformer — once in `"emit"`
-// mode (reprinted + remapped) and once in `"ide"` mode (position-preserving) — and
-// assert both report diagnostics at the *same* source lines. Differing codes / counts
-// at the *same* line are tolerated (a known benign semantic divergence, e.g. TS2720 vs
-// TS2420, or construction `.new(...)` argument typing); a line present in only one mode
-// is a hard failure: that is exactly the line-number drift this fix removes.
+// about). Build the corpus twice through the actual transformer — `"emit"` (reprinted +
+// remapped) and `"ide"` (position-preserving) — and diff the diagnostics. All randomness
+// comes from one seed, printed into the failing assertion, so any failure replays with
+// `MIXIN_STRESS_SEED=<seed>`. (`emit-source-view-diagnostic-parity.t.ts` pins one
+// controlled case; this sweeps the corpus.)
 //
-// All randomness comes from one seed, printed into the failing assertion, so any
-// failure replays with `MIXIN_STRESS_SEED=<seed>`.
+// POSITION PARITY HOLDS. For a diagnostic both paths report (matched on
+// `file:line:code:message`), they agree on line AND column: an audit over 1273
+// single-identifier renames found 0 line drifts and 0 column mismatches. The emit path
+// reprints the value-cast tree, so its raw diagnostics land on regenerated lines; each is
+// remapped back through the printer's source map to the real source position
+// (`printSourceFileWithMappings` + `wrapProgramDiagnostics` in `src/index.ts`; AGENTS.md
+// "Emit-path diagnostic remapping"). So the ONLY difference between the paths is *which*
+// diagnostics each reports — two real ones:
+//
+//   1. Downstream-consumer contract coverage (emit UNDER-reports). A `@mixin` not
+//      satisfying its `implements` contract is flagged by both paths on the mixin
+//      *declaration* (same TS2420; AGENTS.md "Emit-path implements conformance"). But a
+//      *consumer* that uses the mixin where the contract is expected sees the generated
+//      `interface X` that *inherited* the contract members, so it structurally "has" them
+//      and emit reports nothing at the use-site, while source view flags it
+//      (TS2741 / TS2551 / TS2339). Not a `tsc`-green hole: the body is checked at the
+//      declaration (`class extends base implements Contract`), so a violation never
+//      compiles either way — the editor merely flags the use sites in addition.
+//
+//   2. Heritage-clause navigation (IDE mis-positions; AGENTS.md invariant #9). For a base
+//      name inside `extends` / `implements`, source view rewrites the clause to a generated
+//      `$base` and reports the error at a synthetic position with a garbled message
+//      (TS2304 / TS2552 / TS2724 as `Cannot find name '}'` etc.), while the compiler
+//      reports it at the real base name — here the compiler is correct. Only affects
+//      generic / construction-base consumers (and ones emitting validations), which keep
+//      the `$base` rewrite; a non-generic, non-construction consumer takes the
+//      navigable-base fast path and agrees with the compiler.
+//
+// WHAT THE ASSERTION DELIBERATELY IGNORES, to test position parity without tripping over
+// those two differences: diagnostics inside a heritage clause (difference 2); perturbing
+// base / mixin / interface names (cascades into heritage); `TS2578 Unused
+// '@ts-expect-error'` (flips whenever coverage differs); and source-view-only diagnostics
+// (difference 1 — tolerated, counted as `ideOnlyCoverageGaps`, not failed). What remains
+// is strict: differing codes / counts at the *same* line are tolerated (benign semantic
+// divergence, e.g. TS2720 vs TS2420, or construction `.new(...)` argument typing), but a
+// line present in only one mode is a HARD failure — exactly the line drift this remap
+// removes. Emit never reports on a line the source has no error on, and matches the
+// source-view column wherever both report the same `file:line:code:message`.
 
 const corpusDirectory = path.join(packageRoot, "tests", "fixture-suite", "src")
 

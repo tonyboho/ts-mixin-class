@@ -694,8 +694,7 @@ function expandConstructionBaseClass(
             // Anchor just past the closing brace, OUTSIDE the class body, so the alias
             // overlaps no sibling; both modes share that real position (stress parity).
             generatedTextRange(sourceFile, declaration.end),
-            declaration,
-            options
+            declaration
         ) ]
 
     return [ updatedClass, ...configAliasStatement ]

@@ -356,8 +356,7 @@ export function expandConsumerClass(
             tsInstance,
             construction.configAlias,
             generatedTextRange(sourceFile, declaration.end),
-            declaration,
-            options
+            declaration
         ) ]
 
     // The config alias goes AFTER the consumer: its anchor is just past the closing brace,

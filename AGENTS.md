@@ -316,14 +316,23 @@ instance type) has its own rules:
    emits an exported `type <Name>Config<TParams> = <the config>` and the `static new` references it,
    so `.new(...)` errors name the alias instead of a verbose `Pick<…>`. The alias name is
    `<ClassName>Config`, suffixed with `_` on collision with a file-local name
-   (`constructionConfigAliasName`). It is listed AFTER the class and anchored at `declaration.end`
-   (the gap just past the closing brace): a top-level sibling positioned at an *in-class* range
-   (`members.end`) overlaps the class and strands an identifier in trivia (invariant #5), while a
-   `[-1,-1]` collapse scatters a perturbed-config diagnostic to an unrelated line and breaks parity.
-   Emit additionally collapses the alias subtree to the anchor (column parity, like the `static new`
-   members); source view leaves the body at factory positions and only collapses the cloned generic
-   type parameters. `positionConstructionConfigAlias` owns this. Guarded by the alias tests, the
-   stress parity corpus, and the trivia-strand test.
+   (`constructionConfigAliasName`). It is listed AFTER the class and BOTH modes collapse the whole
+   subtree to one real anchor at `declaration.end` (the gap just past the closing brace).
+   `positionConstructionConfigAlias` owns this; three constraints force that exact placement:
+     - an *in-class* anchor (`members.end`) overlaps the class and strands an identifier in trivia
+       (invariant #5), so it must be OUTSIDE the class;
+     - a `[-1,-1]` (off-screen) collapse scatters a perturbed-config diagnostic to an unrelated line
+       and breaks stress parity, so it must be a REAL position (shared by both modes for column
+       parity, like the `static new` members); and
+     - because the alias is source-referenced (`initialize(config?: <Name>Config)`), its `.original`
+       (the class) escapes into the unbound source-view clone — a real, in-tree position lets
+       `alignGeneratedNavigableNodesWithParseTree` clear the alias's `Synthesized` flag (it is listed
+       in `isNavigableGeneratedNodeKind`), so `getParseTreeNode` resolves it to itself instead of
+       walking into the clone and crashing find-references / quickinfo display in
+       `forEachSymbolTableInScope`.
+   Guarded by the alias tests, `tsserver-construction-config-alias.t.ts`, the
+   `construction-config-alias-usage.t.ts` corpus fixture (so every stress probe targets the alias
+   identifier), the stress parity corpus, and the trivia-strand test.
    `Base.initialize`/`Base.new` are typed `unknown` (not the removed `Config<T>` helper) so a class
    may override `initialize` with its strict `<ClassName>Config` alias — a narrower-than-base
    parameter is an unsound override (TS2416), so the base must be the top type. EXCEPTION: a `@mixin`

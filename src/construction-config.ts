@@ -204,40 +204,27 @@ export function createConstructionMembers(
     return { members, configAlias }
 }
 
-// Positions the generated `<ClassName>Config` alias as a sibling top-level statement.
-// The caller emits it AFTER the class and anchors it at `declaration.end` - a real
-// position in the gap just past the closing brace, OUTSIDE the class body, where it
-// overlaps no sibling and no navigable user token. Both modes use that same real anchor,
-// so a perturbed config key that errors inside the alias body (e.g. TS2344) lands on the
-// same source line in both. In EMIT the whole subtree is additionally collapsed to the
-// anchor so the column is not extrapolated one past the line (matching source view, which
-// reads the anchor directly) - the same trick the construction `static new` members use.
-// SOURCE VIEW leaves the subtree at its factory positions (top range only) and lets the
-// later normalization pass fill them in, so no interior node is force-collapsed onto a
-// range that would strand an identifier in trivia (invariant #5).
+// Positions the generated `<ClassName>Config` alias, a sibling top-level statement the
+// caller lists AFTER the class. BOTH modes collapse the whole subtree to one real anchor
+// at `declaration.end` - the gap just past the closing brace, OUTSIDE the class body,
+// where the alias overlaps no sibling and no navigable user token:
+//   - it is a real, in-tree position, so `alignGeneratedNavigableNodesWithParseTree`
+//     clears the alias's `Synthesized` flag and `getParseTreeNode` resolves it to itself
+//     rather than walking `.original` into the unbound source-view clone and crashing
+//     when a user reference to the alias renders its display (find-references / quickinfo);
+//   - collapsing maps a perturbed config key that errors inside the alias body (e.g.
+//     TS2344) to the anchor column in both modes, so emit and source view stay parity-
+//     aligned (the same trick the construction `static new` members use); and
+//   - being outside the class, it strands no identifier in trivia (invariant #5).
 export function positionConstructionConfigAlias(
     tsInstance: TypeScript,
     alias: ts.TypeAliasDeclaration,
     generatedRange: ts.TextRange,
-    declaration: ts.ClassDeclaration,
-    options: TransformOptions
+    declaration: ts.ClassDeclaration
 ): ts.TypeAliasDeclaration {
     const positioned = preserveGeneratedDeclarationRange(tsInstance, alias, generatedRange, declaration)
 
-    if (!options.sourceView) {
-        collapseSubtreeTextRange(tsInstance, positioned, generatedRange)
-
-        return positioned
-    }
-
-    // The alias clones the class type parameters (generic case), which keep their source
-    // positions; left stranded under the alias's tiny synthetic range they crash tsserver's
-    // getChildren (invariant #5). Collapse just the clones to an off-screen range - the
-    // later normalization pass folds them into the alias range, gap-free, and positions
-    // never affect typing. Mirrors the construction `static new` overloads.
-    for (const typeParameter of positioned.typeParameters ?? []) {
-        collapseSubtreeTextRange(tsInstance, typeParameter, { pos: -1, end: -1 })
-    }
+    collapseSubtreeTextRange(tsInstance, positioned, generatedRange)
 
     return positioned
 }

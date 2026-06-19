@@ -198,8 +198,7 @@ export function expandMixinClass(
             tsInstance,
             constructionNew.configAlias,
             generatedTextRange(sourceFile, declaration.end),
-            declaration,
-            options
+            declaration
         ) ]
 
     return [
@@ -387,8 +386,7 @@ function expandSourceViewMixinClass(
             tsInstance,
             construction.configAlias,
             generatedTextRange(sourceFile, declaration.end),
-            declaration,
-            options
+            declaration
         ) ]
 
     return [ baseInterface, baseClass, updatedDeclaration, ...configAliasStatement ]

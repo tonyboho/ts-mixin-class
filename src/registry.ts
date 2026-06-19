@@ -322,7 +322,109 @@ export function buildConstructionBaseRegistry(
         })
     }
 
+    // Construction bases published as declarations: an emitted `.d.ts` construction
+    // class already carries its FULLY aggregated config on the generated `static
+    // new(props: Pick<Self, …>)`, so it is registered directly (no recursion needed) and
+    // a subclass in another package can read its inherited config from the registry.
+    for (const sourceFile of program.getSourceFiles()) {
+        if (!sourceFile.isDeclarationFile ||
+            shouldSkipRegistrySourceFile(sourceFile) ||
+            !sourceFile.text.includes(resolvedOptions.packageName)
+        ) {
+            continue
+        }
+
+        for (const constructionBase of collectDeclarationFileConstructionBases(tsInstance, sourceFile)) {
+            registry.set(registryKey(sourceFile.fileName, constructionBase.name), {
+                fileName         : sourceFile.fileName,
+                name             : constructionBase.name,
+                isBaseDescendant : true,
+                configProperties : constructionBase.configProperties
+            })
+        }
+    }
+
     return registry
+}
+
+// Construction classes in an emitted `.d.ts`: a class declaration with a generated
+// `static new(props: <config>): Self`. The config (already aggregated at emit time) is
+// read straight off the parameter type (`Pick<Self, "a" | "b"> & Partial<Pick<Self,
+// "c">>`), so downstream subclassing needs no further resolution.
+function collectDeclarationFileConstructionBases(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile
+): Array<{ name: string, configProperties: ConfigProperty[] }> {
+    const bases: Array<{ name: string, configProperties: ConfigProperty[] }> = []
+
+    for (const statement of sourceFile.statements) {
+        if (!tsInstance.isClassDeclaration(statement) || statement.name === undefined) {
+            continue
+        }
+
+        const staticNew = statement.members.find((member): member is ts.MethodDeclaration =>
+            tsInstance.isMethodDeclaration(member) &&
+            member.name !== undefined &&
+            propertyNameText(tsInstance, member.name) === "new" &&
+            hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword))
+
+        const configType = staticNew?.parameters[0]?.type
+
+        if (configType === undefined) {
+            continue
+        }
+
+        bases.push({
+            name             : statement.name.text,
+            configProperties : configPropertiesFromConstructionNewParam(tsInstance, configType, false)
+        })
+    }
+
+    return bases
+}
+
+// Names (with optionality) carried by a generated construction config type:
+// `Pick<Self, "a" | "b">` (required), `Partial<Pick<Self, "c">>` (optional), and
+// intersections of those. Anything else contributes nothing.
+function configPropertiesFromConstructionNewParam(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    optional: boolean
+): ConfigProperty[] {
+    if (tsInstance.isIntersectionTypeNode(typeNode)) {
+        return uniqueConfigProperties(typeNode.types.flatMap((type) =>
+            configPropertiesFromConstructionNewParam(tsInstance, type, optional)))
+    }
+
+    if (tsInstance.isParenthesizedTypeNode(typeNode)) {
+        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.type, optional)
+    }
+
+    if (!tsInstance.isTypeReferenceNode(typeNode) || !tsInstance.isIdentifier(typeNode.typeName)) {
+        return []
+    }
+
+    if (typeNode.typeName.text === "Partial" && typeNode.typeArguments?.[0] !== undefined) {
+        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.typeArguments[0], true)
+    }
+
+    if (typeNode.typeName.text === "Pick" && typeNode.typeArguments?.[1] !== undefined) {
+        return literalStringNames(tsInstance, typeNode.typeArguments[1]).map((name) => ({ name, optional }))
+    }
+
+    return []
+}
+
+function literalStringNames(tsInstance: TypeScript, typeNode: ts.TypeNode): string[] {
+    if (tsInstance.isLiteralTypeNode(typeNode) && tsInstance.isStringLiteral(typeNode.literal)) {
+        return [ typeNode.literal.text ]
+    }
+
+    if (tsInstance.isUnionTypeNode(typeNode)) {
+        return typeNode.types.flatMap((type) => literalStringNames(tsInstance, type))
+    }
+
+    return []
 }
 
 function cachedSourceFileMixinCandidates(
@@ -352,7 +454,7 @@ function collectSourceFileMixinCandidates(
     options: TransformOptions
 ): Candidate[] {
     if (sourceFile.isDeclarationFile) {
-        return collectDeclarationFileMixinCandidates(tsInstance, sourceFile)
+        return collectDeclarationFileMixinCandidates(tsInstance, sourceFile, options)
     }
 
     if (!sourceFile.text.includes(options.packageName)) {
@@ -390,7 +492,7 @@ function collectSourceFileMixinCandidates(
 
 function registryCandidateCacheKey(sourceFile: ts.SourceFile, options: TransformOptions): string {
     return sourceFile.isDeclarationFile
-        ? "declaration"
+        ? [ "declaration", options.packageName ].join("|")
         : [ options.packageName, options.decoratorName ].join("|")
 }
 
@@ -404,12 +506,14 @@ function shouldSkipRegistrySourceFile(sourceFile: ts.SourceFile): boolean {
 
 function collectDeclarationFileMixinCandidates(
     tsInstance: TypeScript,
-    sourceFile: ts.SourceFile
+    sourceFile: ts.SourceFile,
+    options: TransformOptions
 ): Candidate[] {
     if (!sourceFile.text.includes(runtimeMixinClassName)) {
         return []
     }
 
+    const facts                   = getSourceFileFacts(tsInstance, sourceFile, options)
     const candidates: Candidate[] = []
     const interfaces              = new Map<string, ts.InterfaceDeclaration>()
     const defaultExportNames      = new Set<string>()
@@ -446,20 +550,70 @@ function collectDeclarationFileMixinCandidates(
                 continue
             }
 
+            // The mixin's `RuntimeMixinClass<Base>` marker carries its required base. When
+            // that base is the package `Base`, the mixin is construction-enabled, so a
+            // consumer of it (from this declaration file) gets a generated `.new`. The flag
+            // is otherwise lost for `.d.ts`, leaving downstream construction undetected. The
+            // package base also appears in the merged `interface … extends Base, …`, so drop
+            // it from the dependency (mixin) names — it is the base, not a consumed mixin.
+            const requiredBaseIdentifier    = runtimeMixinClassRequiredBaseIdentifier(tsInstance, declaration.type)
+            const requiredBaseIsPackageBase = requiredBaseIdentifier !== undefined &&
+                isPackageBaseExpression(tsInstance, requiredBaseIdentifier, options, facts)
+            const extendsNames              = interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text))
+
             candidates.push({
                 sourceFile,
-                name                      : declaration.name.text,
-                dependencyNames           : interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text)),
-                requiredBaseName          : undefined,
-                requiredBaseIsPackageBase : false,
-                configProperties          : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
-                declarationHeritage       : true,
+                name            : declaration.name.text,
+                dependencyNames : requiredBaseIsPackageBase
+                    ? extendsNames.filter((name) => name !== requiredBaseIdentifier.text)
+                    : extendsNames,
+                requiredBaseName    : requiredBaseIsPackageBase ? requiredBaseIdentifier.text : undefined,
+                requiredBaseIsPackageBase,
+                configProperties    : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
+                declarationHeritage : true,
                 defaultExport
             })
         }
     }
 
     return candidates
+}
+
+// The required-base identifier from a `RuntimeMixinClass<Base>` marker inside the
+// mixin value's declared type (an intersection like `… & RuntimeMixinClass<Base>`).
+// `RuntimeMixinClass` with no type argument (a mixin without a required base) yields
+// undefined.
+function runtimeMixinClassRequiredBaseIdentifier(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.Identifier | undefined {
+    if (tsInstance.isTypeReferenceNode(typeNode) &&
+        tsInstance.isIdentifier(typeNode.typeName) &&
+        typeNode.typeName.text === runtimeMixinClassName
+    ) {
+        const argument = typeNode.typeArguments?.[0]
+
+        return argument !== undefined &&
+            tsInstance.isTypeReferenceNode(argument) &&
+            tsInstance.isIdentifier(argument.typeName)
+            ? argument.typeName
+            : undefined
+    }
+
+    if (tsInstance.isIntersectionTypeNode(typeNode) || tsInstance.isUnionTypeNode(typeNode)) {
+        for (const type of typeNode.types) {
+            const identifier = runtimeMixinClassRequiredBaseIdentifier(tsInstance, type)
+
+            if (identifier !== undefined) {
+                return identifier
+            }
+        }
+
+        return undefined
+    }
+
+    if (tsInstance.isParenthesizedTypeNode(typeNode)) {
+        return runtimeMixinClassRequiredBaseIdentifier(tsInstance, typeNode.type)
+    }
+
+    return undefined
 }
 
 function typeReferencesRuntimeMixinClass(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {

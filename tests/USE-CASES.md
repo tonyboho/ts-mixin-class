@@ -126,6 +126,11 @@ plain consumer / manual construction instead). See §9.
 | 10.5 | Cross-file construction: consumer of imported mixin extending `Base` directly + `initialize` | ✅ | `source-transform-cross-file-construction.t.ts` |
 | 10.6 | Declaration-only mixin without a runtime value → diagnostic | ✅ | `tsserver-diagnostics.t.ts` |
 | 10.7 | Cross-file deep subclassing of an **imported construction *consumer*** (intermediate base consumes a mixin) | ✅ | `source-transform-cross-file-construction.t.ts` ("aggregates an imported construction consumer's mixin config when subclassed across files") |
+| 10.8 | **Transitive** (two-hop) mixin config into a consumer's `.new` across three files (mixin → mixin-implements-mixin → consumer) | ✅ | `source-transform-cross-file-construction.t.ts` ("aggregates transitive mixin config for a consumer across three files") |
+| 10.9 | **Transitive** registry mixin config into a subclass's `.new` across four files (subclass of imported base whose mixin depends on another mixin) | ✅ | `source-transform-cross-file-construction.t.ts` ("aggregates transitive registry mixin config when subclassing an imported base across files") |
+| 10.10 | Construction config (incl. transitive) survives a `.d.ts` package round-trip — standalone construction-base mixin `.new` | ✅ | `source-transform-cross-file-construction.t.ts` ("carries transitive construction config through a declaration (.d.ts) package") |
+| 10.11 | A **consumer** that `implements` an imported `.d.ts` construction-base mixin gets its own `.new` (with aggregated, transitive config) | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a consumer of a declaration (.d.ts) construction-base mixin construction-enabled") |
+| 10.12 | A **subclass** of an imported `.d.ts` construction base (`extends Base` published as declarations) gets its own `.new` aggregating inherited config | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a subclass of an imported declaration (.d.ts) construction base construction-enabled") |
 
 ## 11. Diagnostics (custom, friendly messages)
 
@@ -171,6 +176,14 @@ plain consumer / manual construction instead). See §9.
 
 None outstanding.
 
+### Known fragility (not a config gap)
+
+- **A failing `.new(...)` call across files crashes `tsc`** (`addImplementationSuccessElaboration`
+  → `getErrorSpanForNode`, TS issue #20809) when checking a multi-file program through the
+  plugin. So cross-file/declaration construction tests assert only positive `.new` calls; the
+  *required*-ness of an aggregated field is pinned by the local `construction-deep-subclass`
+  fixture (emit mode, which does not crash). Not a config-aggregation issue.
+
 ## Resolved (kept here for history)
 
 - **Deep construction subclassing — local (§7.12).** Fixed: `baseConfigProperties`
@@ -186,3 +199,10 @@ None outstanding.
 - **Constructor on a `Base`-extending class (§9.1).** Decision: unsupported by design,
   left informal (no diagnostic). The contract is "extend `Base` ⇒ no constructor". Not
   blessed as a feature in tests or the README.
+- **Construction through a `.d.ts` package (§10.11, §10.12).** Fixed: a consumer of an
+  imported `.d.ts` construction-base mixin, and a subclass of an imported `.d.ts`
+  construction base, are both now construction-enabled. `collectDeclarationFileMixinCandidates`
+  recovers the package-base flag from the `RuntimeMixinClass<Base>` marker; the
+  construction-base registry now also scans `.d.ts` classes, reading their aggregated
+  config off the emitted `static new(props: Pick<…>)`. Covered by the two declaration
+  tests in `source-transform-cross-file-construction.t.ts`.

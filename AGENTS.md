@@ -289,6 +289,18 @@ instance type) has its own rules:
    because the only fixtures were one level deep (`X extends Base` directly); keep
    `construction-deep-subclass.t.ts` and the cross-file deep-subclass test honest.
 
+7. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
+   consumed as published declarations, not source. (i) A `.d.ts` mixin's required base lives in its
+   `RuntimeMixinClass<Base>` marker, not an `extends` clause; `collectDeclarationFileMixinCandidates`
+   reads it back (and drops the package base from the merged `interface … extends Base` dependency
+   names) so a consumer of an imported `.d.ts` construction-base mixin is construction-enabled.
+   (ii) A `.d.ts` construction *class* carries its fully aggregated config on the emitted `static
+   new(props: Pick<Self, …>)`; `buildConstructionBaseRegistry` scans declaration files and reads the
+   config straight off that parameter (no recursion). Both are guarded by the declaration tests in
+   `source-transform-cross-file-construction.t.ts`. Note: a *failing* `.new(...)` call across files
+   crashes `tsc` (`addImplementationSuccessElaboration`, TS #20809), so those tests assert positive
+   calls only; required-ness is pinned by the local emit-mode fixture.
+
 ## Emit-path diagnostic remapping
 
 The emit path **reprints** the value-cast tree to text and reparses it. This is mandatory — only

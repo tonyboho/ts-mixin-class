@@ -97,7 +97,7 @@ plain consumer / manual construction instead). See §9.
 | 7.11 | `allowUndefinedForRequiredProperties` option | ✅ | `construction-allow-undefined-required.t.ts` |
 | 7.12 | **Deep** construction subclassing (subclass of a construction *consumer*, 2+ levels): `.new` aggregates inherited config along the `extends` chain **and** from the intermediate bases' mixins (including transitive mixin-to-mixin dependencies) | ✅ | `construction-deep-subclass.t.ts` (local), `source-transform-cross-file-construction.t.ts` (cross-file, §10.7) |
 | 7.13 | Exported named config alias `<ClassName>Config` (generic: `<ClassName>Config<T>`) referenced by `static new`; names `.new(...)` errors instead of inline `Pick`; reusable as a factory/annotation type **and** as the strict `initialize` parameter type — for a plain class **or** a `@mixin` (including through a mixin dependency chain); `_`-suffixed on name collision | ✅ | `source-transform-construction-config-alias.t.ts`, `source-transform-consumer-emit.t.ts`, `source-transform-mixins.t.ts`, `construction-public-only.t.ts`, `construction-config-helper.t.ts` |
-| 7.14 | A construction consumer applying several mixins that each override `initialize` with their own config does not hit a TS2320 merge conflict (the generated `$base` interface re-declares the `Base.initialize` protocol member); the synthetic member does not crash editor rename/definition | ✅ | `source-transform-construction-config-alias.t.ts`, `tsserver-construction-config-alias.t.ts`, `source-transform-cross-file-construction.t.ts` |
+| 7.14 | A construction consumer **or** a construction mixin applying several mixins that each override `initialize` with their own config does not hit a TS2320 merge conflict (the generated `$base` interface re-declares the `Base.initialize` protocol member when the class declares no own override); the merged config still requires every contributed field; the synthetic member does not crash editor rename/definition | ✅ | `source-transform-construction-config-alias.t.ts`, `tsserver-construction-config-alias.t.ts`, `source-transform-cross-file-construction.t.ts` |
 
 ## 8. Direct-`new` guard (this is compile-time only; runtime untouched)
 
@@ -227,8 +227,13 @@ plain consumer / manual construction instead). See §9.
   `unknown`). The blocker was TS2320 at a consumer applying several such mixins — its
   generated `interface <C>$base extends Base, A, B` inherited non-identical `initialize`
   members. Fix: the consumer base interface re-declares the `Base.initialize` protocol
-  member (gated to construction consumers via `isConstructionConsumer`), which overrides the
-  conflicting inherited ones. The member is synthetic; in source view it normalizes onto the
+  member, which overrides the conflicting inherited ones. The same merge happens on a
+  construction **mixin** that applies (implements) other initialize-overriding mixins and
+  declares no own override — its generated interface (`interface <Mixin>` in emit,
+  `__<Mixin>$base` in source view) gets the protocol member too (gated by
+  `isConstructionBaseOptIn` + having dependencies + no own `initialize`, via
+  `declaresInstanceInitialize`/`constructionProtocolInitializeSignature` in
+  `interface-members.ts`). The member is synthetic; in source view it normalizes onto the
   off-screen `$base` range and `alignGeneratedNavigableNodesWithParseTree` clears its
   `Synthesized` flag (`MethodSignature` added to the navigable kinds) so rename/definition on
   a user `initialize` does not crash. Override the parameter as required

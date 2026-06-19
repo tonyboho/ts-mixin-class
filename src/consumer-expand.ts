@@ -17,6 +17,7 @@ import {
     unsupportedBaseDiagnosticMessage
 } from "./consumer-diagnostics.js"
 import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
+import { constructionProtocolInitializeSignature } from "./interface-members.js"
 import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
 import {
     createConstructionMembers,
@@ -760,28 +761,4 @@ function consumerBaseImportMap(
     }
 
     return baseImportMap
-}
-
-// The cooperative-construction `initialize` protocol signature, identical to
-// `Base.initialize(props?: unknown): void`. Re-declared on a construction consumer's
-// generated `$base` interface so mixins overriding `initialize` with their own strict
-// `<Mixin>Config` do not collide via interface merge (TS2320); see the call site.
-function constructionProtocolInitializeSignature(tsInstance: TypeScript): ts.MethodSignature {
-    const factory = tsInstance.factory
-
-    return factory.createMethodSignature(
-        undefined,
-        "initialize",
-        undefined,
-        undefined,
-        [ factory.createParameterDeclaration(
-            undefined,
-            undefined,
-            "props",
-            factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
-            undefined
-        ) ],
-        factory.createKeywordTypeNode(tsInstance.SyntaxKind.VoidKeyword)
-    )
 }

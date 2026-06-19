@@ -1,6 +1,11 @@
 import type * as ts from "typescript"
 import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
-import { buildInterfaceMembers, interfaceDeclarationRange } from "./interface-members.js"
+import {
+    buildInterfaceMembers,
+    constructionProtocolInitializeSignature,
+    declaresInstanceInitialize,
+    interfaceDeclarationRange
+} from "./interface-members.js"
 import {
     anyConstructorName,
     classStaticsName,
@@ -45,6 +50,7 @@ import { linearizeDependencies } from "./linearization.js"
 import {
     createConstructionMembers,
     createMixinConstructionNewType,
+    isConstructionBaseOptIn,
     positionConstructionConfigAlias
 } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
@@ -106,15 +112,36 @@ export function expandMixinClass(
 
     // Emit-only: the source-view path above recomputes its own heritage/required
     // base, so these stay below the early return to avoid wasted work per edit.
-    const typeParameters   = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
-    const requiredBase     = requiredBaseType(tsInstance, declaration)
-    const dependencyRefs   = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
-    const interfaceMembers = buildInterfaceMembers(tsInstance, sourceFile, declaration)
+    const typeParameters = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
+    const requiredBase   = requiredBaseType(tsInstance, declaration)
+    const dependencyRefs = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
 
     // A mixin that extends the package `Base` is construction-enabled. Generic
     // mixins keep the inline value form and are handled separately, so the
     // construction `new` is only added for the non-generic alias form.
-    const facts           = getSourceFileFacts(tsInstance, sourceFile, options)
+    const facts         = getSourceFileFacts(tsInstance, sourceFile, options)
+    const baseImportMap = context.crossFile === undefined
+        ? undefined
+        : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
+
+    // A construction-base mixin that applies (implements) other mixins generates
+    // `interface <Mixin> extends Base, Dep, …`. When a dependency overrides `initialize`
+    // with its own config the inherited members are not identical (TS2320). If the mixin
+    // does not declare its own `initialize` override (which would itself resolve it), inject
+    // the `Base.initialize` protocol member so the merge succeeds - mirroring the consumer
+    // `$base` interface. (See consumer-expand for the same fix.)
+    const needsProtocolInitialize = dependencyRefs.length > 0 &&
+        !declaresInstanceInitialize(tsInstance, declaration) &&
+        isConstructionBaseOptIn(
+            tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
+        )
+    const interfaceMembers        = needsProtocolInitialize
+        ? factory.createNodeArray([
+            ...buildInterfaceMembers(tsInstance, sourceFile, declaration),
+            constructionProtocolInitializeSignature(tsInstance)
+        ])
+        : buildInterfaceMembers(tsInstance, sourceFile, declaration)
+
     const constructionNew = typeParameters !== undefined
         ? undefined
         : createMixinConstructionNewType(
@@ -126,9 +153,7 @@ export function expandMixinClass(
             options,
             facts,
             context.crossFile,
-            context.crossFile === undefined
-                ? undefined
-                : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
+            baseImportMap
         )
 
     const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
@@ -314,6 +339,23 @@ function expandSourceViewMixinClass(
     const baseName            = generatedName(declaration.name.text, consumerBaseSuffix)
     const cloneTypeParameters = () => declaration.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter))
     const dependencyRefs      = localMixinRefs(context, dependencyHeritage)
+    const facts               = getSourceFileFacts(tsInstance, sourceFile, options)
+    const baseImportMap       = context.crossFile === undefined
+        ? undefined
+        : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
+
+    // A construction-base mixin applying (implementing) other mixins generates
+    // `interface __X$base extends Base, Dep, …`. If a dependency overrides `initialize`
+    // with its own config the inherited members are not identical (TS2320) and the mixin
+    // does not declare its own override, inject the `Base.initialize` protocol member - the
+    // same fix the consumer `$base` interface uses. The member is synthetic; in source view
+    // it normalizes onto the off-screen `$base` range and the alignment pass clears its
+    // `Synthesized` flag (`MethodSignature` is a navigable kind), so navigation does not crash.
+    const needsProtocolInitialize = dependencyRefs.length > 0 &&
+        !declaresInstanceInitialize(tsInstance, declaration) &&
+        isConstructionBaseOptIn(
+            tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
+        )
 
     const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
         undefined,
@@ -326,7 +368,7 @@ function expandSourceViewMixinClass(
                 ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
             ]
         ) ],
-        []
+        needsProtocolInitialize ? [ constructionProtocolInitializeSignature(tsInstance) ] : []
     ), declaration)
 
     const baseClass = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createClassDeclaration(
@@ -344,10 +386,6 @@ function expandSourceViewMixinClass(
     // (returning `Base`). Generate its own `static new` overloads so a standalone
     // `MyMixin.new(...)` resolves to the mixin's instance type, mirroring the
     // value-cast construction `new` the emit path prepends.
-    const facts               = getSourceFileFacts(tsInstance, sourceFile, options)
-    const baseImportMap       = context.crossFile === undefined
-        ? undefined
-        : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
     const construction        = declaration.typeParameters !== undefined
         ? { members: [] as ts.ClassElement[], configAlias: undefined }
         : createConstructionMembers(

@@ -246,6 +246,83 @@ it("tsserver reports no TS2320 in the editor for a consumer of mixins overriding
     }
 })
 
+// A construction mixin that applies several initialize-overriding mixins WITHOUT its own
+// override. Its generated `__Combined$base` interface extends Base + the mixins and gets
+// the protocol member injected; in the editor that must suppress TS2320 and the synthetic
+// member must not crash navigation.
+const mixinMergeText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class A extends Base {
+        public a: string = ""
+        override initialize(config: AConfig): void { super.initialize(config) }
+    }
+
+    @mixin()
+    class B extends Base {
+        public b: number = 0
+        override initialize(config: BConfig): void { super.initialize(config) }
+    }
+
+    @mixin()
+    class Combined extends Base implements A, B {
+        public x: boolean = false
+    }
+
+    class Holder extends Base implements Combined {
+        public h: string = ""
+    }
+
+    const created = Holder.new({ a : "x", b : 1, x : true, h : "h" })
+
+    // The merged config requires every contributed field; the @ts-expect-error directives
+    // double as assertions in the editor too - an unused one surfaces as TS2578.
+
+    // @ts-expect-error - 'a' (from mixin A) is required in the merged config
+    const missingA = Holder.new({ b : 1, x : true, h : "h" })
+    // @ts-expect-error - 'b' (from mixin B) is required in the merged config
+    const missingB = Holder.new({ a : "x", x : true, h : "h" })
+    // @ts-expect-error - 'x' (from mixin Combined) is required in the merged config
+    const missingX = Holder.new({ a : "x", b : 1, h : "h" })
+    // @ts-expect-error - 'h' (Holder's own field) is required in the merged config
+    const missingH = Holder.new({ a : "x", b : 1, x : true })
+
+    void [ created, missingA, missingB, missingX, missingH ]
+`)
+
+it("tsserver reports no merge/config errors in the editor for a construction mixin merging initialize-overriding mixins", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : mixinMergeText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                mixinMergeText,
+                "semanticDiagnosticsSync",
+                { file : sourceFile }
+            )
+        )
+
+        // No TS2320 (the merge is fixed) and no TS2578 (every @ts-expect-error is used, i.e.
+        // the merged config really does require each contributed field).
+        t.equal(
+            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
+            "",
+            "A construction mixin merging initialize-overriding mixins is clean in the editor; the merged config requires every contributed field"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver rename on a mixin's initialize override responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

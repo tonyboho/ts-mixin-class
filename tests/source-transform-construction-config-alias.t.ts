@@ -196,14 +196,23 @@ it("lets a mixin type its initialize override with its own config alias and a co
         }
 
         const created = C.new({ a : "x", b : 1, c : true })
-        void created
+
+        // The consumer's config requires each mixin's field; the @ts-expect-error directives
+        // assert that (an unused one would surface as TS2578 and fail the empty check).
+
+        // @ts-expect-error - 'a' (from mixin A) is required in the consumer config
+        const missingA = C.new({ b : 1, c : true })
+        // @ts-expect-error - 'b' (from mixin B) is required in the consumer config
+        const missingB = C.new({ a : "x", c : true })
+
+        void [ created, missingA, missingB ]
     `))
     const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     // Both mixins override initialize with their own strict config; the consumer's
     // generated base interface re-declares the Base.initialize protocol member, so the
     // merge no longer fails with TS2320 ("not identical").
-    t.is(messages, "", "A consumer of several mixins that override initialize with their own config typechecks")
+    t.is(messages, "", "A consumer of several mixins that override initialize typechecks and requires each mixin's config field")
 })
 
 it("supports an initialize override through a mixin dependency chain", async (t: Test) => {
@@ -247,6 +256,58 @@ it("supports an initialize override through a mixin dependency chain", async (t:
     const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "A consumer of a mixin chain whose members override initialize typechecks")
+})
+
+it("lets a construction mixin apply several initialize-overriding mixins without its own override", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class A extends Base {
+            public a: string = ""
+            override initialize(config: AConfig): void { super.initialize(config) }
+        }
+
+        @mixin()
+        class B extends Base {
+            public b: number = 0
+            override initialize(config: BConfig): void { super.initialize(config) }
+        }
+
+        // A construction mixin that merges A and B but does NOT override initialize itself.
+        // Its generated interface extends Base, A, B with non-identical inherited initialize;
+        // the protocol member is injected so the merge does not fail with TS2320.
+        @mixin()
+        class Combined extends Base implements A, B {
+            public x: boolean = false
+        }
+
+        class Holder extends Base implements Combined {
+            public h: string = ""
+        }
+
+        const created = Holder.new({ a : "x", b : 1, x : true, h : "h" })
+
+        // The merged config carries every contributed field as required; omitting any one
+        // is a type error. The @ts-expect-error directives double as assertions: if the
+        // config were assembled wrong (a field not required), the directive goes unused and
+        // surfaces as TS2578, failing the empty-diagnostics check below.
+
+        // @ts-expect-error - 'a' (from mixin A) is required in the merged config
+        const missingA = Holder.new({ b : 1, x : true, h : "h" })
+        // @ts-expect-error - 'b' (from mixin B) is required in the merged config
+        const missingB = Holder.new({ a : "x", x : true, h : "h" })
+        // @ts-expect-error - 'x' (from mixin Combined) is required in the merged config
+        const missingX = Holder.new({ a : "x", b : 1, h : "h" })
+        // @ts-expect-error - 'h' (Holder's own field) is required in the merged config
+        const missingH = Holder.new({ a : "x", b : 1, x : true })
+
+        void [ created, missingA, missingB, missingX, missingH ]
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.is(messages, "", "Merging mixins typechecks and the merged config requires every contributed field")
 })
 
 it("keeps a mixin's initialize override body strictly typed against its own config alias", async (t: Test) => {

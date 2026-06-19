@@ -335,11 +335,13 @@ instance type) has its own rules:
    identifier), the stress parity corpus, and the trivia-strand test.
    `Base.initialize`/`Base.new` are typed `unknown` (not the removed `Config<T>` helper) so any class
    — including a `@mixin` — may override `initialize` with its strict `<ClassName>Config` alias
-   (method-parameter overrides are bivariant). A consumer applying several mixins that each override
-   `initialize` would otherwise hit TS2320 (its generated `interface <C>$base extends Base, A, B`
-   inherits non-identical `initialize` members); the consumer base interface re-declares the
-   `Base.initialize` protocol member (gated by `isConstructionConsumer`) to override the conflicting
-   inherited ones. That member is synthetic, so `MethodSignature` is in `isNavigableGeneratedNodeKind`
+   (method-parameter overrides are bivariant). A consumer (or a construction mixin) applying several
+   mixins that each override `initialize` would otherwise hit TS2320 (its generated
+   `interface <C>$base extends Base, A, B` inherits non-identical `initialize` members); the generated
+   `$base` interface re-declares the `Base.initialize` protocol member to override the conflicting
+   inherited ones — for consumers (gated by `isConstructionConsumer`, in consumer-expand) and for
+   construction mixins with dependencies and no own override (gated by `isConstructionBaseOptIn` +
+   `declaresInstanceInitialize`, in mixin-expand). That member is synthetic, so `MethodSignature` is in `isNavigableGeneratedNodeKind`
    — in source view it normalizes onto the off-screen `$base` range and the alignment pass clears its
    `Synthesized` flag, so rename/definition on a user `initialize` does not crash
    `forEachSymbolTableInScope`. Guarded by `source-transform-construction-config-alias.t.ts`,

@@ -105,6 +105,43 @@ export function buildInterfaceMembers(
     return preserveTextRange(tsInstance, factory.createNodeArray(members), membersRange)
 }
 
+// The cooperative-construction `initialize` protocol signature, identical to
+// `Base.initialize(props?: unknown): void`. Re-declared on a generated `$base`
+// interface (consumer or construction mixin) that extends `Base` plus mixins overriding
+// `initialize` with their own strict `<Mixin>Config`, so the non-identical inherited
+// members do not collide via interface merge (TS2320). An own member overrides the
+// conflicting inherited ones; the source class keeps its strict override body.
+export function constructionProtocolInitializeSignature(tsInstance: TypeScript): ts.MethodSignature {
+    const factory = tsInstance.factory
+
+    return factory.createMethodSignature(
+        undefined,
+        "initialize",
+        undefined,
+        undefined,
+        [ factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            "props",
+            factory.createToken(tsInstance.SyntaxKind.QuestionToken),
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
+            undefined
+        ) ],
+        factory.createKeywordTypeNode(tsInstance.SyntaxKind.VoidKeyword)
+    )
+}
+
+// Whether the class declares its own instance `initialize` method. When it does, that
+// override already overrides any conflicting inherited `initialize`, so the generated
+// `$base` interface must NOT also inject the protocol member (a duplicate would error).
+export function declaresInstanceInitialize(tsInstance: TypeScript, declaration: ts.ClassDeclaration): boolean {
+    return declaration.members.some((member) =>
+        tsInstance.isMethodDeclaration(member) &&
+        tsInstance.isIdentifier(member.name) &&
+        member.name.text === "initialize" &&
+        !hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword))
+}
+
 export function interfaceDeclarationRange(
     declaration: ts.ClassDeclaration,
     members: ts.NodeArray<ts.TypeElement>

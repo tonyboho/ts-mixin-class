@@ -460,8 +460,17 @@ function createSourceViewMixinMetadataBase(
         ...dependencyRefs
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => {
-                return factory.createTypeReferenceNode(classStaticsName, [
-                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                // Exclude the dependency's own framework `mix` from the inherited statics.
+                // `.mix(base)` must resolve to THIS mixin's `mix` (which returns this mixin's
+                // instance shape); without the omit a dependency's `mix` (returning the
+                // dependency's narrower instance) is intersected before it and wins overload
+                // resolution, dropping this mixin's own members from `X.mix(Base)` in source
+                // view. The dependency's *user* statics are still inherited.
+                return factory.createTypeReferenceNode("Omit", [
+                    factory.createTypeReferenceNode(classStaticsName, [
+                        factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                    ]),
+                    factory.createLiteralTypeNode(factory.createStringLiteral("mix"))
                 ])
             }),
         ...manualMixinApplyTypes,

@@ -203,6 +203,25 @@ function collectClassMemberFacts(
             continue
         }
 
+        // A public SET accessor (set-only or the setter of a get/set pair) is assignable —
+        // `.new`'s `Object.assign` fires its setter — so it is a construction config input,
+        // keyed by its name and typed by the setter's parameter type. A get-only accessor
+        // has no set accessor, so it is (correctly) never collected here. Accessors are
+        // treated as optional config (there is no definite-assignment notion for them).
+        if (tsInstance.isSetAccessorDeclaration(member) &&
+            !hasModifierKind(tsInstance.SyntaxKind.PrivateKeyword) &&
+            !hasModifierKind(tsInstance.SyntaxKind.ProtectedKeyword) &&
+            hasModifierKind(tsInstance.SyntaxKind.PublicKeyword)
+        ) {
+            const name = propertyNameText(tsInstance, member.name)
+
+            if (name !== undefined) {
+                configProperties.push({ name, optional: true })
+            }
+
+            continue
+        }
+
         if (!tsInstance.isPropertyDeclaration(member) ||
             hasModifierKind(tsInstance.SyntaxKind.PrivateKeyword) ||
             hasModifierKind(tsInstance.SyntaxKind.ProtectedKeyword) ||

@@ -127,6 +127,10 @@ export function isSupportedMixinClassMember(tsInstance: TypeScript, member: ts.C
         tsInstance.isMethodDeclaration(member) ||
         tsInstance.isGetAccessorDeclaration(member) ||
         tsInstance.isSetAccessorDeclaration(member) ||
+        // Index signatures (`[key: string]: T`) are type-only — copied into the generated
+        // mixin interface, erased at runtime. Supported so a mixin can declare a dynamic
+        // member shape.
+        tsInstance.isIndexSignatureDeclaration(member) ||
         tsInstance.isSemicolonClassElement(member) ||
         hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)
 }

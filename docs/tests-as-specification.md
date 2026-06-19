@@ -71,6 +71,23 @@ you need coverage of the **right plane**.
 And second: a throwaway probe that confirmed something and was discarded does **not** pin down
 the spec. If a check matters, it becomes a permanent test, not a remnant in the terminal history.
 
+## A red test is a finding, not a failure
+
+Expanding coverage is sampling points. When a sample lands on behavior the specification
+requires but the code does not yet deliver, the test goes red — and that red **is the
+result**: a located hole in the spec, made visible and permanent. A suite is *meant* to hold
+red tests for known-unmet behavior; such a test asserts the desired behavior and doubles as
+the executable to-do for the fix, flipping green the day the gap is closed.
+
+The anti-pattern is protecting a green counter — softening an assertion, deleting the failing
+case, or routing around it so "all tests pass." That is faking the reconstructed graph by
+keeping only the few points that happened to fall on the curve. Write the test that states
+the desired spec, and let it stay red until the spec is met. (One mechanical caveat: a source
+that does not *compile* cannot share a single compiler project with other fixtures — it breaks
+the whole build rather than failing one case — so a "should compile" expectation is expressed
+as an isolated-compile test that asserts the exit code. That is still a genuine red test in
+the suite, not an escape from it.)
+
 ## Tests as executable assertions
 
 A good test does not just "run without errors" — it **asserts**. A `@ts-expect-error` next to a

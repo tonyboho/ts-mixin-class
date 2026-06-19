@@ -92,6 +92,17 @@ export function buildInterfaceMembers(
             continue
         }
 
+        if (tsInstance.isIndexSignatureDeclaration(member)) {
+            members.push(preserveTextRange(tsInstance, factory.createIndexSignature(
+                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                    : undefined,
+                member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
+                cloneNode(tsInstance, member.type)
+            ), interfaceMemberRange(member)))
+            continue
+        }
+
         continue
     }
 

@@ -10,6 +10,9 @@ Status legend:
 - ✅ covered — a test asserts this directly
 - ⚠️ partial — covered only implicitly, in one mode, or as a side effect of another test
 - ❌ gap — no test, or known-broken (see notes)
+- ❌ RED — a **deliberately-failing** test pins this gap: it asserts the spec-correct
+  behavior, fails today, and flips green when the gap is fixed. A red test here is an
+  intended, useful result of a coverage pass — not a regression. Do not delete or soften it.
 
 Path note: runtime fixtures live in `tests/fixture-suite/src/*.t.ts` (compiled by the
 transformer, then run under siesta in both `standard` and `legacy`/`experimentalDecorators`
@@ -29,6 +32,7 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 1.6 | Mixin with a plain `implements` contract (non-mixin interface) | ✅ | `consumer-imported-mixins.t.ts` (`ContractMixin`) |
 | 1.7 | Metadata symbols (`factory`/`requirements`/`base`) exposed | ✅ | `mixin-self-reference.t.ts`, `required-base-local.t.ts` |
 | 1.8 | Mixin contributing **accessors** (get-only → `readonly` property; get/set pair → writable), correct on the consumer at type level **and** runtime (getter computes, setter mutates, descriptor stays a real accessor) | ✅ | `mixin-accessors.t.ts` |
+| 1.9 | **Empty** mixin (no members) as a marker — zero-member interface path (`zeroWidthRange`); brands consumers (incl. transitively via an empty dependent mixin) and instantiates standalone | ✅ | `empty-mixin.t.ts` |
 
 ## 2. Consumers (`implements`)
 
@@ -58,6 +62,7 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 4.4 | Generic required base, type parameter forwarded (`M<T> extends B<T>`) | ✅ | `generic-mixin-required-base.t.ts` |
 | 4.5 | Required base mismatch (unrelated base) rejected | ✅ | `type-errors.ts`, `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 4.6 | Required base still enforced after generic-`T` erasure (`.mix(Unrelated)`) | ✅ | `generic-mixin-required-base.t.ts` |
+| 4.7 | Required base enforced at **runtime** through the transformer-emitted `.mix` (unrelated base throws; related descendant applies) — distinct plane from the raw-helper guard in `runtime-helper.t.ts` | ✅ | `required-base-runtime-guard.t.ts` |
 
 ## 5. Manual application (`.mix(Base)`)
 
@@ -66,6 +71,8 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 5.1 | `class X extends Mixin.mix(Base)` keeps base ctor, statics, `instanceof` | ✅ | `manual-mix.t.ts`, `source-transform-consumer-typecheck.t.ts` |
 | 5.2 | Generic manual mix (`Mixin.mix<T, typeof Base>(Base)`) | ✅ | `manual-mix.t.ts`, `source-transform-consumer-typecheck.t.ts` |
 | 5.3 | Generic mix requires the base type arg when mixin args are explicit | ✅ | `manual-mix.t.ts` (`@ts-expect-error`) |
+| 5.4 | Manual `.mix(Base)` of a mixin that **depends** on another mixin (`Main implements Dep`): the dependency is applied transitively at runtime **and** reachable through the type (`Main`'s interface `extends Dep`) — **emit/runtime only** | ✅ | `manual-mix-dependency.t.ts` |
+| 5.4-sv | The same `extends Main.mix(Base)` (dependent mixin) type-checks in **source-view** (IDE) as it does in emit | ✅ | `tsserver-diagnostics.t.ts` → "a manual .mix of a dependent mixin is clean in source-view" (regression guard). Fixed: the dependency's framework `mix` was shadowing the mixin's own in the source-view value cast — now `Omit<ClassStatics<typeof Dep>, "mix">`. See Resolved. |
 
 ## 6. Generics
 
@@ -74,6 +81,8 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 6.1 | Generic mixin, generic consumer, generic `super`, instance type | ✅ | `consumer-constructor.t.ts`, `mixin-self-reference.t.ts` |
 | 6.2 | Generic mixin statics | ✅ | `mixin-statics.t.ts` |
 | 6.3 | Generic type arguments preserved through imported mixins | ✅ | `consumer-imported-mixins.t.ts`, `type-only-imported-mixin.t.ts` |
+| 6.4 | **Multiple** type parameters and a **constraint** (`K extends string`) on a mixin, fixed by a consumer and forwarded (constrained) through a consumer | ✅ | `generic-mixin-variations.t.ts` |
+| 6.5 | **Defaulted** type parameter on a mixin (`<V = number>`) compiles in emit + source-view | ✅ | `generic-mixin-defaulted-type-param.t.ts`. Fixed: the generated `.mix`'s synthetic `__MixinBase` now carries a default (equal to its constraint) when the mixin has a defaulted own param, so it is no longer a required-after-optional parameter (TS2706). See Resolved. |
 
 ## 7. Instantiation / construction (`extends Base`, static `.new`)
 
@@ -90,7 +99,11 @@ plain consumer / manual construction instead). See §9.
 | 7.3 | Construction via an intermediate base (`Consumer extends Base-descendant`) — 1 level transitive | ✅ | `construction-public-only.t.ts`, `construction-allow-undefined-required.t.ts` |
 | 7.4 | Standalone construction-base **mixin** (`@mixin() M extends Base`), `M.new()` | ✅ | `construction-mixin-standalone.t.ts` |
 | 7.5 | `public`-only config (non-`public` fields excluded) | ✅ | `construction-public-only.t.ts`, `construction-public-only-generics.t.ts` |
+| 7.5a | A **get-only** accessor on a construction class is excluded from `.new` config (not assignable) yet works on the instance | ✅ | `construction-accessor-config.t.ts` |
+| 7.5c | A **settable** accessor (get/set or set-only) is **included** in `.new` config (public + assignable; `.new`'s `Object.assign` fires the setter), typed by the setter's parameter type; emit + source-view | ✅ | `construction-settable-accessor-config.t.ts`. Fixed: config-property collection now also gathers public set-accessors (`source-file-facts.ts`). A get-only accessor stays excluded. See Resolved. |
+| 7.5b | **Constrained** generic construction (`class R<T extends Entity> extends Base`): constraint preserved on `.new<T>` and `<ClassName>Config<T>`; inference respects it | ✅ | `construction-generic-constrained.t.ts` |
 | 7.6 | Optional (`?`), required, and definite-assignment (`!`) config fields | ✅ | `construction-public-only.t.ts` |
+| 7.6a | **readonly** data fields (immutable value-object): accepted by `.new` config **and** immutable on the constructed instance (post-construction reassignment is a type error) | ✅ | `construction-readonly-config.t.ts` |
 | 7.7 | `.new` excludes methods / rejects unknown keys | ✅ | `construction-public-only.t.ts`, `construction-public-only-generics.t.ts` |
 | 7.8 | `initialize` override runs after config assignment | ✅ | `construction-public-only.t.ts`, `source-transform-cross-file-construction.t.ts` |
 | 7.9 | Generated `<ClassName>Config` alias shape (public config fields only; excludes methods/unknowns) and its use as the `initialize` parameter type | ✅ | `construction-config-helper.t.ts` |
@@ -123,6 +136,7 @@ plain consumer / manual construction instead). See §9.
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
 | 10.1 | Imported mixins (named / default / type-only) used by a consumer | ✅ | `consumer-imported-mixins.t.ts`, `default-mixin-consumer.t.ts`, `type-only-imported-mixin.t.ts` |
+| 10.1a | Imported mixin's **accessors** (get-only + get/set) resolved on a cross-file consumer, clean in emit **and** source-view | ✅ | `accessor-mixin.ts` + `consumer-imported-accessor.t.ts` |
 | 10.2 | Imported required-base mixin (with / without a local base) | ✅ | `consumer-imported-mixins.t.ts`, `required-base-imported-no-base.t.ts` |
 | 10.3 | Cross-file construction: ordinary class extends imported `Base` descendant | ✅ | `source-transform-cross-file-construction.t.ts` |
 | 10.4 | Cross-file construction: consumer of imported `Base`-descendant mixin | ✅ | `source-transform-cross-file-construction.t.ts` |
@@ -146,6 +160,7 @@ plain consumer / manual construction instead). See §9.
 | 11.4 | Dynamic consumer base expression (`extends makeBase()`) rejected | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 11.5 | Static member collisions (field strict / method strict-only / disabled) | ✅ | `source-transform-diagnostics.t.ts`, `type-errors.ts` |
 | 11.6 | Contract violation (mixin body does not satisfy `implements`) | ✅ | `type-errors.ts`, `emit-contract-conformance.t.ts` |
+| 11.7 | **Index signature** on a mixin is now **supported** (was rejected): copied into the generated interface (emit + source-view), erased at runtime; the consumer gains the dynamic member shape | ✅ | `fixture-suite/src/mixin-index-signature.t.ts` (runtime + emit + stress corpus; source-view via the "stay clean" sweep). See Resolved. |
 
 ## 12. IDE / source-view (position-preserving) behavior
 
@@ -211,6 +226,35 @@ plain consumer / manual construction instead). See §9.
     Until then it is the accepted cost of the only non-crashing anchor.
 
 ## Resolved (kept here for history)
+
+- **Index signatures on a mixin are now supported (§11.7).** Was rejected (with a diagnostic
+  that even mislabelled it a "constructor"). Now `isSupportedMixinClassMember` accepts an
+  `IndexSignatureDeclaration`, and it is copied into the generated mixin interface (emit:
+  `interface-members.ts`; source-view: `createSourceViewMixinInstanceMembers`) so a consumer
+  gains the dynamic member shape. It is type-only, erased at runtime. Covered by
+  `fixture-suite/src/mixin-index-signature.t.ts` (all three planes).
+- **A defaulted type parameter on a mixin (§6.5).** `@mixin() class M<V = number>` failed
+  `TS2706` because the generated `.mix` appended a *required* `__MixinBase` after the
+  optional own param. Fixed in `createMixinApplyType` (`mixin-apply-type.ts`): when the mixin
+  has any defaulted own type parameter, `__MixinBase` gets a default equal to its constraint
+  (so it is optional too). For mixins without a defaulted param it stays required, preserving
+  §5.3 (explicit mixin type args still require the base type arg). Covered by
+  `generic-mixin-defaulted-type-param.t.ts` (emit + source-view).
+- **A settable accessor in `.new` config (§7.5c).** A public set-accessor (set-only or the
+  setter of a get/set pair) is now collected as a construction config property
+  (`collectClassMemberFacts` in `source-file-facts.ts`), typed by the setter's parameter type
+  and treated as optional. `.new`'s runtime `Object.assign` already fired the setter, so this
+  closed a type-only gap. A get-only accessor stays excluded (not assignable; `Object.assign`
+  would throw). Covered by `construction-settable-accessor-config.t.ts` (emit + source-view)
+  and the get-only exclusion by `construction-accessor-config.t.ts`.
+- **Manual `.mix` of a dependent mixin in source-view (§5.4-sv).** `class X extends
+  Main.mix(Base)` where `Main implements Dep` reported a spurious `TS2339` on `Main`'s own
+  method in the IDE (emit was clean). Cause: the source-view value cast intersected
+  `ClassStatics<typeof Dep>` — which carries the dependency's framework `mix` (returning the
+  dependency's narrower instance) — *before* the mixin's own `mix`, so it won overload
+  resolution. Fixed by excluding `mix` from the inherited dependency statics
+  (`Omit<ClassStatics<typeof Dep>, "mix">` in `createMixinValueCastType`). Guarded by
+  `tsserver-diagnostics.t.ts` → "a manual .mix of a dependent mixin is clean in source-view".
 
 - **Named config alias `<ClassName>Config` (§7.13).** Added: each construction class
   (consumer, plain `Base` descendant, construction-base mixin) emits an exported

@@ -64,11 +64,23 @@ export function createMixinApplyType(
     const factory               = tsInstance.factory
     const baseTypeParameterName = mixinApplyBaseTypeParameterName(declaration)
     const requiredBase          = requiredBaseType(tsInstance, declaration)
-    const baseConstraint        = factory.createTypeReferenceNode(anyConstructorName, [
+    // `AnyConstructor<requiredBase>` (or `<any>`). Built fresh per use so the same node is
+    // never shared between the constraint and the default position.
+    const baseConstraint = (): ts.TypeReferenceNode => factory.createTypeReferenceNode(anyConstructorName, [
         requiredBase === undefined
             ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
             : heritageTypeToTypeReference(tsInstance, requiredBase)
     ])
+    // `__MixinBase` normally stays a REQUIRED type parameter: that is what forces a caller
+    // who supplies the mixin's own type arguments explicitly to also supply the base type
+    // (otherwise the base would erase to `AnyConstructor<any>` — see §5.3). But TypeScript
+    // forbids a required type parameter after an optional one, so when the mixin declares a
+    // DEFAULTED own type parameter, `__MixinBase` must also become optional (TS2706 / §6.5);
+    // we give it a default equal to its constraint. `.mix(base)` still infers it from the
+    // argument in the common case, so the default is only a fallback.
+    const ownTypeParametersHaveDefault = declaration.typeParameters?.some(
+        (typeParameter) => typeParameter.default !== undefined
+    ) ?? false
 
     return factory.createTypeLiteralNode([
         factory.createPropertySignature(
@@ -83,8 +95,8 @@ export function createMixinApplyType(
                     factory.createTypeParameterDeclaration(
                         undefined,
                         baseTypeParameterName,
-                        baseConstraint,
-                        undefined
+                        baseConstraint(),
+                        ownTypeParametersHaveDefault ? baseConstraint() : undefined
                     )
                 ],
                 [
@@ -135,6 +147,17 @@ function createSourceViewMixinInstanceMembers(
     const factory = tsInstance.factory
 
     return declaration.members.flatMap((member): ts.TypeElement[] => {
+        // Index signatures have no `.name`; handle them before the name-based skip below.
+        if (tsInstance.isIndexSignatureDeclaration(member)) {
+            return [ factory.createIndexSignature(
+                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                    : undefined,
+                member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
+                deepCloneNode(tsInstance, member.type)
+            ) ]
+        }
+
         if (
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
             member.name === undefined ||

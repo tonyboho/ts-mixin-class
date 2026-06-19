@@ -490,6 +490,60 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
     }
 })
 
+// Regression guard (emit↔source-view parity, §12.7 / §5.4): a manual `.mix(Base)` of a mixin
+// that depends on another mixin must type-check in source-view (IDE) exactly as in emit.
+// Previously tsserver reported a spurious `TS2339: Property 'mainMethod' does not exist on
+// type 'ManualWithDependency'` — the mixin's OWN method was lost from the source-view type of
+// `Main.mix(UserBase)` when `Main` has a dependency, because the dependency's framework `mix`
+// (returning the dependency's narrower instance) was intersected ahead of the mixin's own
+// `mix` and won overload resolution. Fixed by excluding `mix` from the inherited dependency
+// statics (`Omit<ClassStatics<typeof Dep>, "mix">` in the source-view value cast).
+it("a manual .mix of a dependent mixin is clean in source-view", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Dep {
+            depMethod(): string { return "dep" }
+        }
+
+        @mixin()
+        class Main implements Dep {
+            mainMethod(): string { return "main/" + super.depMethod() }
+        }
+
+        class UserBase {
+            prefix: string = ""
+        }
+
+        class ManualWithDependency extends Main.mix(UserBase) {
+            combined(): string {
+                return this.mainMethod() + "/" + this.depMethod()
+            }
+        }
+
+        void new ManualWithDependency()
+    `)
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file : sourceFile })
+        )
+        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+
+        t.equal(messages, "", "manual .mix of a dependent mixin has no IDE semantic diagnostics")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver semantic diagnostics stay clean for fixture-suite runtime tests", async (t: Test) => {
     const fixtureDirectory = path.join(packageRoot, "tests", "fixture-suite")
     const sourceDirectory  = path.join(fixtureDirectory, "src")

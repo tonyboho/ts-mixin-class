@@ -1,92 +1,88 @@
-# Тесты как спецификация
+# Tests as specification
 
-## Тезис
+## Thesis
 
-Тесты — это не «проверка кода». Тесты — это **спецификация**, записанная в исполнимой,
-самопроверяемой форме. Код реализует поведение; тесты **определяют**, какое поведение
-вообще считается правильным. В этом смысле тесты в чём-то важнее самого кода: код можно
-переписать с нуля, и если набор тестов полон, новая реализация будет эквивалентна старой.
-Обратное неверно — по коду без тестов нельзя восстановить, что в его поведении было
-*намеренным*, а что — случайностью текущей реализации.
+Tests are not "checking the code." Tests are the **specification**, written in an executable,
+self-checking form. The code implements behavior; the tests **define** which behavior counts as
+correct in the first place. In that sense tests are, in a way, more important than the code
+itself: the code can be rewritten from scratch, and if the test set is complete, the new
+implementation will be equivalent to the old one. The converse does not hold — from code without
+tests you cannot recover which parts of its behavior were *intended* and which are accidents of
+the current implementation.
 
-## Спецификация без тестов висит в воздухе
+## A specification without tests hangs in the air
 
-Если требования живут только в голове, в коммит-месседжах или в комментариях, они
-**не зафиксированы**. Их нельзя отследить, нельзя заморозить, нельзя проверить, что они всё
-ещё соблюдаются. Любая правка может тихо их нарушить, и об этом никто не узнает, пока не
-сломается у пользователя. Тест переводит требование из «подразумеваемого» в
-«зафиксированное»: пока тест зелёный — требование держится; как только он краснеет —
-требование нарушено, явно и немедленно.
+If the requirements live only in someone's head, in commit messages, or in comments, they are
+**not pinned down**. They cannot be tracked, cannot be frozen, cannot be verified as still
+holding. Any edit can quietly violate them, and no one will know until it breaks for a user. A
+test moves a requirement from "implied" to "fixed": while the test is green the requirement
+holds; the moment it goes red the requirement has been violated — explicitly and immediately.
 
-## Пространство поведений многомерно — мы очерчиваем в нём фигуру
+## The space of behaviors is multidimensional — we carve a figure in it
 
-Множество возможных входов и сценариев — это пространство со множеством измерений: режимы
-(emit / source-view), формы наследования (`extends Base` / `extends <класс>` /
-`implements` / `extends <миксин>`), генерики, обязательные/опциональные поля, число
-объединяемых миксинов, цепочки зависимостей, коллизии имён, кросс-файловость, и так далее.
-Корректное поведение — это **фигура** в этом пространстве: множество точек, где система
-должна вести себя определённым образом.
+The set of possible inputs and scenarios is a space with many dimensions: modes (emit /
+source-view), forms of inheritance (`extends Base` / `extends <class>` / `implements` /
+`extends <mixin>`), generics, required vs. optional fields, the number of merged mixins,
+dependency chains, name collisions, cross-file cases, and so on. Correct behavior is a **figure**
+in that space: the set of points where the system must behave in a specific way.
 
-Задача тестов — **очертить контур этой фигуры** достаточным числом точек, чтобы её форму
-нельзя было незаметно деформировать. Чем больше измерений мы покрываем и чем шире берём по
-каждому измерению, тем точнее зафиксирована форма. Дальше эту форму **поддерживает уже
-код** — но именно тесты говорят коду, какую форму держать.
+The job of tests is to **trace the contour of that figure** with enough points that its shape
+cannot be deformed unnoticed. The more dimensions we cover, and the wider we range along each
+one, the more precisely the shape is pinned down. From there the shape is **held by the code** —
+but it is the tests that tell the code which shape to hold.
 
-Отсюда — установка делать покрытие **максимально объёмным, полным и широким**: не одна
-счастливая точка, а граница (обязательное поле действительно обязательно; неизвестное поле
-действительно отвергается; конфликт, который *должен* всплыть, всплывает). Граница
-информативнее центра: она ловит регрессии, которые «почти правильная» реализация легко
-пропускает.
+Hence the stance: make coverage **as broad, full, and wide as possible** — not one happy point,
+but the boundary (a required field really is required; an unknown field really is rejected; a
+conflict that *should* surface does surface). The boundary is more informative than the center:
+it catches the regressions that an "almost-right" implementation slips through.
 
-## Аналогия: восстановление функции по точкам
+## Analogy: reconstructing a function from points
 
-Представь неизвестную функцию с неизвестным графиком, который нужно воспроизвести. Сделать
-это можно только **сэмплированием**: берёшь точку — узнаёшь в ней значение функции — ставишь
-точку на графике; берёшь следующую — ставишь следующую. Каждый тест — это одна такая
-проба: «в этой точке пространства входов система обязана вести себя вот так». По одной-двум
-точкам форму не угадать. Но когда проб становится много и они расставлены по всему
-интересному диапазону, точки сливаются в **график** — проступает та самая фигура, и
-становится видно, что это за функция.
+Imagine an unknown function with an unknown graph that you need to reproduce. The only way to do
+it is by **sampling**: take a point — learn the function's value there — plot the point; take the
+next one — plot the next. Each test is one such sample: "at this point of the input space the
+system is required to behave like this." From one or two points you cannot guess the shape. But
+once there are many samples, spread across the whole interesting range, the points merge into a
+**graph** — the figure emerges, and it becomes clear what function this is.
 
-Спецификация и есть этот восстанавливаемый график. Тесты — точки на нём. Чем больше и чем
-шире набор проб (особенно там, где функция «изгибается» — на границах и в особых случаях),
-тем точнее и устойчивее воспроизведённая форма, и тем меньше способов незаметно подменить
-её другой кривой, которая случайно прошла через те же немногие точки.
+The specification *is* that reconstructed graph. The tests are the points on it. The larger and
+wider the set of samples — especially where the function "bends," at boundaries and special
+cases — the more precise and stable the reproduced shape, and the fewer ways there are to quietly
+swap it for a different curve that happened to pass through the same few points.
 
-## Каждое падение, которое по спецификации должно проходить, — это новый тест
+## Every failure that the spec says must pass is a new test
 
-Это главное операционное правило. Когда обнаруживается случай, который **по спецификации
-обязан работать**, но не работает (или наоборот — обязан падать, но проходит), — это не
-просто «баг к починке». Это **дыра в зафиксированной спецификации**: точка пространства,
-которую контур не покрывал. Починить код мало — без теста та же дыра остаётся открытой и
-завтра отрегрессирует. Поэтому правило жёсткое: **на каждый такой случай — тест, и он
-остаётся навсегда**. Починка без теста — это починка, висящая в воздухе.
+This is the main operational rule. When a case turns up that **the spec requires to work** but
+doesn't (or the reverse — must fail but passes), that is not merely "a bug to fix." It is a
+**hole in the pinned-down specification**: a point of the space the contour did not cover. Fixing
+the code is not enough — without a test the same hole stays open and will regress tomorrow. So
+the rule is strict: **every such case gets a test, and that test stays forever.** A fix without a
+test is a fix left hanging in the air.
 
-## Тест должен проверять в той же плоскости, где живёт баг
+## A test must probe the same plane the bug lives in
 
-Урок этой работы, который стоит выделить: **тест ловит регрессию только если проверяет в том
-же измерении, где может сломаться**. Был баг, где `tsc` (emit) был чистый, а редактор
-(source-view) показывал ошибку. Трансформ-тест на emit прошёл бы и с багом — он ничего не
-стерёг. Поймать это мог **только** тест через tsserver/source-view. Вывод: измерение проверки
-должно совпадать с измерением риска. Покрытие «вообще» недостаточно — нужно покрытие
-**правильной плоскости**.
+A lesson from this work worth singling out: **a test catches a regression only if it probes the
+same dimension where things can break.** There was a bug where `tsc` (emit) was clean while the
+editor (source-view) showed an error. An emit transform test would have passed even with the bug
+— it guarded nothing. Only a test through tsserver/source-view could catch it. The takeaway: the
+dimension of verification must match the dimension of risk. Coverage "in general" is not enough —
+you need coverage of the **right plane**.
 
-И второе: одноразовый пробник, который что-то подтвердил и был выброшен, спецификацию **не**
-фиксирует. Если проверка важна — она становится постоянным тестом, а не remnant в истории
-терминала.
+And second: a throwaway probe that confirmed something and was discarded does **not** pin down
+the spec. If a check matters, it becomes a permanent test, not a remnant in the terminal history.
 
-## Тесты как исполнимые утверждения
+## Tests as executable assertions
 
-Хороший тест не просто «запускается без ошибок» — он **утверждает**. `@ts-expect-error`
-рядом с заведомо-ошибочным вызовом — это утверждение «здесь обязана быть ошибка»; если
-ошибки нет, директива становится неиспользованной и сама краснеет. Так негативное требование
-(«это не должно компилироваться») становится таким же зафиксированным, как позитивное.
-Спецификация — это и про то, что система делать **не** должна.
+A good test does not just "run without errors" — it **asserts**. A `@ts-expect-error` next to a
+knowingly-wrong call is an assertion that "an error is required here"; if there is no error, the
+directive becomes unused and goes red itself. This turns a negative requirement ("this must not
+compile") into something just as pinned-down as a positive one. The specification is also about
+what the system must **not** do.
 
-## Вывод
+## Conclusion
 
-Пиши тест на каждое поведение, которое спецификация считает обязательным — и на позитивное, и
-на негативное. Покрывай границы, а не только центр. Совмещай плоскость проверки с плоскостью
-риска. Каждое осмысленное падение превращай в постоянный тест. Тогда спецификация перестаёт
-висеть в воздухе — она становится формой, которую код обязан держать, и которую нельзя
-сломать молча.
+Write a test for every behavior the specification treats as required — both positive and
+negative. Cover the boundaries, not just the center. Match the plane of verification to the plane
+of risk. Turn every meaningful failure into a permanent test. Then the specification stops
+hanging in the air — it becomes a shape the code is obliged to hold, and one that cannot be
+broken silently.

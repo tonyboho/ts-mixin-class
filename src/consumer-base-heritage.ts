@@ -1,10 +1,12 @@
 import type * as ts from "typescript"
 import {
+    constructionHeadType,
     cloneExpressionWithTypeArguments,
     createSourceViewConsumerBaseHeadType,
     expressionToEntityName,
     heritageTypeToTypeReference,
-    mixinValueIdentifier
+    mixinValueIdentifier,
+    type ConstructionBrand
 } from "./expand-util.js"
 import {
     anyConstructorName,
@@ -100,7 +102,12 @@ export function consumerBaseClassHeritage(
     emptyBaseName: string | undefined,
     directMixinRefs: ResolvedMixinRef[],
     linearizedMixinRefs: ResolvedMixinRef[],
-    options: TransformOptions
+    options: TransformOptions,
+    // Set when the consumer transitively extends the package `Base` (a construction
+    // base): the cast's construct signature is branded (so a direct `new Consumer(...)`
+    // is a type error) or permissive (for a manual-constructor consumer). See
+    // constructionHeadType / ConstructionBrand.
+    construction?: ConstructionBrand
 ): ts.HeritageClause {
     const factory = tsInstance.factory
 
@@ -122,7 +129,8 @@ export function consumerBaseClassHeritage(
                             extendsType,
                             implicitRequiredBase,
                             emptyBaseName,
-                            linearizedMixinRefs
+                            linearizedMixinRefs,
+                            construction
                         )
                     )
                 ),
@@ -152,7 +160,8 @@ export function consumerBaseClassHeritage(
                         extendsType,
                         implicitRequiredBase,
                         emptyBaseName,
-                        linearizedMixinRefs
+                        linearizedMixinRefs,
+                        construction
                     )
                 )
             ),
@@ -213,6 +222,57 @@ export function navigableConsumerBaseClassHeritage(
     // (TS4112/TS2339). Synthetic type nodes keep their own factory text and claim no
     // source range, so they neither corrupt nor strand.
     const fullRange = generatedHeritageTypeRange
+
+    preserveTextRange(tsInstance, baseExpression, fullRange)
+    preserveTextRange(tsInstance, innerAs, fullRange)
+    preserveTextRange(tsInstance, outerAs, fullRange)
+    preserveTextRange(tsInstance, extendsExpr, fullRange)
+
+    const heritageClause = factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [ extendsExpr ])
+
+    preserveTextRange(tsInstance, heritageClause.types, fullRange)
+
+    return preserveTextRange(tsInstance, heritageClause, fullRange)
+}
+
+// Heritage for a mixin-LESS construction base class (`class Model extends Base`,
+// `expandConstructionBaseClass`). These keep a literal `extends` in stock output, but
+// to make `new Model(...)` a type error we re-extend the base under a single-source
+// branded cast (`extends (Base as unknown as <branded construct + base statics>)`).
+// Emit erases the `as` so the runtime stays `extends Base`; the cast only poisons the
+// construct signature seen by the checker and downstream `.d.ts`.
+//
+// In source view the real base identifier is pinned over the source `extends Base`
+// span (navigation + invariant #5) exactly like the navigable consumer fast path, so
+// it is gated to a simple identifier base by the caller. In emit, positions do not
+// matter, so the whole cast is left synthetic.
+export function brandedConstructionBaseHeritage(
+    tsInstance: TypeScript,
+    extendsType: ts.ExpressionWithTypeArguments,
+    consumerName: string,
+    options: TransformOptions
+): ts.HeritageClause {
+    const factory = tsInstance.factory
+
+    const baseExpression = cloneNode(tsInstance, extendsType.expression)
+    const castType       = constructionHeadType(
+        tsInstance,
+        expressionToEntityName(tsInstance, extendsType.expression),
+        { consumerName, branded: true },
+        heritageTypeToTypeReference(tsInstance, extendsType)
+    )
+    const innerAs        = factory.createAsExpression(
+        baseExpression,
+        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+    )
+    const outerAs        = factory.createAsExpression(innerAs, castType)
+    const extendsExpr    = factory.createExpressionWithTypeArguments(outerAs, undefined)
+
+    if (!options.sourceView) {
+        return factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [ extendsExpr ])
+    }
+
+    const fullRange = extendsType
 
     preserveTextRange(tsInstance, baseExpression, fullRange)
     preserveTextRange(tsInstance, innerAs, fullRange)
@@ -310,12 +370,13 @@ function createConsumerBaseCastType(
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     emptyBaseName: string | undefined,
-    mixinRefs: ResolvedMixinRef[]
+    mixinRefs: ResolvedMixinRef[],
+    construction?: ConstructionBrand
 ): ts.TypeNode {
     const factory = tsInstance.factory
 
     const types = [
-        createConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName),
+        createConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName, construction),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
@@ -329,12 +390,15 @@ function createSourceViewConsumerBaseCastType(
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
     emptyBaseName: string | undefined,
-    mixinRefs: ResolvedMixinRef[]
+    mixinRefs: ResolvedMixinRef[],
+    construction?: ConstructionBrand
 ): ts.TypeNode {
     const factory = tsInstance.factory
 
     const types = [
-        createSourceViewConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName),
+        createSourceViewConsumerBaseHeadType(
+            tsInstance, extendsType, implicitRequiredBase, emptyBaseName, construction
+        ),
         ...mixinRefs
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
@@ -362,13 +426,32 @@ function createConsumerBaseHeadType(
     tsInstance: TypeScript,
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
-    emptyBaseName: string | undefined
+    emptyBaseName: string | undefined,
+    construction?: ConstructionBrand
 ): ts.TypeNode {
     const factory  = tsInstance.factory
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {
         return factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName as string))
+    }
+
+    if (construction !== undefined) {
+        // Emit path: the `$base` interface re-extends the base only when it has type
+        // arguments. Without them the consumer's base instance members flow solely
+        // through this construct return, so it must name the base (a plain `object`
+        // would drop `initialize` and the base's own fields). With type arguments the
+        // interface already carries (and would double-extend, TS2320) the generic base,
+        // and naming `Base<T>` here would reference the consumer type parameter in a base
+        // expression (TS2562), so a plain `object` is used instead.
+        return constructionHeadType(
+            tsInstance,
+            expressionToEntityName(tsInstance, baseType.expression),
+            construction,
+            baseType.typeArguments === undefined
+                ? heritageTypeToTypeReference(tsInstance, baseType)
+                : factory.createKeywordTypeNode(tsInstance.SyntaxKind.ObjectKeyword)
+        )
     }
 
     if (baseType.typeArguments === undefined) {

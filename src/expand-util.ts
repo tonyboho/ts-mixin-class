@@ -136,13 +136,28 @@ export function createSourceViewConsumerBaseHeadType(
     tsInstance: TypeScript,
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
-    emptyBaseName: string | undefined
+    emptyBaseName: string | undefined,
+    construction?: ConstructionBrand
 ): ts.TypeNode {
     const factory  = tsInstance.factory
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {
         return factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName as string))
+    }
+
+    if (construction !== undefined) {
+        // Source view: the `$base` interface always re-extends the base (even without
+        // type arguments), so it carries the base instance and the construct returns a
+        // plain `object` — naming the base here would either double-extend it (TS2320)
+        // or, for a generic base, reference the consumer's type parameter in a base
+        // expression (TS2562).
+        return constructionHeadType(
+            tsInstance,
+            expressionToEntityName(tsInstance, baseType.expression),
+            construction,
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.ObjectKeyword)
+        )
     }
 
     if (baseType.typeArguments === undefined) {
@@ -154,6 +169,98 @@ export function createSourceViewConsumerBaseHeadType(
         factory.createTypeReferenceNode(classStaticsName, [
             factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
         ])
+    ])
+}
+
+// Describes the construct signature a construction consumer's `$base` cast head should
+// carry. `branded` consumers (the cooperative `initialize` pattern, no own constructor)
+// get a poisoned construct so `new Consumer(...)` is a type error; an unbranded
+// construction consumer (one that declares its own constructor, opting into manual
+// construction) gets a permissive `new (...args)` construct instead, so its
+// `super(...)` call keeps working even when the base is itself a branded construction
+// class (whose `typeof Base` construct would otherwise require the brand argument).
+export type ConstructionBrand = {
+    consumerName : string,
+    branded      : boolean
+}
+
+// The "construction base head" used in a construction consumer's `$base` cast. The
+// base's statics are kept (inline `Omit<typeof Base, "prototype">` drops the public
+// construct signature), and a single construct signature is added back: BRANDED so that
+// `new Consumer(...)` is a type error, or permissive (`new (...args: any[])`) for a
+// manual-constructor consumer. The construct returns the base instance so the generated
+// `$base` class can still `extends` the cast. The brand is only a parameter type, not a
+// `protected` constructor, so the class value stays assignable to a public
+// `AnyConstructor` slot (`.mix(...)`, `instanceof`-style helpers keep working).
+export function constructionHeadType(
+    tsInstance: TypeScript,
+    baseEntity: ts.EntityName,
+    construction: ConstructionBrand,
+    // The construct signature's return (instance) type: the precise base heritage type
+    // (`Base`, `GenericBase<T>`, `GenericBase<string>`). The emit `$base` interface does
+    // not re-extend a base without type arguments, so the consumer's base instance
+    // members (e.g. `initialize`, the base's own fields) flow only through this return —
+    // `object` would drop them. For a generic base the type argument matches the `$base`
+    // interface's own `extends GenericBase<T>`, so the two agree (no `unknown`).
+    instanceReturnType: ts.TypeNode
+): ts.TypeNode {
+    const factory = tsInstance.factory
+
+    return factory.createIntersectionTypeNode([
+        constructionConstructSignatureType(tsInstance, construction, instanceReturnType),
+        // Inline `Omit<typeof Base, "prototype">` (not the `ClassStatics` alias) so the
+        // construction-base path, which does not request generated imports, needs none:
+        // `Omit` is a global lib utility. This keeps the base's statics while the mapped
+        // type drops the public construct signature, leaving the one added above as the
+        // only construct signature.
+        factory.createTypeReferenceNode("Omit", [
+            factory.createTypeQueryNode(baseEntity),
+            factory.createLiteralTypeNode(factory.createStringLiteral("prototype"))
+        ])
+    ])
+}
+
+// `new (use_the_static_new_factory: { readonly "<guidance>": never }) => <returnType>`
+// when branded, else a permissive `new (...args: any[]) => <returnType>`.
+function constructionConstructSignatureType(
+    tsInstance: TypeScript,
+    construction: ConstructionBrand,
+    returnType: ts.TypeNode
+): ts.TypeNode {
+    const factory = tsInstance.factory
+
+    const parameter = construction.branded
+        ? factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            "use_the_static_new_factory",
+            undefined,
+            constructorBrandType(tsInstance, construction.consumerName)
+        )
+        : factory.createParameterDeclaration(
+            undefined,
+            factory.createToken(tsInstance.SyntaxKind.DotDotDotToken),
+            "args",
+            undefined,
+            factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
+        )
+
+    return factory.createConstructorTypeNode(undefined, undefined, [ parameter ], returnType)
+}
+
+function constructorBrandType(tsInstance: TypeScript, consumerName: string): ts.TypeNode {
+    const factory = tsInstance.factory
+    const message =
+        `Use \`${consumerName}.new({ ... })\` to construct - ` +
+        `direct \`new ${consumerName}(...)\` is disabled; construction runs through the generated static \`new\` factory`
+
+    return factory.createTypeLiteralNode([
+        factory.createPropertySignature(
+            [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ],
+            factory.createStringLiteral(message),
+            undefined,
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
+        )
     ])
 }
 

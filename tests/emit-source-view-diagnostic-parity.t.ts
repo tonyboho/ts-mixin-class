@@ -111,3 +111,79 @@ it("reports an incompatible override as TS2416 on the same source line in emit a
         await fixture.dispose()
     }
 })
+
+// Direct `new` on a construction class is disabled: construction goes through the
+// generated static `new` factory. The construct signature is branded so a bare
+// `new X()` reports TS2554 and `new X({ ... })` reports TS2353 carrying a descriptive
+// guidance message — identically in emit and source-view modes. A class that declares
+// its own constructor opts back into manual construction and keeps a working `super()`.
+const disabledConstructionText = `import { Base, mixin } from "ts-mixin-class"
+
+@mixin()
+class Flag {
+    touched: boolean = false
+}
+
+class Model extends Base {
+    id: string = ""
+}
+
+class Widget extends Base implements Flag {
+    name: string = ""
+}
+
+class Manual extends Base {
+    value: string
+
+    constructor () {
+        super()
+        this.value = ""
+    }
+}
+
+export const okModel  = Model.new({ id : "x" })
+export const okWidget = Widget.new({ name : "n", touched : true })
+export const okManual = new Manual()
+
+export const badBare   = new Model()
+export const badConfig = new Widget({ name : "n", touched : true })
+`
+
+function lineOf(text: string, needle: string): number {
+    return text.split("\n").findIndex((line) => line.includes(needle)) + 1
+}
+
+const badBareLine   = lineOf(disabledConstructionText, "badBare")
+const badConfigLine  = lineOf(disabledConstructionText, "badConfig")
+const okManualLine   = lineOf(disabledConstructionText, "okManual")
+
+it("disables direct `new` on construction classes with a descriptive error in emit and source-view modes", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : disabledConstructionText } ]
+    })
+    const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
+
+    try {
+        const emitResult       = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile ], fixture.directory)
+        const sourceViewResult = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile, "--noEmit" ], fixture.directory)
+
+        for (const result of [ emitResult, sourceViewResult ]) {
+            const output = commandOutput(result)
+
+            t.match(output, new RegExp(`source\\.ts\\(${badBareLine},\\d+\\): error TS2554`),
+                `bare \`new Model()\` should be TS2554 on line ${badBareLine}\n${output}`)
+
+            t.match(output, new RegExp(`source\\.ts\\(${badConfigLine},\\d+\\): error TS2353`),
+                `\`new Widget({...})\` should be TS2353 on line ${badConfigLine}\n${output}`)
+
+            t.match(output, "construction runs through the generated static `new` factory",
+                `the TS2353 error should carry the descriptive guidance message\n${output}`)
+
+            t.notMatch(output, new RegExp(`source\\.ts\\(${okManualLine},`),
+                `a class with its own constructor keeps a working \`new\` (no error on line ${okManualLine})\n${output}`)
+        }
+    } finally {
+        await fixture.dispose()
+    }
+})

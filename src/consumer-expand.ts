@@ -150,7 +150,31 @@ export function expandConsumerClass(
     )
     const reducedMixinHeritage            = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
     const facts                           = getSourceFileFacts(tsInstance, sourceFile, options)
-    const staticCollisionValidations      = createStaticCollisionValidations(
+    const consumerBaseImports             = consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts)
+    // A construction consumer transitively extends the package `Base` (so it gets a
+    // generated static `new` factory). This mirrors `createConstructionMembers`' own
+    // gate: an applied mixin's required base may itself be the package `Base`, or the
+    // consumer's explicit/implicit base resolves to it (locally or cross-file).
+    const isConstructionConsumer = linearized.some((ref) => ref.requiredBase?.isPackageBase === true) ||
+        isConstructionBaseOptIn(
+            tsInstance,
+            sourceFile,
+            expansion.extendsType ?? implicitRequiredBase,
+            options,
+            facts,
+            new Set(),
+            context.crossFile,
+            consumerBaseImports
+        )
+    // The `$base` cast's construct signature is branded so a direct `new Consumer(...)`
+    // is a type error — construction goes through the static `new`. This is gated to
+    // construction consumers that declare NO constructor of their own (the cooperative
+    // `initialize` pattern): a class with an explicit constructor opts into manual
+    // construction (its own public construct signature already allows `new`, and a
+    // branded base would only break its `super(...)` call against the cooperative base).
+    const brandsConstruction         = isConstructionConsumer &&
+        !declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
+    const staticCollisionValidations = createStaticCollisionValidations(
         tsInstance,
         sourceFile,
         declaration,
@@ -163,7 +187,7 @@ export function expandConsumerClass(
         options.staticCollisionCheck,
         options.sourceView
     )
-    const consumerValidations             = [
+    const consumerValidations        = [
         ...requiredBaseValidations,
         ...missingRuntimeImportValidations,
         ...staticCollisionValidations
@@ -216,7 +240,10 @@ export function expandConsumerClass(
             emptyBaseName,
             expansion.directMixinRefs,
             linearized,
-            options
+            options,
+            isConstructionConsumer
+                ? { consumerName: expansion.name, branded: brandsConstruction }
+                : undefined
         ) ],
         []
     )
@@ -234,7 +261,7 @@ export function expandConsumerClass(
         options,
         options.sourceView ? generatedTextRange(sourceFile, declaration.members.end) : expansion.generatedRange,
         context.crossFile,
-        consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts),
+        consumerBaseImports,
         linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
     )
     const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
@@ -242,12 +269,6 @@ export function expandConsumerClass(
         sourceFile,
         declaration.members,
         expansion.originalExtendsClause === undefined
-    )
-    const isConstructionConsumer   = isConstructionBaseOptIn(
-        tsInstance,
-        sourceFile,
-        expansion.extendsType ?? implicitRequiredBase,
-        options
     )
     const consumerMembers          = isConstructionConsumer
         ? rewritePublicOnlyUndefinedInitializers(tsInstance, consumerMembersWithSuper, options)

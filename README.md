@@ -284,8 +284,7 @@ const model = Model.new({ id : "42" })
 The instantiation flow is as follows:
 - Instantiation starts as: `const instance = MixinClass.new({ ... })`
 - A native JS constructor is called without arguments. It will assign the property initializer expressions to all properties.
-It is a good performance practice to provide an initializer expression for all of your properties, to keep the shape of your class
-constant.
+It is a good performance practice to provide an initializer expression for all of your properties, to keep the shape of your class constant.
 - An `initialize` method is called with the configuration object given to the initial static `new` constructor.
 `initialize` just performs `Object.assign(this, config)`, so all configs are applied to the instance at once, in no particular order.
 
@@ -313,6 +312,23 @@ const user = User.new({
     lastName  : "Lovelace"
 })
 ```
+
+Because construction goes through the static `new` factory, calling the constructor
+directly with `new` is disabled for classes that extend `Base` (directly or
+transitively). It is a compile-time-only guard - the construct signature is branded so
+that a direct call reports a descriptive type error pointing back to the static factory:
+
+```ts
+const ok  = User.new({ firstName : "Ada", lastName : "Lovelace" })
+
+// Error: Use `User.new({ ... })` to construct - direct `new User(...)` is disabled;
+// construction runs through the generated static `new` factory.
+const bad = new User({ firstName : "Ada" })
+```
+
+A class that declares its own constructor opts back into manual construction (its
+`super(...)` call keeps working and `new` is allowed) - the guard only applies to the
+cooperative `initialize` pattern where the class has no constructor of its own.
 
 ### Instantiation with generics
 
@@ -388,13 +404,6 @@ the declared property type remains strict.
 
 These are current architectural constraints:
 
-Mixin consumers must be named top-level class declarations. The transformer inserts
-sibling declarations such as `__User$empty` and `__User$base`, then rewrites the consumer
-to extend the generated base. Anonymous classes, class expressions, and nested class
-declarations do not have a stable place where these helper declarations can be emitted
-without changing runtime scoping or evaluation order, so they are rejected with custom
-diagnostics.
-
 Mixin class members cannot be `private`, `protected`, `#private`, or abstract. A mixin is
 copied into generated inheritance positions and is also exposed structurally through
 interfaces for consumers. TypeScript private/protected identity and ECMAScript private
@@ -402,16 +411,23 @@ fields are intentionally nominal and class-local, which makes them a poor fit fo
 kind of composition. Use ordinary members inside mixins, or keep private state in a
 non-mixin base class.
 
-Dynamic consumer base expressions such as `extends makeBase()` are not supported yet. A
-dynamic base would need to be evaluated exactly once, stored in a generated runtime
-constant, represented on both the instance and static sides, and emitted correctly in
-`.d.ts` files. Use a named base class for now.
-
 Mixin class properties, methods, accessors, and method parameters need explicit TypeScript
 type annotations. The transformer has to generate interface members and declaration
 output before relying on inferred implementation details. In ordinary classes TypeScript
 can infer public member types from initializers and method bodies, but mixins need a
 stable AST-level public surface that can be copied into generated declarations.
+
+Mixin consumers must be named top-level class declarations. The transformer inserts
+sibling declarations such as `__User$empty` and `__User$base`, then rewrites the consumer
+to extend the generated base. Anonymous classes, class expressions, and nested class
+declarations do not have a stable place where these helper declarations can be emitted
+without changing runtime scoping or evaluation order, so they are rejected with custom
+diagnostics.
+
+Dynamic consumer base expressions such as `extends makeBase()` are not supported yet. A
+dynamic base would need to be evaluated exactly once, stored in a generated runtime
+constant, represented on both the instance and static sides, and emitted correctly in
+`.d.ts` files. Use a named base class for now.
 
 `Config<this>` is intentionally a broader helper than the generated `new(...)` config
 type. It is useful for implementing `initialize`, but it cannot see AST-only information

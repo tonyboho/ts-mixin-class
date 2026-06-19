@@ -262,6 +262,48 @@ it("tsserver semantic diagnostics report mixin transform type errors", async (t:
     }
 })
 
+const disabledConstructionText = trimIndent(`
+    import { Base } from "ts-mixin-class/base"
+
+    class Model extends Base {
+        id: string = ""
+    }
+
+    export const ok  = Model.new({ id : "x" })
+    export const bad = new Model({ id : "x" })
+`)
+
+it("tsserver semantic diagnostics disable direct construction with a descriptive message", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : disabledConstructionText } ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                disabledConstructionText,
+                "semanticDiagnosticsSync",
+                { file : sourceFile }
+            )
+        )
+        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+
+        assertDiagnosticParts(t, messages, [
+            "direct `new Model(...)` is disabled",
+            "construction runs through the generated static `new` factory"
+        ])
+
+        t.notMatch(messages, "Model.new({ id", "the static `new` factory call must not be flagged")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver semantic diagnostics report imported required-base mixin errors", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

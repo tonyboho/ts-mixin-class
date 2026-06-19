@@ -241,6 +241,32 @@ instance type) has its own rules:
    is a **required** config field; only `public x?: T` is optional. An initializer alone does not
    make it optional. Only `public` members enter the config.
 
+5. **Direct `new` on a construction class is disabled by a *branded construct signature*, not a
+   `protected` constructor.** A construction class's heritage cast head replaces the public construct
+   signature with `new (use_the_static_new_factory: { readonly "<guidance>": never }) => <base
+   instance>` plus inline `Omit<typeof Base, "prototype">` statics (`constructionHeadType` /
+   `ConstructionBrand` in `expand-util.ts`). `new X()` → TS2554 (param name guides), `new X({...})`
+   → TS2353 (the descriptive key surfaces). A `protected` constructor is **wrong** here: it makes the
+   class value unassignable to any public `new(...)=>T` slot (breaks `.mix(...)`, `isInstanceOf`,
+   generic `AnyConstructor` consumers) and is structurally unfixable (`abstract new` also rejects it).
+   The brand is only a *parameter type*, so assignability is preserved. Gotchas, all load-bearing:
+   - **Return type by mode.** Source-view head returns `object` (the `$base` interface always
+     re-extends the base → carries the instance; naming it would double-extend, TS2320, or reference
+     a consumer type param in a base expression, TS2562). Emit head returns the precise base type
+     (`heritageTypeToTypeReference`) when the base has **no** type arguments (the emit `$base`
+     interface does *not* re-extend it, so `initialize`/base fields flow only through this return —
+     `object` drops them), but `object` when it **does** (interface already carries the generic base).
+   - **Gate on no own constructor.** Only brand a construction class/consumer that declares **no
+     constructor**. One with an explicit constructor opts into manual construction: its own public
+     construct signature already allows `new`, and a branded base would only break its `super(...)`.
+     Such a shape-A consumer instead gets a **permissive** head (`new (...args: any[]) => instance`,
+     `ConstructionBrand.branded = false`) that strips a branded base's `typeof Base` brand so
+     `super()` resolves. Mixin-less (shape B) classes with a constructor keep their literal `extends`.
+   - **Imports.** The head inlines `Omit`/`InstanceType` (global lib utilities) so the
+     mixin-less construction path — which never requests generated imports — needs none.
+   - **Runtime is untouched** (the brand lives only in the `as unknown as` cast, erased on emit), so
+     `new X()` still *runs*; it is purely a compile-time guard.
+
 ## Emit-path diagnostic remapping
 
 The emit path **reprints** the value-cast tree to text and reparses it. This is mandatory — only

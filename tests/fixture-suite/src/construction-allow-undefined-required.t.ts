@@ -25,7 +25,12 @@ class UndefinedShapeConsumer extends UndefinedShapeBase implements UndefinedShap
     public ownValue: boolean = undefined
 }
 
+// Direct `new` on a construction class is disabled (construction goes through the
+// generated static `new` factory). The brand is a compile-time-only guard, so the
+// runtime still builds an unconfigured instance, which the assertions below check.
+// @ts-expect-error direct `new` on a construction class is disabled; use the static `new`.
 const unconfigured = new UndefinedShapeConsumer()
+// @ts-expect-error direct `new` on a construction class is disabled; use the static `new`.
 const plainUnconfigured = new PlainUndefinedShape()
 const plainConfigured = PlainUndefinedShape.new({ value : 7 })
 const configured = UndefinedShapeConsumer.new({

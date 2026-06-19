@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import type { ProgramTransformerExtras } from "ts-patch"
 import { expandConsumerClass } from "./consumer-expand.js"
+import { brandedConstructionBaseHeritage } from "./consumer-base-heritage.js"
 import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
 import {
     createConstructionMembers,
@@ -645,14 +646,16 @@ function expandConstructionBaseClass(
     crossFile: CrossFileContext | undefined,
     baseImportMap: Map<string, ImportedNameBinding> | undefined
 ): ts.ClassDeclaration {
+    const factory             = tsInstance.factory
+    const extendsType         = declaration.heritageClauses?.find((clause) => {
+        return clause.token === tsInstance.SyntaxKind.ExtendsKeyword
+    })?.types[0]
     const rewritten           = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
     const constructionMembers = createConstructionMembers(
         tsInstance,
         sourceFile,
         declaration,
-        declaration.heritageClauses?.find((clause) => {
-            return clause.token === tsInstance.SyntaxKind.ExtendsKeyword
-        })?.types[0],
+        extendsType,
         undefined,
         [],
         options,
@@ -667,17 +670,58 @@ function expandConstructionBaseClass(
         return rewritten
     }
 
-    return tsInstance.factory.updateClassDeclaration(
+    return factory.updateClassDeclaration(
         rewritten,
         rewritten.modifiers,
         rewritten.name,
         rewritten.typeParameters,
-        rewritten.heritageClauses,
+        brandedConstructionHeritageClauses(tsInstance, declaration, rewritten, extendsType, options),
         preserveTextRange(
             tsInstance,
-            tsInstance.factory.createNodeArray([ ...rewritten.members, ...constructionMembers ]),
+            factory.createNodeArray([ ...rewritten.members, ...constructionMembers ]),
             rewritten.members
         )
+    )
+}
+
+// Replaces the construction base class's `extends Base` clause with a branded cast so
+// `new Model(...)` is a type error (construction goes through the generated static
+// `new`). In source view this is gated to a simple identifier base (a qualified
+// `ns.Base` keeps its literal, navigable heritage and is still guarded by the emitted
+// `tsc` build). Non-extends clauses (`implements`) and the original positions are kept.
+function brandedConstructionHeritageClauses(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    rewritten: ts.ClassDeclaration,
+    extendsType: ts.ExpressionWithTypeArguments | undefined,
+    options: TransformOptions
+): ts.NodeArray<ts.HeritageClause> | undefined {
+    const heritageClauses = rewritten.heritageClauses
+
+    if (heritageClauses === undefined ||
+        extendsType === undefined ||
+        declaration.name === undefined ||
+        // A class with its own constructor opts into manual construction; branding the
+        // base would only break its `super(...)` call (see consumer-expand's gate).
+        declaration.members.some((member) => tsInstance.isConstructorDeclaration(member)) ||
+        (options.sourceView && !tsInstance.isIdentifier(extendsType.expression))
+    ) {
+        return heritageClauses
+    }
+
+    const brandedClause = brandedConstructionBaseHeritage(
+        tsInstance,
+        extendsType,
+        declaration.name.text,
+        options
+    )
+
+    return preserveTextRange(
+        tsInstance,
+        tsInstance.factory.createNodeArray(heritageClauses.map((clause) => {
+            return clause.token === tsInstance.SyntaxKind.ExtendsKeyword ? brandedClause : clause
+        })),
+        heritageClauses
     )
 }
 

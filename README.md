@@ -459,6 +459,18 @@ type parameters, and its members navigate correctly — only the base type name 
 heritage clause is affected. Navigate from the base class's own declaration or another
 usage instead.
 
+When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
+reports the error twice — once on the mixin declaration and once at each *use site* where
+the contract is expected — while `tsc` (a normal emit build) reports it only on the mixin
+declaration. Both fail the build on the same root cause; the difference is only that the
+editor additionally flags the consumer use sites. This is because the emit path models a
+mixin's public surface as a generated `interface X extends Contract`, which *inherits* the
+contract's members, so a value typed as `X` looks like it satisfies the contract at a
+consumer even when the runtime body does not — but the body itself is still checked at the
+declaration (`class extends base implements Contract`), so a missing or mismatched member
+never compiles. In short: `tsc` never passes a contract violation silently; it just points
+at the declaration rather than also at every consumer.
+
 
 ## Future Work
 

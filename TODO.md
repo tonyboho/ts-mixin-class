@@ -38,13 +38,18 @@ deliberately excluded from the parity assertion:
   "Emit-path implements conformance"), so `tsc` verifies the real body against each
   contract and emits the **same TS2420 the IDE does, on the same line and column** —
   uniformly for generic and non-generic mixins. So `tsc` no longer stays silent when a
-  mixin is missing a required member. **Still open:** *downstream consumer* propagation —
-  when a consumer uses the mixin where the contract is expected, source view reports TS2741
-  at the consumer while emit does not (the value-cast value's type is still the generated
+  mixin is missing a required member. **Documented divergence (not a fix — low severity,
+  see README "Limitations"):** *downstream consumer* locality — when a consumer uses the
+  mixin where the contract is expected, source view *also* reports TS2741 at the consumer
+  while emit reports the violation only on the mixin declaration. This is **not** a tsc-
+  green hole: the body is checked at the declaration (`class extends base implements
+  Contract`), so a violation never compiles either way — the difference is only that the
+  editor additionally flags the use sites. (The value-cast value's type is the generated
   `interface X` that *inherited* the contract members, so a consumer sees a type that
-  structurally "has" them). Closing that means the value-cast instance type must be the
-  real body type, not the inherited interface. The sweep tolerates remaining source-view-
-  only lines and counts them.
+  structurally "has" them; a real consumer-site error is therefore always shadowed by the
+  declaration error.) The sweep tolerates these source-view-only lines and counts them as
+  `ideOnlyCoverageGaps` — it only fails on emit-only lines, so this divergence cannot make
+  the parity test red.
 - **Heritage-navigation gap** (already tracked below): source view reports `extends`/
   `implements` base-name errors at a synthetic `$base` position; emit reports them at the
   real base name (emit is the *correct* one here). The sweep filters diagnostics inside

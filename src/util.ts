@@ -517,6 +517,12 @@ function isNavigableGeneratedNodeKind(tsInstance: TypeScript, node: ts.Node): bo
         tsInstance.isTypeParameterDeclaration(node) ||
         tsInstance.isTypeReferenceNode(node) ||
         tsInstance.isExpressionWithTypeArguments(node) ||
+        // The construction consumer's `$base` interface re-declares the `Base.initialize`
+        // protocol member (to suppress a TS2320 merge conflict between mixins overriding
+        // `initialize`). It is real-positioned at `declaration.end` with `.original` (the
+        // consumer) escaping into the unbound clone; a `rename`/`definition` on a user
+        // `initialize` walks `getParseTreeNode` there and crashes the checker otherwise.
+        tsInstance.isMethodSignature(node) ||
         tsInstance.isConstructorDeclaration(node)
 }
 

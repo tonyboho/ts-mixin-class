@@ -166,6 +166,137 @@ it("keeps the initialize override body strictly typed against the config alias",
     t.match(messages, "nope", "An unknown field inside the override body is still rejected")
 })
 
+it("lets a mixin type its initialize override with its own config alias and a consumer apply several such mixins", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class A extends Base {
+            public a: string = ""
+
+            override initialize(config: AConfig): void {
+                super.initialize(config)
+                this.a = config.a
+            }
+        }
+
+        @mixin()
+        class B extends Base {
+            public b: number = 0
+
+            override initialize(config: BConfig): void {
+                super.initialize(config)
+                this.b = config.b
+            }
+        }
+
+        class C extends Base implements A, B {
+            public c: boolean = false
+        }
+
+        const created = C.new({ a : "x", b : 1, c : true })
+        void created
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    // Both mixins override initialize with their own strict config; the consumer's
+    // generated base interface re-declares the Base.initialize protocol member, so the
+    // merge no longer fails with TS2320 ("not identical").
+    t.is(messages, "", "A consumer of several mixins that override initialize with their own config typechecks")
+})
+
+it("supports an initialize override through a mixin dependency chain", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class Identified extends Base {
+            public id: string = ""
+
+            override initialize(config: IdentifiedConfig): void {
+                super.initialize(config)
+                this.id = config.id
+            }
+        }
+
+        // A mixin that depends on another construction mixin (which extends Base) and also
+        // overrides initialize. It reuses the dependency's config alias for the slice it
+        // reads; the consumer below merges the whole chain.
+        @mixin()
+        class Audited implements Identified {
+            public audited: boolean = false
+
+            override initialize(config: IdentifiedConfig): void {
+                super.initialize(config)
+            }
+        }
+
+        class Record extends Base implements Audited {
+            public name: string = ""
+
+            override initialize(config: RecordConfig): void {
+                super.initialize(config)
+            }
+        }
+
+        const created = Record.new({ id : "r1", audited : true, name : "n" })
+        void created
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.is(messages, "", "A consumer of a mixin chain whose members override initialize typechecks")
+})
+
+it("keeps a mixin's initialize override body strictly typed against its own config alias", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class A extends Base {
+            public a: string = ""
+
+            override initialize(config: AConfig): void {
+                super.initialize(config)
+                void config.nope
+            }
+        }
+
+        void A
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.match(messages, "nope", "An unknown field inside the mixin override body is still rejected")
+})
+
+it("still surfaces a genuine initialize clash for a non-construction consumer of plain mixins", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class A {
+            initialize(value: string): void { void value }
+        }
+
+        @mixin()
+        class B {
+            initialize(value: number): void { void value }
+        }
+
+        class C implements A, B {
+        }
+
+        void (null as unknown as C)
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    // No package Base, so this is NOT a construction consumer: the protocol member is
+    // not injected and a real, user-meaningful initialize conflict is not masked.
+    t.match(messages, "TS2320", "A non-construction consumer of clashing plain initialize methods still reports TS2320")
+})
+
 it("falls back to a suffixed alias name when the class name is already taken", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"

@@ -301,7 +301,7 @@ class User extends Base {
 
     fullName: string = ""
 
-    override initialize(config?: UserConfig): void {
+    override initialize(config: UserConfig): void {
         super.initialize(config)
 
         this.fullName = `${this.firstName} ${this.lastName}`.trim()
@@ -402,18 +402,23 @@ subclass can override it with the stricter alias:
 class User extends Base {
     public id: string = ""
 
-    override initialize(config?: UserConfig): void {
+    override initialize(config: UserConfig): void {
         super.initialize(config)
     }
 }
 ```
 
-> **Mixins are the one exception.** A `@mixin` that overrides `initialize` is merged
-> structurally into its consumers' generated base interface *alongside* `Base`, and an
-> interface cannot extend two types whose same-named member signatures differ. So a
-> mixin's `initialize` override must keep the base parameter type — `override
-> initialize(config?: unknown)` — and read its strict state from `this` in the body. Only
-> non-mixin construction classes can narrow the `initialize` parameter to their alias.
+Type the parameter **required** (`config: UserConfig`), not `config?: UserConfig`:
+`initialize` is always invoked with a config argument. The value can only be `undefined`
+when the class has no required fields (so `User.new()` is valid with no argument); type it
+`config: UserConfig | undefined` and handle the `undefined` case there.
+
+This works for `@mixin` classes too. A mixin may override `initialize` with its own
+`<MixinName>Config`, including through a mixin dependency chain. A consumer applying
+several such mixins would otherwise see a `Base` + mixins interface merge with
+non-identical `initialize` signatures (TS2320); the generated consumer base interface
+re-declares the `Base.initialize` protocol member to resolve that, so the mixins keep
+their strict overrides.
 
 If the `<ClassName>Config` name is already declared or imported in the same file, the
 generated alias is suffixed with `_` (`ModelConfig_`) so it never collides with your own
@@ -487,12 +492,6 @@ Dynamic consumer base expressions such as `extends makeBase()` are not supported
 dynamic base would need to be evaluated exactly once, stored in a generated runtime
 constant, represented on both the instance and static sides, and emitted correctly in
 `.d.ts` files. Use a named base class for now.
-
-A `@mixin` that overrides `initialize` must type its parameter `unknown` (the same as
-`Base.initialize`), not its own `<MixinName>Config` alias: the consumer's generated base
-interface merges the mixin with `Base`, and an interface cannot extend two types whose
-same-named member signatures differ. Read strict state from `this` in the body. Non-mixin
-construction classes have no such constraint and can narrow `initialize` to their alias.
 
 Go-to-definition, find-all-references, and quickinfo on a base type name *inside* a class
 heritage clause work for a **non-generic** consumer that does not use construction and

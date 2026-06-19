@@ -18,16 +18,14 @@ export const requirements: unique symbol = Symbol.for("ts-mixin-class.requiremen
 export const base: unique symbol = Symbol.for("ts-mixin-class.base")
 
 export class Base {
-    // `props` is `unknown` so a subclass can override `initialize` with a STRICTER,
-    // required-field config - its generated `<ClassName>Config` alias
-    // (`override initialize(config: ModelConfig)`). A narrower parameter than the base
-    // would be an unsound narrowing TypeScript rejects (TS2416), so the base parameter
-    // must be the top type. `unknown` keeps every override shape valid and lets the
-    // generated, strict `static new(props: <ClassName>Config)` override this signature.
-    // (A `@mixin` that overrides `initialize` is structurally merged into its consumers'
-    // generated base interface alongside `Base`, which requires the two `initialize`
-    // signatures to be IDENTICAL - so a mixin's `initialize` override must also use
-    // `unknown`, not its own alias.)
+    // `props` is `unknown` (the top type) so any subclass - including a `@mixin` - can
+    // override `initialize` with a STRICTER `<ClassName>Config` parameter
+    // (`override initialize(config: ModelConfig)`); TypeScript checks method-parameter
+    // overrides bivariantly, so a required, optional, or `| undefined` override all
+    // type-check against this signature, and `unknown` keeps every shape valid. When a
+    // construction consumer applies several mixins that each override `initialize`, the
+    // generated `interface <C>$base` re-declares this protocol signature explicitly (see
+    // consumer-expand) to suppress the TS2320 "not identical" merge conflict.
     initialize(props?: unknown): void {
         Object.assign(this, props)
     }

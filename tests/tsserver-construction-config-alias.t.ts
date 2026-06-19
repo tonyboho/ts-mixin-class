@@ -183,3 +183,96 @@ it("tsserver find-all-references on a config-alias reference responds instead of
         await fixture.dispose()
     }
 })
+
+// A consumer applying several mixins that each override `initialize` with their own
+// strict config. In the editor (source view) the generated `$base` interface re-declares
+// the `Base.initialize` protocol member to suppress the TS2320 merge conflict; that
+// member is synthetic, so rename/definition on a user `initialize` must not crash.
+const initializeOverrideText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class A extends Base {
+        public a: string = ""
+
+        override initialize(config?: AConfig): void {
+            super.initialize(config)
+        }
+    }
+
+    @mixin()
+    class B extends Base {
+        public b: number = 0
+
+        override initialize(config?: BConfig): void {
+            super.initialize(config)
+        }
+    }
+
+    class C extends Base implements A, B {
+        public c: boolean = false
+    }
+
+    const created = C.new({ a : "x", b : 1, c : true })
+    void created
+`)
+
+it("tsserver reports no TS2320 in the editor for a consumer of mixins overriding initialize", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : initializeOverrideText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                initializeOverrideText,
+                "semanticDiagnosticsSync",
+                { file : sourceFile }
+            )
+        )
+
+        t.notOk(
+            diagnostics.some((diagnostic) => diagnostic.code === 2320),
+            "The construction consumer's generated base interface does not raise a TS2320 initialize merge conflict"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("tsserver rename on a mixin's initialize override responds instead of crashing the checker", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : initializeOverrideText } ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const marker     = "override initialize(config?: AConfig)"
+        const position   = initializeOverrideText.indexOf(marker) + "override ".length + 1
+
+        const body = assertResponseBody<{ info?: { canRename?: boolean } }>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                initializeOverrideText,
+                "rename",
+                { file : sourceFile, ...positionToLineOffset(initializeOverrideText, position) }
+            )
+        )
+
+        t.true(
+            body.info !== undefined,
+            "Rename on a mixin's initialize override responds with rename info instead of crashing the synthetic protocol member"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})

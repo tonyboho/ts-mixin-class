@@ -93,13 +93,18 @@ const providerText = `
         public mixinValue: number = 0
         public tag: string = ""
 
-        // A mixin that overrides initialize must type the parameter \`unknown\` (same as
-        // \`Base.initialize\`): the consumer's generated base interface merges this mixin
-        // with \`Base\`, and an interface cannot extend two types whose same-named member
-        // signatures differ. The body still reads strict \`this\` members.
-        override initialize(config?: unknown): void {
+        // A mixin can type its \`initialize\` override with its own strict config alias;
+        // the consumer's generated \`$base\` interface re-declares the \`Base.initialize\`
+        // protocol member, so merging several such mixins does not hit a TS2320 conflict.
+        // The parameter is required (not \`config?:\`): a class with required config fields
+        // is always constructed with a config, so \`initialize\` always receives one.
+        override initialize(config: DirectBaseMixinConfig): void {
             super.initialize(config)
 
+            // \`config\` is the strict \`DirectBaseMixinConfig\`, so its members are typed.
+            const seedTag: string = config.tag
+
+            void seedTag
             this.tag = "init:" + this.mixinValue
         }
     }

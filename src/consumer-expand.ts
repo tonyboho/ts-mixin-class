@@ -204,7 +204,19 @@ export function expandConsumerClass(
             consumerValidations
         )
 
-    const baseInterfaceNode = factory.createInterfaceDeclaration(
+    // A construction consumer's `$base` interface extends `Base` plus mixins that may
+    // each override the cooperative `initialize` with their own strict `<Mixin>Config`.
+    // Those overrides are NOT identical, so an interface inheriting two of them fails with
+    // TS2320 ("cannot simultaneously extend ... 'initialize' ... not identical"). The
+    // overrides are legitimate, so rather than forbid them we re-declare the
+    // `Base.initialize` protocol signature here: an own member overrides the conflicting
+    // inherited ones, so the merge succeeds while each mixin keeps its strict body. Gated
+    // to construction consumers so a non-construction consumer of plain mixins still
+    // surfaces a genuine `initialize` clash.
+    const protocolInitialize = isConstructionConsumer
+        ? constructionProtocolInitializeSignature(tsInstance)
+        : undefined
+    const baseInterfaceNode  = factory.createInterfaceDeclaration(
         undefined,
         expansion.baseName,
         checkedTypeParameters(),
@@ -224,9 +236,9 @@ export function expandConsumerClass(
                 })
             ]
         ) ],
-        []
+        protocolInitialize === undefined ? [] : [ protocolInitialize ]
     )
-    const baseInterface     = options.sourceView
+    const baseInterface      = options.sourceView
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseInterfaceNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseInterfaceNode, expansion.generatedRange, declaration)
 
@@ -748,4 +760,28 @@ function consumerBaseImportMap(
     }
 
     return baseImportMap
+}
+
+// The cooperative-construction `initialize` protocol signature, identical to
+// `Base.initialize(props?: unknown): void`. Re-declared on a construction consumer's
+// generated `$base` interface so mixins overriding `initialize` with their own strict
+// `<Mixin>Config` do not collide via interface merge (TS2320); see the call site.
+function constructionProtocolInitializeSignature(tsInstance: TypeScript): ts.MethodSignature {
+    const factory = tsInstance.factory
+
+    return factory.createMethodSignature(
+        undefined,
+        "initialize",
+        undefined,
+        undefined,
+        [ factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            "props",
+            factory.createToken(tsInstance.SyntaxKind.QuestionToken),
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
+            undefined
+        ) ],
+        factory.createKeywordTypeNode(tsInstance.SyntaxKind.VoidKeyword)
+    )
 }

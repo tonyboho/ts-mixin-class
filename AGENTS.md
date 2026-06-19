@@ -333,13 +333,18 @@ instance type) has its own rules:
    Guarded by the alias tests, `tsserver-construction-config-alias.t.ts`, the
    `construction-config-alias-usage.t.ts` corpus fixture (so every stress probe targets the alias
    identifier), the stress parity corpus, and the trivia-strand test.
-   `Base.initialize`/`Base.new` are typed `unknown` (not the removed `Config<T>` helper) so a class
-   may override `initialize` with its strict `<ClassName>Config` alias — a narrower-than-base
-   parameter is an unsound override (TS2416), so the base must be the top type. EXCEPTION: a `@mixin`
-   that overrides `initialize` is merged into its consumers' generated base interface beside `Base`,
-   and interface extension requires same-named members to be IDENTICAL, so a mixin's `initialize`
-   override must keep `unknown` (guarded by the "imported mixin that extends Base directly, including
-   its initialize override" cross-file test).
+   `Base.initialize`/`Base.new` are typed `unknown` (not the removed `Config<T>` helper) so any class
+   — including a `@mixin` — may override `initialize` with its strict `<ClassName>Config` alias
+   (method-parameter overrides are bivariant). A consumer applying several mixins that each override
+   `initialize` would otherwise hit TS2320 (its generated `interface <C>$base extends Base, A, B`
+   inherits non-identical `initialize` members); the consumer base interface re-declares the
+   `Base.initialize` protocol member (gated by `isConstructionConsumer`) to override the conflicting
+   inherited ones. That member is synthetic, so `MethodSignature` is in `isNavigableGeneratedNodeKind`
+   — in source view it normalizes onto the off-screen `$base` range and the alignment pass clears its
+   `Synthesized` flag, so rename/definition on a user `initialize` does not crash
+   `forEachSymbolTableInScope`. Guarded by `source-transform-construction-config-alias.t.ts`,
+   `tsserver-construction-config-alias.t.ts`, and the cross-file "imported mixin … including its
+   initialize override" test.
 
 ## Emit-path diagnostic remapping
 

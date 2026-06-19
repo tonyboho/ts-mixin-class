@@ -439,16 +439,6 @@ such as “this field was explicitly marked `public`” or whether a property ca
 generated `public-only` config list. The strict required/optional contract is enforced at
 the `new(...)` call site.
 
-A generic mixin cannot forward its own type parameter into a generic required base. A
-mixin that extends a generic base with a *concrete* type argument
-(`@mixin() class M extends Base<string>`) works, but forwarding the mixin's own parameter
-(`@mixin() class M<T> extends Base<T>`) does not compile: the emit path reports
-`TS2304: Cannot find name 'T'` (the value cast that models the mixin loses `T` from
-scope), and the source view reports `TS2562: Base class expressions cannot reference class
-type parameters` (the generated metadata base is `extends (<cast using T>)`, which the
-language forbids for a class type parameter in a base-class expression). Use a concrete
-type argument for the required base for now.
-
 Go-to-definition, find-all-references, and quickinfo do not work on a base type name
 *inside* a class heritage clause. In the IDE "source view" the transformer rewrites a
 consumer's `extends Base` to `extends Consumer$base` and pins the generated reference onto

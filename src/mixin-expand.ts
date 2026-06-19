@@ -582,8 +582,61 @@ function createRuntimeMixinClassType(
         runtimeMixinClassName,
         requiredBase === undefined
             ? undefined
-            : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]
+            // The required-base argument is only the `[base]` marker of
+            // `RuntimeMixinClass` (consumer enforcement lives in the generated
+            // `interface … extends RequiredBase`, the `mix` signature, and
+            // consumer-diagnostics — not here). A required base that forwards the
+            // mixin's own type parameter (`@mixin class M<T> extends Base<T>`) would
+            // otherwise leak `T` into a position with no enclosing generic scope:
+            // emit's top-level value-cast intersection (TS2304 "Cannot find name 'T'")
+            // and source view's `$base` base-class *expression* (TS2562 "Base class
+            // expressions cannot reference class type parameters"). Erase forwarded
+            // type-parameter references to `any` so the marker stays well-formed in
+            // both paths; non-forwarded arguments (`Base<string>`) keep their precision.
+            : [ eraseOwnTypeParameterReferences(
+                tsInstance,
+                heritageTypeToTypeReference(tsInstance, requiredBase),
+                declaration.typeParameters
+            ) ]
     )
+}
+
+// Replace every bare reference to one of `typeParameters` inside `typeNode` with
+// `any`. Used to keep the mixin's own type parameters out of type positions that
+// cannot bind them (see createRuntimeMixinClassType).
+function eraseOwnTypeParameterReferences(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
+): ts.TypeNode {
+    if (typeParameters === undefined || typeParameters.length === 0) {
+        return typeNode
+    }
+
+    const names  = new Set(typeParameters.map((typeParameter) => typeParameter.name.text))
+    const result = tsInstance.transform(typeNode, [
+        (context) => {
+            const visit: ts.Visitor = (node) => {
+                if (tsInstance.isTypeReferenceNode(node) &&
+                    tsInstance.isIdentifier(node.typeName) &&
+                    node.typeArguments === undefined &&
+                    names.has(node.typeName.text)
+                ) {
+                    return context.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                }
+
+                return tsInstance.visitEachChild(node, visit, context)
+            }
+
+            return (node) => tsInstance.visitNode(node, visit) as ts.TypeNode
+        }
+    ])
+
+    try {
+        return result.transformed[0]
+    } finally {
+        result.dispose()
+    }
 }
 
 function interfaceHeritageClauses(

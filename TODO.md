@@ -19,17 +19,18 @@ the source has no error on.** Goal had been "lines first, then columns."
    entry on the same source line (so a long alias no longer overshoots onto the next
    source line). Was `8:1` vs `7:5`; now both `7:5`.
 
-### Still open
-
-2. **Column parity.** The stress sweep compares *lines* only. Per-column parity holds in
-   the controlled `emit-source-view-diagnostic-parity` test, but is not yet asserted
-   corpus-wide (the dual-tree presence differences below make a naive column-set compare
-   noisy). Next: compare columns for diagnostics both trees agree on.
+2. **Column parity.** ✅ The stress sweep now also asserts columns: for a diagnostic both
+   trees report (matched on `file:line:code:message`, so two different errors sharing a
+   line+code are not conflated), the remapped emit column equals the source-view column. A
+   filtered audit over all 1273 non-heritage/non-base perturbations found **0 column
+   mismatches**. Full breakdown of compiler-vs-IDE diagnostic differences:
+   `COMPILER-VS-IDE-DIAGNOSTICS.md`.
 
 ### Known dual-tree divergences (not line-remap issues — out of scope for the remap)
 
-These are pre-existing differences in *what* the value-cast (emit) and real-class (ide)
-trees check, surfaced by the sweep and deliberately excluded from the parity assertion:
+Full report: `COMPILER-VS-IDE-DIAGNOSTICS.md`. These are pre-existing differences in
+*what* the value-cast (emit) and real-class (ide) trees check, surfaced by the sweep and
+deliberately excluded from the parity assertion:
 
 - **Coverage gap — emit under-reports mixin-contract errors.** Renaming a mixin member
   (e.g. `contractMethod`) makes the source-view tree flag consumers (TS2741/TS2551/

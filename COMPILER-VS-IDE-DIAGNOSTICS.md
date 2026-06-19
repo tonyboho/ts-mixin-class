@@ -44,8 +44,7 @@ has a type that structurally "has" them, and emit reports no consumer-side error
 **not** a `tsc`-green hole: the body is checked at the declaration (`class extends base
 implements Contract`), so a contract violation never compiles either way — the editor
 merely flags the use sites in addition. The sweep tolerates these source-view-only lines
-and counts them as `ideOnlyCoverageGaps`; it only fails on emit-only lines. Tracked in
-`TODO.md`.
+and counts them as `ideOnlyCoverageGaps`; it only fails on emit-only lines.
 
 ## Real difference 2 — heritage-clause navigation (IDE mis-positions; residual)
 
@@ -64,7 +63,7 @@ agrees with the compiler.
 | TS2552 | `Cannot find name 'UndefinedShapeBase'` at the real name | `Cannot find name '}'. Did you mean…` |
 | TS2724 | `'"./mixins.js"' has no exported member named 'RequiredBase'` | `… named '"'` |
 
-This is the heritage-navigation gap (`AGENTS.md` invariant #9, `TODO.md`). The parity test
+This is the heritage-navigation gap (`AGENTS.md` invariant #9). The parity test
 ignores diagnostics inside heritage clauses and does not perturb base/mixin/interface
 names. Every same-line+code column difference the raw sweep finds traces to this category
 (a synthetic `$base` position) or to conflation of two *different* errors sharing a line +

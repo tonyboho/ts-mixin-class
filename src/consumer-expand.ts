@@ -20,7 +20,8 @@ import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
 import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
 import {
     createConstructionMembers,
-    isConstructionBaseOptIn
+    isConstructionBaseOptIn,
+    positionConstructionConfigAlias
 } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
@@ -251,7 +252,7 @@ export function expandConsumerClass(
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseClassNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseClassNode, expansion.generatedRange, declaration)
 
-    const constructionMembers      = createConstructionMembers(
+    const construction             = createConstructionMembers(
         tsInstance,
         sourceFile,
         declaration,
@@ -264,6 +265,7 @@ export function expandConsumerClass(
         consumerBaseImports,
         linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
     )
+    const constructionMembers      = construction.members
     const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
         tsInstance,
         sourceFile,
@@ -348,7 +350,19 @@ export function expandConsumerClass(
                 declaration
             ) ]
 
-    return [ ...emptyBaseClass, baseInterface, baseClass, updatedConsumer ]
+    const configAliasStatement = construction.configAlias === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            construction.configAlias,
+            generatedTextRange(sourceFile, declaration.end),
+            declaration,
+            options
+        ) ]
+
+    // The config alias goes AFTER the consumer: its anchor is just past the closing brace,
+    // so listing it last keeps the statement ranges ordered and non-overlapping.
+    return [ ...emptyBaseClass, baseInterface, baseClass, updatedConsumer, ...configAliasStatement ]
 }
 
 // Builds the source-view navigable-base fast path (non-generic consumer): the

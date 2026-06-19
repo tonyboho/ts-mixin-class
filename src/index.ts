@@ -7,6 +7,7 @@ import {
     createConstructionMembers,
     importsPackageBase,
     isConstructionBaseOptIn,
+    positionConstructionConfigAlias,
     resolveCrossFileConstructionBase
 } from "./construction-config.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
@@ -607,7 +608,7 @@ export function transformSourceFile(
                 crossFile,
                 getBaseImportMap()
             )) {
-                const expandedStatement = expandConstructionBaseClass(
+                const expandedStatements = expandConstructionBaseClass(
                     tsInstance,
                     sourceFile,
                     classFacts.declaration,
@@ -616,9 +617,9 @@ export function transformSourceFile(
                     getBaseImportMap()
                 )
 
-                if (expandedStatement !== statement) {
+                if (expandedStatements.length !== 1 || expandedStatements[0] !== statement) {
                     expandedAnything = true
-                    return [ expandedStatement ]
+                    return expandedStatements
                 }
             }
         }
@@ -645,13 +646,13 @@ function expandConstructionBaseClass(
     options: TransformOptions,
     crossFile: CrossFileContext | undefined,
     baseImportMap: Map<string, ImportedNameBinding> | undefined
-): ts.ClassDeclaration {
-    const factory             = tsInstance.factory
-    const extendsType         = declaration.heritageClauses?.find((clause) => {
+): ts.Statement[] {
+    const factory      = tsInstance.factory
+    const extendsType  = declaration.heritageClauses?.find((clause) => {
         return clause.token === tsInstance.SyntaxKind.ExtendsKeyword
     })?.types[0]
-    const rewritten           = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
-    const constructionMembers = createConstructionMembers(
+    const rewritten    = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
+    const construction = createConstructionMembers(
         tsInstance,
         sourceFile,
         declaration,
@@ -669,11 +670,11 @@ function expandConstructionBaseClass(
         baseImportMap
     )
 
-    if (constructionMembers.length === 0) {
-        return rewritten
+    if (construction.members.length === 0) {
+        return [ rewritten ]
     }
 
-    return factory.updateClassDeclaration(
+    const updatedClass         = factory.updateClassDeclaration(
         rewritten,
         rewritten.modifiers,
         rewritten.name,
@@ -681,10 +682,23 @@ function expandConstructionBaseClass(
         brandedConstructionHeritageClauses(tsInstance, declaration, rewritten, extendsType, options),
         preserveTextRange(
             tsInstance,
-            factory.createNodeArray([ ...rewritten.members, ...constructionMembers ]),
+            factory.createNodeArray([ ...rewritten.members, ...construction.members ]),
             rewritten.members
         )
     )
+    const configAliasStatement = construction.configAlias === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            construction.configAlias,
+            // Anchor just past the closing brace, OUTSIDE the class body, so the alias
+            // overlaps no sibling; both modes share that real position (stress parity).
+            generatedTextRange(sourceFile, declaration.end),
+            declaration,
+            options
+        ) ]
+
+    return [ updatedClass, ...configAliasStatement ]
 }
 
 // Replaces the construction base class's `extends Base` clause with a branded cast so

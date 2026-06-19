@@ -290,8 +290,10 @@ it("gives a standalone construction-base mixin its own construction `new` in the
         void [ created, configured ]
     `)))
 
-    t.match(printed, "new: (props?: Partial<Pick<Serializable, \"format\">>) => Serializable;",
-        "Value cast prepends a construction `new` returning the mixin instance type")
+    t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
+        "Construction-base mixin emits a named config alias")
+    t.match(printed, "new: (props?: SerializableConfig) => Serializable;",
+        "Value cast prepends a construction `new` referencing the named config alias")
 
     t.expect(typecheckText(printed)).toEqual([])
 })
@@ -306,8 +308,10 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
         }
     `), { sourceView: true }))
 
-    t.match(printed, "static new(props?: Partial<Pick<Serializable, \"format\">>): Serializable;",
-        "Source-view mixin class regenerates its own static new returning the mixin instance type")
+    t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
+        "Source-view construction-base mixin emits a named config alias")
+    t.match(printed, "static new(props?: SerializableConfig): Serializable;",
+        "Source-view mixin class regenerates its own static new referencing the named config alias")
     t.match(printed, "class Serializable extends __Serializable$base",
         "Source view keeps the mixin as a real class so the static new can attach")
 })

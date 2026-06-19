@@ -42,7 +42,11 @@ import {
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
 import { linearizeDependencies } from "./linearization.js"
-import { createConstructionMembers, createMixinConstructionNewType } from "./construction-config.js"
+import {
+    createConstructionMembers,
+    createMixinConstructionNewType,
+    positionConstructionConfigAlias
+} from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import {
@@ -174,7 +178,7 @@ export function expandMixinClass(
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
-                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew)
+                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType)
                 )
             )
         ], tsInstance.NodeFlags.Const)
@@ -188,7 +192,24 @@ export function expandMixinClass(
         ), generatedTextRange(sourceFile, declaration.end)) ]
         : []
 
-    return [ interfaceDeclaration, ...diagnosticAliases, factoryStatement, valueStatement, ...defaultExportStatement ]
+    const configAliasStatement = constructionNew === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            constructionNew.configAlias,
+            generatedTextRange(sourceFile, declaration.end),
+            declaration,
+            options
+        ) ]
+
+    return [
+        interfaceDeclaration,
+        ...diagnosticAliases,
+        factoryStatement,
+        valueStatement,
+        ...defaultExportStatement,
+        ...configAliasStatement
+    ]
 }
 
 function createMixinDeclarationDiagnosticAliases(
@@ -328,8 +349,8 @@ function expandSourceViewMixinClass(
     const baseImportMap       = context.crossFile === undefined
         ? undefined
         : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
-    const constructionMembers = declaration.typeParameters !== undefined
-        ? []
+    const construction        = declaration.typeParameters !== undefined
+        ? { members: [] as ts.ClassElement[], configAlias: undefined }
         : createConstructionMembers(
             tsInstance,
             sourceFile,
@@ -342,6 +363,7 @@ function expandSourceViewMixinClass(
             context.crossFile,
             baseImportMap
         )
+    const constructionMembers = construction.members
     const updatedMembers      = rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
     const mixinMembers        = constructionMembers.length === 0
         ? updatedMembers
@@ -356,7 +378,20 @@ function expandSourceViewMixinClass(
         mixinMembers
     )
 
-    return [ baseInterface, baseClass, updatedDeclaration ]
+    // A construction-base mixin gets the same exported `<MixinName>Config` alias as any
+    // other construction base; it is a sibling top-level statement (never generic here -
+    // generic mixins are excluded from construction `new` above).
+    const configAliasStatement = construction.configAlias === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            construction.configAlias,
+            generatedTextRange(sourceFile, declaration.end),
+            declaration,
+            options
+        ) ]
+
+    return [ baseInterface, baseClass, updatedDeclaration, ...configAliasStatement ]
 }
 
 // Source-view mixin class base: a cast that adds RuntimeMixinClass metadata

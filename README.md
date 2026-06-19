@@ -361,6 +361,54 @@ const numericValue: number = explicit.value
 const stringValue: string = inferred.value
 ```
 
+### The generated config type alias
+
+For every construction class the transformer also emits an **exported, named type alias**
+for its `.new(...)` configuration. The name is the class name plus `Config`
+(`Model` -> `ModelConfig`), and the alias carries the **same type parameters** as the
+class (`Box<T>` -> `BoxConfig<T>`). The generated `static new` references it, so a failing
+`.new(...)` call reads the alias name instead of a verbose inline `Pick<...>` union:
+
+```ts
+class Model extends Base {
+    public id: string = ""
+    public role: string = ""
+}
+// Generated: export type ModelConfig = Pick<Model, "id" | "role">
+
+// Error: Argument of type '{ id: string }' is not assignable to parameter of type
+// 'ModelConfig'. Property 'role' is missing ... but required in type 'ModelConfig'.
+Model.new({ id : "a" })
+```
+
+The alias is exported, so you can reuse it for your own factory helpers and annotations
+(it tracks the class type parameters):
+
+```ts
+function makeModel(config: ModelConfig): Model {
+    return Model.new(config)
+}
+
+const draft: ModelConfig = { id : "a", role : "admin" }
+```
+
+> **Note on `initialize`.** The alias is the *strict* construction config: it keeps
+> *required* fields required. The base `initialize(props?: Config<this>)` treats every
+> field as **optional** (`Config<this>` is a `Partial<…>`), so the base contract allows
+> `initialize({})`. An override that *requires* a field — e.g. `initialize(config:
+> ModelConfig)` where `id` is required — would reject that valid call, so TypeScript
+> refuses it as an unsound narrowing (`TS2416`). This is about the *required* fields, not
+> the parameter's `?`: dropping the `?` does not help, and an all-optional concrete type
+> like `Config<Model>` *is* accepted as an override. Keep using `Config<this>` for
+> `initialize` overrides (it alone also satisfies the `super.initialize(...)` call under
+> the polymorphic `this`); reach for `<ClassName>Config` at `.new(...)` call sites, factory
+> parameters, and annotations - everywhere the strict required/optional contract is what
+> you want.
+
+If the `<ClassName>Config` name is already declared or imported in the same file, the
+generated alias is suffixed with `_` (`ModelConfig_`) so it never collides with your own
+type.
+
 ### Initializing required properties
 
 Required `public` properties sometimes need their own runtime slot before a real value

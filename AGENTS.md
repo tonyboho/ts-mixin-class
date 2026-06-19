@@ -295,9 +295,11 @@ instance type) has its own rules:
    reads it back (and drops the package base from the merged `interface … extends Base` dependency
    names) so a consumer of an imported `.d.ts` construction-base mixin is construction-enabled.
    (ii) A `.d.ts` construction *class* carries its fully aggregated config on the emitted `static
-   new(props: Pick<Self, …>)`; `buildConstructionBaseRegistry` scans declaration files and reads the
-   config straight off that parameter (no recursion). Both are guarded by the declaration tests in
-   `source-transform-cross-file-construction.t.ts`.
+   new(props: <Name>Config)`, alongside an exported `declare type <Name>Config = Pick<Self, …> &
+   Partial<…>`; `buildConstructionBaseRegistry` scans declaration files, resolves that alias
+   reference to its body (`collectDeclarationFileConstructionBases` + a same-file type-alias map), and
+   reads the config off the `Pick`/`Partial` (still no recursion through the extends chain). Both are
+   guarded by the declaration tests in `source-transform-cross-file-construction.t.ts`.
 
 8. **The generated `static new` name needs a real source span in source view.** A FAILING
    `.new(...)` call elaborates the failure against the *implementation* overload
@@ -308,6 +310,20 @@ instance type) has its own rules:
    name to the first overload's anchor (`createConstructionMembers`, source-view branch); the method
    node keeps its own per-overload range for the overload-adjacency check. Guarded by the "without
    crashing the compiler" test.
+
+9. **The exported `<Name>Config` alias is a sibling, anchored OUTSIDE the class.** Every construction
+   class (consumer, plain `Base` descendant, and construction-base mixin — emit *and* source view)
+   emits an exported `type <Name>Config<TParams> = <the config>` and the `static new` references it,
+   so `.new(...)` errors name the alias instead of a verbose `Pick<…>`. The alias name is
+   `<ClassName>Config`, suffixed with `_` on collision with a file-local name
+   (`constructionConfigAliasName`). It is listed AFTER the class and anchored at `declaration.end`
+   (the gap just past the closing brace): a top-level sibling positioned at an *in-class* range
+   (`members.end`) overlaps the class and strands an identifier in trivia (invariant #5), while a
+   `[-1,-1]` collapse scatters a perturbed-config diagnostic to an unrelated line and breaks parity.
+   Emit additionally collapses the alias subtree to the anchor (column parity, like the `static new`
+   members); source view leaves the body at factory positions and only collapses the cloned generic
+   type parameters. `positionConstructionConfigAlias` owns this. Guarded by the alias tests, the
+   stress parity corpus, and the trivia-strand test.
 
 ## Emit-path diagnostic remapping
 

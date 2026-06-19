@@ -25,6 +25,16 @@ type ConstructionConfig = {
     optionalParameter : boolean
 }
 
+// The generated construction members for a class: the `static new` overloads plus
+// the exported `<ClassName>Config` type alias they reference. The alias is a sibling
+// top-level declaration, so the caller (which owns the surrounding statement list and
+// its positioning) inserts and positions it; `configAlias` is undefined when the
+// class is not a construction base.
+export type ConstructionMembers = {
+    members     : ts.ClassElement[],
+    configAlias : ts.TypeAliasDeclaration | undefined
+}
+
 export function createConstructionMembers(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -37,7 +47,7 @@ export function createConstructionMembers(
     crossFile?: CrossFileContext,
     baseImportMap?: Map<string, ImportedNameBinding>,
     requiredBaseIsConstructionBase = false
-): ts.ClassElement[] {
+): ConstructionMembers {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
 
     if (declaration.name === undefined ||
@@ -49,7 +59,7 @@ export function createConstructionMembers(
             )
         )
     ) {
-        return []
+        return { members: [], configAlias: undefined }
     }
 
     const factory        = tsInstance.factory
@@ -67,6 +77,15 @@ export function createConstructionMembers(
         baseImportMap
     )
     const consumerType   = createConsumerInstanceType(tsInstance, declaration)
+
+    // Expose the config as an exported, named `<ClassName>Config` alias (carrying the
+    // class's own type parameters) rather than inlining the `Pick<...>` at the `new`
+    // param: `.new(...)` type errors then read the clean alias name, and the alias is
+    // reusable as a factory-parameter / annotation type. (It is NOT a valid `initialize`
+    // override type - the base `initialize` is all-optional; see the README note.)
+    const aliasName       = constructionConfigAliasName(tsInstance, sourceFile, declaration)
+    const configAlias     = createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+    const configReference = createConfigAliasReference(tsInstance, declaration, aliasName)
 
     // The checker validates overload adjacency by position (subsequent.pos ===
     // node.end), so source-view overloads get consecutive non-zero-width ranges:
@@ -138,7 +157,7 @@ export function createConstructionMembers(
             return clone
         }))
 
-    return [
+    const members = [
         finishMember(factory.createMethodDeclaration(
             staticModifier,
             undefined,
@@ -150,7 +169,7 @@ export function createConstructionMembers(
                 undefined,
                 "props",
                 config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                config.type
+                configReference
             ) ],
             consumerType,
             undefined
@@ -181,6 +200,54 @@ export function createConstructionMembers(
             ], true)
         ), 1)
     ]
+
+    return { members, configAlias }
+}
+
+// Positions the generated `<ClassName>Config` alias as a sibling top-level statement.
+// The caller emits it AFTER the class and anchors it at `declaration.end` - a real
+// position in the gap just past the closing brace, OUTSIDE the class body, where it
+// overlaps no sibling and no navigable user token. Both modes use that same real anchor,
+// so a perturbed config key that errors inside the alias body (e.g. TS2344) lands on the
+// same source line in both. In EMIT the whole subtree is additionally collapsed to the
+// anchor so the column is not extrapolated one past the line (matching source view, which
+// reads the anchor directly) - the same trick the construction `static new` members use.
+// SOURCE VIEW leaves the subtree at its factory positions (top range only) and lets the
+// later normalization pass fill them in, so no interior node is force-collapsed onto a
+// range that would strand an identifier in trivia (invariant #5).
+export function positionConstructionConfigAlias(
+    tsInstance: TypeScript,
+    alias: ts.TypeAliasDeclaration,
+    generatedRange: ts.TextRange,
+    declaration: ts.ClassDeclaration,
+    options: TransformOptions
+): ts.TypeAliasDeclaration {
+    const positioned = preserveGeneratedDeclarationRange(tsInstance, alias, generatedRange, declaration)
+
+    if (!options.sourceView) {
+        collapseSubtreeTextRange(tsInstance, positioned, generatedRange)
+
+        return positioned
+    }
+
+    // The alias clones the class type parameters (generic case), which keep their source
+    // positions; left stranded under the alias's tiny synthetic range they crash tsserver's
+    // getChildren (invariant #5). Collapse just the clones to an off-screen range - the
+    // later normalization pass folds them into the alias range, gap-free, and positions
+    // never affect typing. Mirrors the construction `static new` overloads.
+    for (const typeParameter of positioned.typeParameters ?? []) {
+        collapseSubtreeTextRange(tsInstance, typeParameter, { pos: -1, end: -1 })
+    }
+
+    return positioned
+}
+
+// The emit-path counterpart of the construction members for a mixin: the value-cast
+// `new` signature plus the exported `<MixinName>Config` alias it references. The alias
+// is a sibling top-level statement the caller positions and emits.
+export type MixinConstructionNew = {
+    newType     : ts.TypeNode,
+    configAlias : ts.TypeAliasDeclaration
 }
 
 // Construction `new` for a mixin's value type. A mixin that extends the package
@@ -188,8 +255,9 @@ export function createConstructionMembers(
 // attach a generated `static new` to, so its value type otherwise inherits
 // `Base.new`, which returns `Base` rather than the mixin's own instance type.
 // This builds a `{ new(props?): Instance }` member that the value cast prepends
-// so the mixin's standalone `.new(...)` resolves to the mixin type. Returns
-// undefined when the mixin is not a construction base.
+// so the mixin's standalone `.new(...)` resolves to the mixin type, alongside the
+// named config alias it references. Returns undefined when the mixin is not a
+// construction base.
 export function createMixinConstructionNewType(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -200,7 +268,7 @@ export function createMixinConstructionNewType(
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
     baseImportMap?: Map<string, ImportedNameBinding>
-): ts.TypeNode | undefined {
+): MixinConstructionNew | undefined {
     if (declaration.name === undefined ||
         !isConstructionBaseOptIn(tsInstance, sourceFile, extendsType, options, facts, new Set(), crossFile, baseImportMap)
     ) {
@@ -211,6 +279,10 @@ export function createMixinConstructionNewType(
     const config  = createConstructionConfig(
         tsInstance, sourceFile, declaration, extendsType, undefined, mixinRefs, options, facts, crossFile, baseImportMap
     )
+    // A construction-base mixin is just a class for config purposes, so it gets the
+    // same exported `<MixinName>Config` alias - emitted in both the value-cast (emit)
+    // and the `static new` (source view) forms so the symbol exists in both.
+    const aliasName = constructionConfigAliasName(tsInstance, sourceFile, declaration)
 
     // A property signature (`new: (props?) => Instance`), not a method signature:
     // inside a type literal `new(...)` parses as a construct signature, which
@@ -218,24 +290,27 @@ export function createMixinConstructionNewType(
     // exclude its `new` from the inherited statics (see createMixinStaticsType),
     // so the property's strict parameter checking does not clash with a consumer's
     // own generated `static new`.
-    return factory.createTypeLiteralNode([
-        factory.createPropertySignature(
-            undefined,
-            "new",
-            undefined,
-            factory.createFunctionTypeNode(
+    return {
+        newType : factory.createTypeLiteralNode([
+            factory.createPropertySignature(
                 undefined,
-                [ factory.createParameterDeclaration(
+                "new",
+                undefined,
+                factory.createFunctionTypeNode(
                     undefined,
-                    undefined,
-                    "props",
-                    config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                    config.type
-                ) ],
-                createConsumerInstanceType(tsInstance, declaration)
+                    [ factory.createParameterDeclaration(
+                        undefined,
+                        undefined,
+                        "props",
+                        config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                        createConfigAliasReference(tsInstance, declaration, aliasName)
+                    ) ],
+                    createConsumerInstanceType(tsInstance, declaration)
+                )
             )
-        )
-    ])
+        ]),
+        configAlias : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+    }
 }
 
 export function isConstructionBaseOptIn(
@@ -591,6 +666,115 @@ function createConsumerInstanceType(
 
     return tsInstance.factory.createTypeReferenceNode(
         declaration.name.text,
+        declaration.typeParameters?.map((typeParameter) => {
+            return tsInstance.factory.createTypeReferenceNode(typeParameter.name.text, undefined)
+        })
+    )
+}
+
+// The generated, exported config-alias name for a construction class: `<ClassName>Config`,
+// suffixed with `_` until it no longer collides with a name already declared or imported
+// at the top level of the file. Falling back to a suffix (rather than to an inline `Pick`)
+// keeps a single code path: the build always exposes a named alias.
+export function constructionConfigAliasName(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration
+): string {
+    const taken = collectTopLevelDeclaredNames(tsInstance, sourceFile)
+
+    let name = `${declaration.name?.text ?? ""}Config`
+
+    while (taken.has(name)) {
+        name += "_"
+    }
+
+    return name
+}
+
+function collectTopLevelDeclaredNames(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile
+): Set<string> {
+    const names = new Set<string>()
+
+    for (const statement of sourceFile.statements) {
+        if ((tsInstance.isClassDeclaration(statement) ||
+            tsInstance.isInterfaceDeclaration(statement) ||
+            tsInstance.isTypeAliasDeclaration(statement) ||
+            tsInstance.isEnumDeclaration(statement) ||
+            tsInstance.isFunctionDeclaration(statement)) &&
+            statement.name !== undefined
+        ) {
+            names.add(statement.name.text)
+        } else if (tsInstance.isVariableStatement(statement)) {
+            for (const variable of statement.declarationList.declarations) {
+                if (tsInstance.isIdentifier(variable.name)) {
+                    names.add(variable.name.text)
+                }
+            }
+        } else if (tsInstance.isImportDeclaration(statement)) {
+            collectImportNames(tsInstance, statement.importClause, names)
+        }
+    }
+
+    return names
+}
+
+function collectImportNames(
+    tsInstance: TypeScript,
+    importClause: ts.ImportClause | undefined,
+    names: Set<string>
+): void {
+    if (importClause === undefined) {
+        return
+    }
+
+    if (importClause.name !== undefined) {
+        names.add(importClause.name.text)
+    }
+
+    const namedBindings = importClause.namedBindings
+
+    if (namedBindings === undefined) {
+        return
+    }
+
+    if (tsInstance.isNamespaceImport(namedBindings)) {
+        names.add(namedBindings.name.text)
+        return
+    }
+
+    for (const element of namedBindings.elements) {
+        names.add(element.name.text)
+    }
+}
+
+function createConstructionConfigAlias(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    aliasName: string,
+    configType: ts.TypeNode
+): ts.TypeAliasDeclaration {
+    const factory = tsInstance.factory
+
+    return factory.createTypeAliasDeclaration(
+        [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ],
+        factory.createIdentifier(aliasName),
+        // Clone the class type parameters so a generic class gets a generic alias
+        // (`BoxConfig<T>`); reusing the originals would re-parent them in the binder.
+        declaration.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
+        configType
+    )
+}
+
+function createConfigAliasReference(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    aliasName: string
+): ts.TypeReferenceNode {
+    return tsInstance.factory.createTypeReferenceNode(
+        aliasName,
         declaration.typeParameters?.map((typeParameter) => {
             return tsInstance.factory.createTypeReferenceNode(typeParameter.name.text, undefined)
         })

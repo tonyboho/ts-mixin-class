@@ -356,6 +356,10 @@ function collectDeclarationFileConstructionBases(
     sourceFile: ts.SourceFile
 ): Array<{ name: string, configProperties: ConfigProperty[] }> {
     const bases: Array<{ name: string, configProperties: ConfigProperty[] }> = []
+    // The generated `static new(props: <Name>Config)` references an exported config
+    // alias declared alongside it in the same `.d.ts`; map alias name -> body so the
+    // reader can resolve the reference back to its `Pick<...> & Partial<...>` shape.
+    const configAliases = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
 
     for (const statement of sourceFile.statements) {
         if (!tsInstance.isClassDeclaration(statement) || statement.name === undefined) {
@@ -376,28 +380,48 @@ function collectDeclarationFileConstructionBases(
 
         bases.push({
             name             : statement.name.text,
-            configProperties : configPropertiesFromConstructionNewParam(tsInstance, configType, false)
+            configProperties : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set())
         })
     }
 
     return bases
 }
 
+function collectDeclarationFileTypeAliases(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile
+): Map<string, ts.TypeNode> {
+    const aliases = new Map<string, ts.TypeNode>()
+
+    for (const statement of sourceFile.statements) {
+        if (tsInstance.isTypeAliasDeclaration(statement)) {
+            aliases.set(statement.name.text, statement.type)
+        }
+    }
+
+    return aliases
+}
+
 // Names (with optionality) carried by a generated construction config type:
-// `Pick<Self, "a" | "b">` (required), `Partial<Pick<Self, "c">>` (optional), and
-// intersections of those. Anything else contributes nothing.
+// `Pick<Self, "a" | "b">` (required), `Partial<Pick<Self, "c">>` (optional),
+// intersections of those, and a reference to a `<Name>Config` alias declared in the
+// same `.d.ts` (resolved through `configAliases`). Type arguments on a generic alias
+// are irrelevant - the config field names are string literals inside its `Pick`.
+// Anything else contributes nothing.
 function configPropertiesFromConstructionNewParam(
     tsInstance: TypeScript,
     typeNode: ts.TypeNode,
-    optional: boolean
+    optional: boolean,
+    configAliases: Map<string, ts.TypeNode>,
+    seenAliases: Set<string>
 ): ConfigProperty[] {
     if (tsInstance.isIntersectionTypeNode(typeNode)) {
         return uniqueConfigProperties(typeNode.types.flatMap((type) =>
-            configPropertiesFromConstructionNewParam(tsInstance, type, optional)))
+            configPropertiesFromConstructionNewParam(tsInstance, type, optional, configAliases, seenAliases)))
     }
 
     if (tsInstance.isParenthesizedTypeNode(typeNode)) {
-        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.type, optional)
+        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.type, optional, configAliases, seenAliases)
     }
 
     if (!tsInstance.isTypeReferenceNode(typeNode) || !tsInstance.isIdentifier(typeNode.typeName)) {
@@ -405,11 +429,19 @@ function configPropertiesFromConstructionNewParam(
     }
 
     if (typeNode.typeName.text === "Partial" && typeNode.typeArguments?.[0] !== undefined) {
-        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.typeArguments[0], true)
+        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.typeArguments[0], true, configAliases, seenAliases)
     }
 
     if (typeNode.typeName.text === "Pick" && typeNode.typeArguments?.[1] !== undefined) {
         return literalStringNames(tsInstance, typeNode.typeArguments[1]).map((name) => ({ name, optional }))
+    }
+
+    const aliasBody = configAliases.get(typeNode.typeName.text)
+
+    if (aliasBody !== undefined && !seenAliases.has(typeNode.typeName.text)) {
+        seenAliases.add(typeNode.typeName.text)
+
+        return configPropertiesFromConstructionNewParam(tsInstance, aliasBody, optional, configAliases, seenAliases)
     }
 
     return []

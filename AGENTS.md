@@ -324,6 +324,13 @@ instance type) has its own rules:
    members); source view leaves the body at factory positions and only collapses the cloned generic
    type parameters. `positionConstructionConfigAlias` owns this. Guarded by the alias tests, the
    stress parity corpus, and the trivia-strand test.
+   `Base.initialize`/`Base.new` are typed `unknown` (not the removed `Config<T>` helper) so a class
+   may override `initialize` with its strict `<ClassName>Config` alias — a narrower-than-base
+   parameter is an unsound override (TS2416), so the base must be the top type. EXCEPTION: a `@mixin`
+   that overrides `initialize` is merged into its consumers' generated base interface beside `Base`,
+   and interface extension requires same-named members to be IDENTICAL, so a mixin's `initialize`
+   override must keep `unknown` (guarded by the "imported mixin that extends Base directly, including
+   its initialize override" cross-file test).
 
 ## Emit-path diagnostic remapping
 

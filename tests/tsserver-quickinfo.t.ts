@@ -29,7 +29,7 @@ import {
 
 const constructionConsumerText = trimIndent(`
     import { mixin } from "ts-mixin-class"
-    import { Base, type Config } from "ts-mixin-class/base"
+    import { Base } from "ts-mixin-class/base"
 
     class ConstructableBase extends Base {
         public baseValue: string = "base"
@@ -43,7 +43,7 @@ const constructionConsumerText = trimIndent(`
     class ConstructableConsumer extends ConstructableBase implements ConstructableMixin {
         public ownValue: boolean = false
 
-        override initialize(config?: Config<this>): void {
+        override initialize(config?: ConstructableConsumerConfig): void {
             super.initialize(config)
         }
     }

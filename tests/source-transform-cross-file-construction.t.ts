@@ -74,7 +74,7 @@ async function buildDeclarationPackage(
 // for consumers of an imported mixin that extends the package `Base` directly.
 
 const providerText = `
-    import { Base, type Config } from "ts-mixin-class/base"
+    import { Base } from "ts-mixin-class/base"
     import { mixin } from "ts-mixin-class"
 
     export class AppBase extends Base {
@@ -93,7 +93,11 @@ const providerText = `
         public mixinValue: number = 0
         public tag: string = ""
 
-        override initialize(config?: Config<this>): void {
+        // A mixin that overrides initialize must type the parameter \`unknown\` (same as
+        // \`Base.initialize\`): the consumer's generated base interface merges this mixin
+        // with \`Base\`, and an interface cannot extend two types whose same-named member
+        // signatures differ. The body still reads strict \`this\` members.
+        override initialize(config?: unknown): void {
             super.initialize(config)
 
             this.tag = "init:" + this.mixinValue

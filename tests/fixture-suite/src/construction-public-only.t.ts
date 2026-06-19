@@ -1,7 +1,7 @@
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 import { mixin } from "ts-mixin-class"
-import { Base, type Config } from "ts-mixin-class/base"
+import { Base } from "ts-mixin-class/base"
 
 
 class Model extends Base {
@@ -47,7 +47,7 @@ class ConstructableConsumer extends ConstructableBase implements ConstructableMi
     skippedOwnValue: boolean = false
     initializedLabel: string = ""
 
-    override initialize(config?: Config<this>): void {
+    override initialize(config?: ConstructableConsumerConfig): void {
         super.initialize(config)
 
         this.initializedLabel = `${this.baseValue}/${this.mixinValue}/${this.ownValue}`

@@ -124,6 +124,48 @@ it("rejects a missing required field when the alias is used as a factory paramet
     t.match(messages, "ModelConfig", "A missing required field is reported against the named alias")
 })
 
+it("lets a consumer type its initialize override with the strict config alias", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class Model extends Base {
+            public id: string = ""
+            public name?: string = ""
+
+            override initialize(config: ModelConfig): void {
+                super.initialize(config)
+                this.name = config.name ?? config.id
+            }
+        }
+
+        const created = Model.new({ id : "a" })
+        void created
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.is(messages, "", "A strict-required initialize override typed with the alias produces no diagnostics")
+})
+
+it("keeps the initialize override body strictly typed against the config alias", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class Model extends Base {
+            public id: string = ""
+
+            override initialize(config: ModelConfig): void {
+                super.initialize(config)
+                void config.nope
+            }
+        }
+
+        void Model
+    `))
+    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+
+    t.match(messages, "nope", "An unknown field inside the override body is still rejected")
+})
+
 it("falls back to a suffixed alias name when the class name is already taken", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"

@@ -289,10 +289,11 @@ It is a good performance practice to provide an initializer expression for all o
 `initialize` just performs `Object.assign(this, config)`, so all configs are applied to the instance at once, in no particular order.
 
 Override `initialize` when a class needs derived state or validation after config
-assignment. Use the exported `Config<T>` helper for the argument type (see the `Limitations` section for details):
+assignment. Type the argument with the generated `<ClassName>Config` alias (see
+[The generated config type alias](#the-generated-config-type-alias)):
 
 ```ts
-import { Base, type Config } from "ts-mixin-class/base"
+import { Base } from "ts-mixin-class/base"
 
 class User extends Base {
     public firstName: string = ""
@@ -300,7 +301,7 @@ class User extends Base {
 
     fullName: string = ""
 
-    override initialize(config?: Config<this>): void {
+    override initialize(config?: UserConfig): void {
         super.initialize(config)
 
         this.fullName = `${this.firstName} ${this.lastName}`.trim()
@@ -392,18 +393,27 @@ function makeModel(config: ModelConfig): Model {
 const draft: ModelConfig = { id : "a", role : "admin" }
 ```
 
-> **Note on `initialize`.** The alias is the *strict* construction config: it keeps
-> *required* fields required. The base `initialize(props?: Config<this>)` treats every
-> field as **optional** (`Config<this>` is a `Partial<…>`), so the base contract allows
-> `initialize({})`. An override that *requires* a field — e.g. `initialize(config:
-> ModelConfig)` where `id` is required — would reject that valid call, so TypeScript
-> refuses it as an unsound narrowing (`TS2416`). This is about the *required* fields, not
-> the parameter's `?`: dropping the `?` does not help, and an all-optional concrete type
-> like `Config<Model>` *is* accepted as an override. Keep using `Config<this>` for
-> `initialize` overrides (it alone also satisfies the `super.initialize(...)` call under
-> the polymorphic `this`); reach for `<ClassName>Config` at `.new(...)` call sites, factory
-> parameters, and annotations - everywhere the strict required/optional contract is what
-> you want.
+Use `<ClassName>Config` for the `initialize` override argument, at `.new(...)` call
+sites, in factory parameters, and in annotations — everywhere you want the strict config
+shape. The base `Base.initialize(props?: unknown)` is deliberately typed `unknown` so a
+subclass can override it with the stricter alias:
+
+```ts
+class User extends Base {
+    public id: string = ""
+
+    override initialize(config?: UserConfig): void {
+        super.initialize(config)
+    }
+}
+```
+
+> **Mixins are the one exception.** A `@mixin` that overrides `initialize` is merged
+> structurally into its consumers' generated base interface *alongside* `Base`, and an
+> interface cannot extend two types whose same-named member signatures differ. So a
+> mixin's `initialize` override must keep the base parameter type — `override
+> initialize(config?: unknown)` — and read its strict state from `this` in the body. Only
+> non-mixin construction classes can narrow the `initialize` parameter to their alias.
 
 If the `<ClassName>Config` name is already declared or imported in the same file, the
 generated alias is suffixed with `_` (`ModelConfig_`) so it never collides with your own
@@ -478,11 +488,11 @@ dynamic base would need to be evaluated exactly once, stored in a generated runt
 constant, represented on both the instance and static sides, and emitted correctly in
 `.d.ts` files. Use a named base class for now.
 
-`Config<this>` is intentionally a broader helper than the generated `new(...)` config
-type. It is useful for implementing `initialize`, but it cannot see AST-only information
-such as “this field was explicitly marked `public`” or whether a property came from the
-generated `public-only` config list. The strict required/optional contract is enforced at
-the `new(...)` call site.
+A `@mixin` that overrides `initialize` must type its parameter `unknown` (the same as
+`Base.initialize`), not its own `<MixinName>Config` alias: the consumer's generated base
+interface merges the mixin with `Base`, and an interface cannot extend two types whose
+same-named member signatures differ. Read strict state from `this` in the body. Non-mixin
+construction classes have no such constraint and can narrow `initialize` to their alias.
 
 Go-to-definition, find-all-references, and quickinfo on a base type name *inside* a class
 heritage clause work for a **non-generic** consumer that does not use construction and

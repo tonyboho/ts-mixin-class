@@ -92,11 +92,11 @@ plain consumer / manual construction instead). See §9.
 | 7.6 | Optional (`?`), required, and definite-assignment (`!`) config fields | ✅ | `construction-public-only.t.ts` |
 | 7.7 | `.new` excludes methods / rejects unknown keys | ✅ | `construction-public-only.t.ts`, `construction-public-only-generics.t.ts` |
 | 7.8 | `initialize` override runs after config assignment | ✅ | `construction-public-only.t.ts`, `source-transform-cross-file-construction.t.ts` |
-| 7.9 | `Config<this>` helper shape (excludes methods/unknowns) | ✅ | `construction-config-helper.t.ts` |
+| 7.9 | Generated `<ClassName>Config` alias shape (public config fields only; excludes methods/unknowns) and its use as the `initialize` parameter type | ✅ | `construction-config-helper.t.ts` |
 | 7.10 | Generic construction class, explicit + inferred `.new<T>` | ✅ | `construction-public-only-generics.t.ts` |
 | 7.11 | `allowUndefinedForRequiredProperties` option | ✅ | `construction-allow-undefined-required.t.ts` |
 | 7.12 | **Deep** construction subclassing (subclass of a construction *consumer*, 2+ levels): `.new` aggregates inherited config along the `extends` chain **and** from the intermediate bases' mixins (including transitive mixin-to-mixin dependencies) | ✅ | `construction-deep-subclass.t.ts` (local), `source-transform-cross-file-construction.t.ts` (cross-file, §10.7) |
-| 7.13 | Exported named config alias `<ClassName>Config` (generic: `<ClassName>Config<T>`) referenced by `static new`; names `.new(...)` errors instead of inline `Pick`; reusable as a factory/annotation type; `_`-suffixed on name collision. **Not** usable as a stricter `initialize` override (base `initialize` is all-optional — keep `Config<this>` there) | ✅ | `source-transform-construction-config-alias.t.ts`, `source-transform-consumer-emit.t.ts`, `source-transform-mixins.t.ts` |
+| 7.13 | Exported named config alias `<ClassName>Config` (generic: `<ClassName>Config<T>`) referenced by `static new`; names `.new(...)` errors instead of inline `Pick`; reusable as a factory/annotation type **and** as the strict `initialize` parameter type for a non-mixin class; `_`-suffixed on name collision. A `@mixin` overriding `initialize` must keep `unknown` (interface-merge identity with `Base`) | ✅ | `source-transform-construction-config-alias.t.ts`, `source-transform-consumer-emit.t.ts`, `source-transform-mixins.t.ts`, `construction-public-only.t.ts`, `construction-config-helper.t.ts` |
 
 ## 8. Direct-`new` guard (this is compile-time only; runtime untouched)
 
@@ -187,9 +187,12 @@ None outstanding.
   `declaration.end` (outside the class) and listed after it — an in-class anchor strands an
   identifier (invariant #5), a `[-1,-1]` collapse breaks stress parity. Emit collapses the
   subtree for column parity; source view only collapses the cloned generic type params.
-  `.d.ts` readers resolve the alias reference back to its body. **Finding:** the strict
-  alias is *not* a valid `initialize` override (the base `initialize` is all-optional, so
-  TS rejects the narrowing) — `Config<this>` stays the recommendation there. See
+  `.d.ts` readers resolve the alias reference back to its body. As part of this the
+  `Config<T>` helper was removed and `Base.initialize`/`Base.new` retyped to `unknown`, so
+  the strict alias is now usable as the `initialize` parameter type for a non-mixin class
+  (a `Config<this>`-style all-optional override was an unsound narrowing of the old
+  all-optional base; `unknown` removes the constraint, except for mixins overriding
+  `initialize`, which must keep `unknown` for interface-merge identity with `Base`). See
   `positionConstructionConfigAlias`; covered by `source-transform-construction-config-alias.t.ts`.
 - **Deep construction subclassing — local (§7.12).** Fixed: `baseConfigProperties`
   (`construction-config.ts`) now recurses the `extends` chain and the mixins each

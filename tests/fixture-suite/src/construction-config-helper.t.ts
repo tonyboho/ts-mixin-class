@@ -1,4 +1,4 @@
-import { Base, type Config } from "ts-mixin-class"
+import { Base } from "ts-mixin-class"
 
 
 type Assert<T extends true> = T
@@ -17,12 +17,14 @@ class ConfigShapeModel extends Base {
         return `${this.firstName} ${this.lastName}`.trim()
     }
 
-    override initialize(config?: Config<this>): void {
+    // The generated, strict `<ClassName>Config` alias is a valid `initialize` parameter
+    // type for a plain construction class (the base `initialize` takes `unknown`).
+    override initialize(config?: ConfigShapeModelConfig): void {
         super.initialize(config)
     }
 }
 
-type ConfigShapeModelConfig = Config<ConfigShapeModel>
+// The generated alias carries exactly the public config fields (methods excluded).
 type ConfigShapeModelConfigKeys = keyof ConfigShapeModelConfig
 type ConfigShapeModelConfigHasExpectedKeys = Assert<Equal<
     ConfigShapeModelConfigKeys,
@@ -34,14 +36,19 @@ const configShapeOk: ConfigShapeModelConfig = {
     lastName  : "Lovelace"
 }
 
-// @ts-expect-error Config helper excludes methods from the config object.
+// @ts-expect-error the generated config alias excludes methods.
 const configShapeRejectsMethods: ConfigShapeModelConfig = { fullName : () => "Ada Lovelace" }
 
-// @ts-expect-error Config helper rejects properties that are not on the instance data shape.
+// @ts-expect-error the generated config alias rejects properties that are not config fields.
 const configShapeRejectsUnknown: ConfigShapeModelConfig = { age : 36 }
+
+const created = ConfigShapeModel.new({ firstName : "Ada", lastName : "Lovelace" })
 
 void [
     configShapeOk,
     configShapeRejectsMethods,
-    configShapeRejectsUnknown
+    configShapeRejectsUnknown,
+    created
 ]
+
+export type { ConfigShapeModelConfigHasExpectedKeys }

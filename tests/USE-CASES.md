@@ -177,7 +177,36 @@ plain consumer / manual construction instead). See §9.
 
 ## Open questions / discovered gaps
 
-None outstanding.
+- **Quickinfo on a `<ClassName>Config` reference renders the alias *name* as the class
+  brace (§12.9), cosmetic.** Hovering a reference (`config?: AccountConfig`) shows
+  `type } = Pick<Account, "id" | "balance"> & Partial<Pick<Account, "label">>` — the body
+  is correct, but the name is a `}` (for a generic alias, `type }<}> = { … }`). This is a
+  direct consequence of the crash fix, not a separate bug.
+  - *Mechanism.* TS renders a declared symbol's name via
+    `getNameOfSymbolAsWritten` → `declarationNameToString` → `getTextOfNode`, i.e. the
+    **source text under the name node's span**. There is no `escapedText` fallback: that
+    function returns either the source text or `"(Missing)"`. So the displayed name is
+    always whatever user text sits under wherever the name node is positioned.
+  - *Why it can't be fixed safely.* In source view we do not own the file text (tsserver
+    owns the user's buffer); we only move AST ranges over it. The literal string
+    `<ClassName>Config` exists nowhere the synthetic alias declaration can legally sit. The
+    only crash-free anchor collapses the whole alias subtree onto `declaration.end` (just
+    past the class `}`), so the name reads `}`. Every alternative was measured and rejected:
+    pinning the name to a real source occurrence of the alias-name string (only present at
+    a *reference* site) or to the class-name span moves it off the collapsed anchor, which
+    **strands the identifier in trivia** — a real `getChildren` crash; `source-view-trivia`
+    fails for every construction class — and also breaks emit↔source-view diagnostic parity
+    and declaration emit. Pinning to a reference additionally redirects go-to-definition
+    onto that reference, because the name node's position drives **both** the displayed
+    name and the definition target (they read the same span).
+  - *Not affected.* The hover **type body** is correct, **go-to-definition** lands on the
+    owning class, and **`.new(...)` error messages** show the real `AccountConfig` (they
+    resolve through the user's own real `AccountConfig` text, not the synthetic
+    declaration). Only the alias-name token in the hover header is cosmetic.
+  - *Worth revisiting.* If a future approach can decouple the displayed name from the name
+    node's source span (e.g. a services-level name override, or a way to give the synthetic
+    declaration real backing text without stranding), the `}` could become the real name.
+    Until then it is the accepted cost of the only non-crashing anchor.
 
 ## Resolved (kept here for history)
 

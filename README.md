@@ -48,7 +48,7 @@ user instanceof Timestamped
 ## Setup
 
 Include `ts-mixin-class` as a regular dependency and `ts-patch` as a dev
-dependency:
+dependency in your `package.json`. Also add a `prepare` script:
 
 ```json
 {
@@ -57,6 +57,9 @@ dependency:
     },
     "devDependencies": {
         "ts-patch": "4.0.1"
+    },
+    "scripts": {
+        "prepare": "ts-patch install"
     }
 }
 ```
@@ -72,16 +75,6 @@ Include `ts-mixin-class` as a compiler plugin in `tsconfig.json`:
                 "transformProgram": true
             }
         ]
-    }
-}
-```
-
-Add a `prepare` script to your `package.json`:
-
-```json
-{
-    "scripts": {
-        "prepare": "ts-patch install"
     }
 }
 ```
@@ -196,6 +189,8 @@ classes created with this transformer, but the consuming project does not run th
 transformer itself:
 
 ```ts
+import { Named } from 'library_providing_a_mixin'
+
 class UserBase {
     name: string = "Ada"
 }
@@ -211,9 +206,9 @@ user instanceof Named
 user instanceof UserBase
 ```
 
-For generic mixins, TypeScript cannot infer the base type after explicit mixin type
+For mixins with generics, TypeScript cannot infer the base type after explicit mixin type
 arguments in the same call. Provide both the generic type arguments of the mixin and the base constructor
-type:
+type as last type argument:
 
 ```ts
 @mixin()
@@ -389,21 +384,6 @@ the initializer is treated like `undefined!`, so the runtime value is `undefined
 the declared property type remains strict.
 
 
-## Runtime Metadata
-
-Mixin runtime metadata is available through exported unique symbols:
-
-```ts
-import { base, factory, requirements } from "ts-mixin-class/base"
-
-SomeMixin[factory]
-SomeMixin[requirements]
-SomeMixin[base]
-```
-
-The symbols keep introspection possible without adding string-named helper fields to the
-ordinary public API surface of the class.
-
 ## Limitations
 
 These are current architectural constraints:
@@ -440,16 +420,17 @@ generated `public-only` config list. The strict required/optional contract is en
 the `new(...)` call site.
 
 Go-to-definition, find-all-references, and quickinfo on a base type name *inside* a class
-heritage clause work for a **non-generic** consumer that does not use construction
-(`extends Base` / `extends Base implements Mixin`): the transformer keeps the real base on
-its source position, so navigation reaches the real type. They still do **not** work for a
-**generic** consumer (`class Consumer<T> extends Base`) or a **construction-base** consumer:
-in the IDE "source view" the transformer rewrites those to `extends Consumer$base` and pins
-the generated reference onto the source `Base` position, so clicking the base name resolves
-to the internal generated base instead of the real type — references and go-to-definition
-come back empty and quickinfo reports `any`. The class name itself, its type parameters, and
-its members navigate correctly in every case. For the affected (generic / construction)
-consumers, navigate from the base class's own declaration or another usage instead.
+heritage clause work for a **non-generic** consumer that does not use construction and
+extends a plain (unqualified) base name (`extends Base` / `extends Base implements Mixin`):
+the transformer keeps the real base on its source position, so navigation reaches the real
+type. They still do **not** work for a **generic** consumer (`class Consumer<T> extends
+Base`), a **construction-base** consumer, or a **qualified base** (`extends ns.Base`): in the
+IDE "source view" the transformer rewrites those to `extends Consumer$base` and pins the
+generated reference onto the source `Base` position, so clicking the base name resolves to
+the internal generated base instead of the real type — references and go-to-definition come
+back empty and quickinfo reports `any`. The class name itself, its type parameters, and its
+members navigate correctly in every case. For the affected consumers, navigate from the base
+class's own declaration or another usage instead.
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where

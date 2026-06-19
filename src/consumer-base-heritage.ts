@@ -15,7 +15,6 @@ import {
 } from "./model.js"
 import {
     cloneNode,
-    preserveSubtreeTextRange,
     preserveTextRange
 } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -204,15 +203,18 @@ export function navigableConsumerBaseClassHeritage(
     // The source heritage type spans `Base<...>`. The navigable real base identifier
     // is stretched over that whole span so the base name resolves AND no source
     // character is stranded in a SyntaxList gap (invariant #5); its ancestors share
-    // the same range. The `as unknown as <cast>` machinery is left SYNTHETIC
-    // (negative positions): collapsing it onto source text would make the checker
-    // re-read the synthetic `Omit<…, "prototype" | "new">` string literals from the
-    // source, blanking them into `Omit<…, >` so the cast degrades to `any` and the
-    // base loses its members (TS4112/TS2339). Synthetic type nodes keep their own
-    // factory text and claim no source range, so they neither corrupt nor strand.
+    // the same range. The base is a simple identifier here (the fast path is gated to
+    // identifier bases — a qualified `ns.Base` keeps `$base`, since a shallow clone
+    // leaves its inner `Base` at `[-1, -1]` and navigation cannot land on it). The
+    // `as unknown as <cast>` machinery is left SYNTHETIC (negative positions):
+    // collapsing it onto source text would make the checker re-read the synthetic
+    // `Omit<…, "prototype" | "new">` string literals from the source, blanking them
+    // into `Omit<…, >` so the cast degrades to `any` and the base loses its members
+    // (TS4112/TS2339). Synthetic type nodes keep their own factory text and claim no
+    // source range, so they neither corrupt nor strand.
     const fullRange = generatedHeritageTypeRange
 
-    preserveSubtreeTextRange(tsInstance, baseExpression, fullRange)
+    preserveTextRange(tsInstance, baseExpression, fullRange)
     preserveTextRange(tsInstance, innerAs, fullRange)
     preserveTextRange(tsInstance, outerAs, fullRange)
     preserveTextRange(tsInstance, extendsExpr, fullRange)

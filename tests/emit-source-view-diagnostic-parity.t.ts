@@ -58,3 +58,56 @@ it("reports a diagnostic on the same source line in emit and source-view modes",
         await fixture.dispose()
     }
 })
+
+// A non-generic consumer takes the navigable-base fast path (`extends (Base as
+// unknown as <single-source cast>)`). An incompatible member override must report the
+// SAME TS2416 in both emit and source-view modes (a plain class-extends override
+// error), and source view must NOT add the spurious TS2430 "interface incorrectly
+// extends" that a merged-interface shape would produce.
+const overrideConflictText = `import { mixin } from "ts-mixin-class"
+
+class LocalBase {
+    value: number = 0
+}
+
+@mixin()
+class Feature {
+    feature?: string
+}
+
+class Widget extends LocalBase implements Feature {
+    value: string = ""
+}
+`
+
+const overrideConflictLine = overrideConflictText.split("\n").findIndex((line) => line.includes("value: string")) + 1
+
+function override2416Line(result: CommandResult): number | undefined {
+    const match = commandOutput(result).match(/source\.ts\((\d+),\d+\): error TS2416/)
+
+    return match ? Number(match[1]) : undefined
+}
+
+it("reports an incompatible override as TS2416 on the same source line in emit and source-view modes", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : overrideConflictText } ]
+    })
+    const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
+
+    try {
+        const emitResult       = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile ], fixture.directory)
+        const sourceViewResult = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile, "--noEmit" ], fixture.directory)
+
+        t.equal(override2416Line(sourceViewResult), overrideConflictLine,
+            `source-view (--noEmit) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(sourceViewResult)}`)
+
+        t.equal(override2416Line(emitResult), overrideConflictLine,
+            `emit (tsc) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(emitResult)}`)
+
+        t.notMatch(commandOutput(sourceViewResult), "TS2430",
+            `source-view must not add a spurious TS2430 for the override conflict\n${commandOutput(sourceViewResult)}`)
+    } finally {
+        await fixture.dispose()
+    }
+})

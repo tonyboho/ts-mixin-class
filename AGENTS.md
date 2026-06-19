@@ -357,6 +357,9 @@ sharp failure modes:
   the consumer's own base expression trips TS2562;
 - **construction-base** consumers — generated construction members + synthetic
   `super.initialize(...)` are wired against `$base`;
+- **qualified bases** (`extends ns.Base`) — a shallow clone of the property-access leaves its
+  inner `Base` at `[-1, -1]`, so navigation cannot land on it; gated out by an
+  `isIdentifier(extendsType.expression)` check;
 - consumers **emitting diagnostic validations** (unsatisfied required base, static collisions,
   missing runtime values) — only on broken code; `$base` positions those diagnostics.
 

@@ -16,6 +16,7 @@ import {
     superMixinPropertyArgs,
     usageArgs
 } from "./tsserver-editor-util.js"
+import type { RenameResponseBody } from "./tsserver-editor-util.js"
 
 const standaloneConstructionText = trimIndent(`
     import { Base, mixin } from "ts-mixin-class"
@@ -204,5 +205,73 @@ it("tsserver rename updates mixin static members from self and external accesses
         t.match(renamedMethodText, "MixinConsumer.renamedMixinStaticMethod()", "Renames static method external usage")
     } finally {
         await dispose()
+    }
+})
+
+const renameBaseBoundaryText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    class LocalBase {
+        baseValue: number = 0
+    }
+
+    @mixin()
+    class Feature {
+        feature?: string
+    }
+
+    class Widget extends LocalBase implements Feature {
+        widget?: boolean
+    }
+
+    class GenericWidget<T> extends LocalBase implements Feature {
+        value?: T
+    }
+`)
+
+it("tsserver rename of a base class reaches a non-generic consumer's extends clause but not a generic one", async (t: Test) => {
+    // After the navigable-base fast path, a non-generic consumer's `extends LocalBase`
+    // is the REAL `LocalBase` identifier, so renaming the base class updates that
+    // occurrence. A generic consumer still goes through `$base`, so its `extends
+    // LocalBase` is not a `LocalBase` reference and is (correctly) left untouched —
+    // the residual heritage-navigation gap (AGENTS.md invariant #9 / Current gaps).
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text : renameBaseBoundaryText } ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const declOffset = positionToLineOffset(renameBaseBoundaryText, renameBaseBoundaryText.indexOf("class LocalBase") + "class ".length)
+
+        const body = assertResponseBody<RenameResponseBody>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, renameBaseBoundaryText, "rename", {
+                file : sourceFile,
+                ...declOffset
+            })
+        )
+
+        t.true(body.info?.canRename, "Base class is renameable")
+
+        const spans = (body.locs ?? [])
+            .filter((loc) => loc.file === sourceFile)
+            .flatMap((loc) => loc.locs)
+
+        const coversBaseNameAt = (extendsIndex: number): boolean => {
+            const { line, offset } = positionToLineOffset(renameBaseBoundaryText, extendsIndex + "extends ".length)
+
+            return spans.some((span) => span.start.line === line && span.start.offset === offset)
+        }
+
+        const nonGenericExtends = renameBaseBoundaryText.indexOf("extends LocalBase")
+        const genericExtends    = renameBaseBoundaryText.indexOf("extends LocalBase", nonGenericExtends + 1)
+
+        t.true(coversBaseNameAt(nonGenericExtends),
+            "Rename reaches the non-generic consumer's `extends LocalBase` (navigable-base fast path)")
+        t.false(coversBaseNameAt(genericExtends),
+            "Rename does NOT reach the generic consumer's `extends LocalBase` (still `$base`, residual gap)")
+    } finally {
+        await fixture.dispose()
     }
 })

@@ -270,12 +270,17 @@ export function expandConsumerClass(
     // carrier below, which positions their diagnostics onto the source base name.
     // Construction-base consumers are excluded too: their generated construction
     // members and synthetic `super.initialize(...)` calls are wired against the
-    // `$base` declaration, so they keep it.
-    const isGenericConsumer = declaration.typeParameters !== undefined && declaration.typeParameters.length > 0
+    // `$base` declaration, so they keep it. A qualified base (`ns.Base`, a
+    // property-access) is excluded as well: a shallow clone leaves its inner `Base`
+    // identifier at `[-1, -1]`, so navigation cannot land on it — those keep `$base`.
+    const isGenericConsumer       = declaration.typeParameters !== undefined && declaration.typeParameters.length > 0
+    const hasSimpleIdentifierBase = expansion.extendsType !== undefined &&
+        tsInstance.isIdentifier(expansion.extendsType.expression)
 
     if (options.sourceView &&
         consumerValidations.length === 0 &&
         expansion.extendsType !== undefined &&
+        hasSimpleIdentifierBase &&
         !isGenericConsumer &&
         !isConstructionConsumer) {
         return expandNavigableSourceViewConsumer(

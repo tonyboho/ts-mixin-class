@@ -291,3 +291,168 @@ function countLocalSpans(sourceFile: string, spans: Array<TextSpan & { file?: st
 
     return keys.size
 }
+
+// Navigable-base fast path (non-generic consumer): go-to-definition + quickinfo on
+// the base name in `extends <Base>` reach the real base class. Variants beyond the
+// plain-local case: a concrete-generic base, a qualified base, and a cross-file base.
+async function assertBaseNameNavigates(t: Test, options: {
+    sourceFiles       : Array<{ fileName : string, text : string }>,
+    targetFileName    : string,
+    targetText        : string,
+    baseNameIndex     : number,
+    baseDeclFileName  : string,
+    baseDeclText      : string,
+    baseDeclNameIndex : number,
+    displayString     : string
+}): Promise<void> {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : options.sourceFiles
+    })
+
+    try {
+        const targetFile = requiredFixtureSourceFile(fixture.sourceFiles, options.targetFileName)
+        const declFile   = requiredFixtureSourceFile(fixture.sourceFiles, options.baseDeclFileName)
+        const baseOffset = positionToLineOffset(options.targetText, options.baseNameIndex)
+        const declPos    = positionToLineOffset(options.baseDeclText, options.baseDeclNameIndex)
+
+        const definitions = assertResponseBody<DefinitionInfo[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, targetFile, options.targetText, "definition", {
+                file : targetFile,
+                ...baseOffset
+            })
+        )
+
+        t.true(definitions.some((definition) =>
+            (definition.file === undefined || definition.file === declFile) &&
+            definition.start.line === declPos.line &&
+            definition.start.offset === declPos.offset),
+        `Go-to-definition on the base name lands on its declaration\n${JSON.stringify(definitions)}`)
+
+        const quickInfo = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, targetFile, options.targetText, "quickinfo", {
+                file : targetFile,
+                ...baseOffset
+            })
+        )
+
+        t.match(quickInfo.displayString ?? "", options.displayString,
+            `Quickinfo on the base name reports the real base class\n${quickInfo.displayString}`)
+    } finally {
+        await fixture.dispose()
+    }
+}
+
+it("tsserver navigation on a concrete-generic base name (`extends Holder<string>`) reaches the base class", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class Holder<T> {
+            value!: T
+        }
+
+        @mixin()
+        class Feature {
+            feature?: string
+        }
+
+        class Widget extends Holder<string> implements Feature {
+            widget?: boolean
+        }
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles       : [ { fileName : "source.ts", text } ],
+        targetFileName    : "source.ts",
+        targetText        : text,
+        baseNameIndex     : text.indexOf("extends Holder<string>") + "extends ".length,
+        baseDeclFileName  : "source.ts",
+        baseDeclText      : text,
+        baseDeclNameIndex : text.indexOf("class Holder") + "class ".length,
+        displayString     : "class Holder<T>"
+    })
+})
+
+it("tsserver keeps a qualified-base consumer (`extends shapes.Base`) type-checking via $base", async (t: Test) => {
+    // A qualified base is excluded from the navigable-base fast path (a shallow clone
+    // leaves the inner `Base` at `[-1, -1]`, so the base name is not navigable), so it
+    // keeps the `$base` rewrite — navigation on the base name is the residual gap. This
+    // guards that the `$base` path still handles a qualified base with NO regression:
+    // the consumer compiles clean and its OWN members stay navigable.
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        namespace shapes {
+            export class Base {
+                baseValue: number = 0
+            }
+        }
+
+        @mixin()
+        class Feature {
+            feature?: string
+        }
+
+        class Widget extends shapes.Base implements Feature {
+            widget?: boolean
+        }
+
+        const widget = new Widget()
+        const value: number = widget.baseValue
+        void value
+    `)
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName : "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ text? : string }>>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", {
+                file : sourceFile
+            })
+        )
+
+        t.equal(diagnostics.map((diagnostic) => diagnostic.text ?? "").join("\n"), "",
+            "A qualified-base consumer compiles with no IDE diagnostics through the $base path")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("tsserver navigation on a cross-file base name (`extends RemoteBase`) reaches the base class", async (t: Test) => {
+    const baseText = trimIndent(`
+        export class RemoteBase {
+            baseValue: number = 0
+        }
+    `)
+    const text = trimIndent(`
+        import { RemoteBase } from "./base.js"
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Feature {
+            feature?: string
+        }
+
+        class Widget extends RemoteBase implements Feature {
+            widget?: boolean
+        }
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles       : [ { fileName : "base.ts", text : baseText }, { fileName : "source.ts", text } ],
+        targetFileName    : "source.ts",
+        targetText        : text,
+        baseNameIndex     : text.indexOf("extends RemoteBase") + "extends ".length,
+        baseDeclFileName  : "base.ts",
+        baseDeclText      : baseText,
+        baseDeclNameIndex : baseText.indexOf("class RemoteBase") + "class ".length,
+        displayString     : "class RemoteBase"
+    })
+})

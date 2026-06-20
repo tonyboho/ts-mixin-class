@@ -932,13 +932,11 @@ function insertGeneratedImports(
     options: TransformOptions,
     referenced: Set<string>
 ): ts.Statement[] {
-    const factory = tsInstance.factory
-
     const helperImport = createHelperTypeImport(tsInstance, options, referenced)
 
     const generatedImports: ts.ImportDeclaration[] = helperImport === undefined ? [] : [ helperImport ]
 
-    const bySpecifier = new Map<string, Array<{ importedName: string, localName: string }>>()
+    const bySpecifier = new Map<string, NamedImportElement[]>()
 
     for (const factoryImport of context.usedFactoryImports.values()) {
         const elements = bySpecifier.get(factoryImport.specifier) ?? []
@@ -948,23 +946,7 @@ function insertGeneratedImports(
     }
 
     for (const [ specifier, elements ] of bySpecifier) {
-        generatedImports.push(factory.createImportDeclaration(
-            undefined,
-            factory.createImportClause(
-                undefined,
-                undefined,
-                factory.createNamedImports(elements.map((element) => {
-                    return factory.createImportSpecifier(
-                        false,
-                        element.importedName === element.localName
-                            ? undefined
-                            : factory.createIdentifier(element.importedName),
-                        factory.createIdentifier(element.localName)
-                    )
-                }))
-            ),
-            factory.createStringLiteral(specifier)
-        ))
+        generatedImports.push(createNamedImportDeclaration(tsInstance, specifier, elements))
     }
 
     let lastImportIndex = -1
@@ -985,18 +967,47 @@ function insertGeneratedImports(
 // ---------------------------------------------------------------------------
 // Helper builders
 
+type NamedImportElement = {
+    typeOnly?    : boolean,
+    importedName : string,
+    localName    : string
+}
+
+// One named-import declaration (`import { a, type b as c } from "specifier"`). Shared by
+// the helper-type import and the per-specifier mixin-factory imports; `typeOnly` defaults
+// to false, and an alias specifier is emitted only when imported and local names differ.
+function createNamedImportDeclaration(
+    tsInstance: TypeScript,
+    specifier: string,
+    elements: readonly NamedImportElement[]
+): ts.ImportDeclaration {
+    const factory = tsInstance.factory
+
+    return factory.createImportDeclaration(
+        undefined,
+        factory.createImportClause(
+            false,
+            undefined,
+            factory.createNamedImports(elements.map((element) => factory.createImportSpecifier(
+                element.typeOnly ?? false,
+                element.importedName === element.localName ? undefined : factory.createIdentifier(element.importedName),
+                factory.createIdentifier(element.localName)
+            )))
+        ),
+        factory.createStringLiteral(specifier)
+    )
+}
+
 function createHelperTypeImport(
     tsInstance: TypeScript,
     options: TransformOptions,
     referenced: Set<string>
 ): ts.ImportDeclaration | undefined {
-    const factory = tsInstance.factory
-
     // Every helper the transform CAN generate, with its local name. The fixed superset is
     // pruned to only the helpers actually referenced in this file's generated output, so a
     // file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error). When
     // nothing is referenced (no helper import needed), the whole declaration is dropped.
-    const candidates: Array<{ typeOnly: boolean, importedName: string, localName: string }> = [
+    const candidates: NamedImportElement[] = [
         { typeOnly: false, importedName: defineMixinClassName, localName: defineMixinClassName },
         { typeOnly: false, importedName: mixinChainName,       localName: mixinChainName },
         { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },
@@ -1021,19 +1032,7 @@ function createHelperTypeImport(
         return undefined
     }
 
-    return factory.createImportDeclaration(
-        undefined,
-        factory.createImportClause(
-            undefined,
-            undefined,
-            factory.createNamedImports(used.map((candidate) => factory.createImportSpecifier(
-                candidate.typeOnly,
-                candidate.importedName === candidate.localName ? undefined : factory.createIdentifier(candidate.importedName),
-                factory.createIdentifier(candidate.localName)
-            )))
-        ),
-        factory.createStringLiteral(options.packageName)
-    )
+    return createNamedImportDeclaration(tsInstance, options.packageName, used)
 }
 
 // Whether the transform would produce a changed file. Cheap (a text guard, then

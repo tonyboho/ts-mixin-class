@@ -16,17 +16,40 @@ import {
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
 
+// Unfiltered import maps are recomputed for the same file across the construction-base
+// registry, the per-file mixin context, the base-import lookup, and the cross-file
+// construction gate — all within one program, where the `resolveModuleFileName` closure
+// is a stable identity. Memoize the unfiltered result per (resolveFn, sourceFile); the
+// map is only ever read by callers, so sharing it is safe. The filtered variant (registry
+// dependency pruning) is left uncached — it is already locally cached at its one caller.
+type ImportMap = Map<string, ImportedNameBinding>
+
+const importedNameMapCache = new WeakMap<
+    (specifier: string, containingFile: string) => string | undefined,
+    WeakMap<ts.SourceFile, ImportMap>
+>()
+
 export function buildImportedNameMap(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     resolveModuleFileName?: (specifier: string, containingFile: string) => string | undefined,
     facts?: SourceFileFacts,
     localNameFilter?: ReadonlySet<string>
-): Map<string, ImportedNameBinding> {
+): ImportMap {
     const importMap = new Map<string, ImportedNameBinding>()
 
     if (resolveModuleFileName === undefined) {
         return importMap
+    }
+
+    const cacheable = localNameFilter === undefined
+
+    if (cacheable) {
+        const cached = importedNameMapCache.get(resolveModuleFileName)?.get(sourceFile)
+
+        if (cached !== undefined) {
+            return cached
+        }
     }
 
     const addImport = (statement: ts.ImportDeclaration, specifier: string, localNamesLength: number): void => {
@@ -68,12 +91,23 @@ export function buildImportedNameMap(
         }
     }
 
+    const finish = (): ImportMap => {
+        if (cacheable) {
+            const byFile = importedNameMapCache.get(resolveModuleFileName) ?? new WeakMap<ts.SourceFile, ImportMap>()
+
+            byFile.set(sourceFile, importMap)
+            importedNameMapCache.set(resolveModuleFileName, byFile)
+        }
+
+        return importMap
+    }
+
     if (facts !== undefined) {
         for (const importFacts of facts.imports) {
             addImport(importFacts.declaration, importFacts.specifier, importFacts.localNames.length)
         }
 
-        return importMap
+        return finish()
     }
 
     for (const statement of sourceFile.statements) {
@@ -91,7 +125,7 @@ export function buildImportedNameMap(
         addImport(statement, statement.moduleSpecifier.text, localNamesLength)
     }
 
-    return importMap
+    return finish()
 }
 
 function importHasFilteredLocalName(

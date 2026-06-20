@@ -280,7 +280,7 @@ it("gives a standalone construction-base mixin its own construction `new` in the
         import { Base, mixin } from "ts-mixin-class"
 
         @mixin()
-        class Serializable extends Base {
+        export class Serializable extends Base {
             public format?: string = "json"
         }
 
@@ -303,7 +303,7 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
         import { Base, mixin } from "ts-mixin-class"
 
         @mixin()
-        class Serializable extends Base {
+        export class Serializable extends Base {
             public format?: string = "json"
         }
     `), { sourceView: true }))

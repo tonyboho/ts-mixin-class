@@ -15,6 +15,7 @@ import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js
 import {
     collapseSubtreeTextRange,
     deepCloneNode,
+    hasModifier,
     preserveGeneratedDeclarationRange,
     preserveTextRange
 } from "./util.js"
@@ -765,8 +766,14 @@ function createConstructionConfigAlias(
 ): ts.TypeAliasDeclaration {
     const factory = tsInstance.factory
 
+    // The alias's `export` tracks the class's own (same as the mixin factory's
+    // `exportModifiersOf`): an exported class exposes `<Name>Config`; a module-local or
+    // `export default` class keeps it local so an internal class does not leak the name.
+    const exported = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
+        && !hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+
     return factory.createTypeAliasDeclaration(
-        [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ],
+        exported ? [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ] : undefined,
         factory.createIdentifier(aliasName),
         // Clone the class type parameters so a generic class gets a generic alias
         // (`BoxConfig<T>`); reusing the originals would re-parent them in the binder.

@@ -190,7 +190,7 @@ it("generates public-only static construction config overloads by default", asyn
             mixinMethod (): T | undefined { return this.mixinValue }
         }
 
-        class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
+        export class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
             public ownValue: T | undefined
             public optionalOwnValue?: T
             skippedOwnValue: T | undefined
@@ -223,7 +223,7 @@ it("generates public-only static construction config overloads for plain Base de
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"
 
-        class Model extends Base {
+        export class Model extends Base {
             public id: string = ""
             public name?: string = ""
             skippedValue: string = ""

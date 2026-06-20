@@ -15,7 +15,7 @@ it("emits an exported named config alias and references it from the generated st
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"
 
-        class Model extends Base {
+        export class Model extends Base {
             public id: string = ""
             public name?: string = ""
         }
@@ -48,7 +48,7 @@ it("emits a generic config alias carrying the class type parameters", async (t: 
             public mixinValue: T | undefined
         }
 
-        class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
+        export class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
             public ownValue: T | undefined
         }
     `))
@@ -437,7 +437,7 @@ it("falls back to a suffixed alias name when the class name is already taken", a
 
         type ModelConfig = { custom : string }
 
-        class Model extends Base {
+        export class Model extends Base {
             public id: string = ""
         }
 

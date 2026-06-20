@@ -59,9 +59,12 @@ it("tsserver definitionAndBoundSpan resolves super mixin members", async (t: Tes
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinMethod", "mixinMethod(): string", "Mixin super method", superMixinMethodArgs(sourceFile))
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinProperty", "mixinProperty: string", "Consumer super property", consumerSuperMixinPropertyArgs(sourceFile))
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinMethod", "mixinMethod(): string", "Consumer super method", consumerSuperMixinMethodArgs(sourceFile))
+        // eslint-disable-next-line max-len
         await assertDefinitionAndBoundSpan(t, sourceFile, "baseStaticProperty", "baseStaticProperty: number", "Plain base static property", usageArgs(sourceFile, "baseStaticProperty"))
         await assertDefinitionAndBoundSpan(t, sourceFile, "baseStaticMethod", "baseStaticMethod(): number", "Plain base static method", usageArgs(sourceFile, "baseStaticMethod"))
+        // eslint-disable-next-line max-len
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinStaticProperty", "mixinStaticProperty: string", "Mixin static self property", selfMixinStaticPropertyArgs(sourceFile))
+        // eslint-disable-next-line max-len
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinStaticProperty", "mixinStaticProperty: string", "Mixin static property", usageArgs(sourceFile, "mixinStaticProperty"))
         await assertDefinitionAndBoundSpan(t, sourceFile, "mixinStaticMethod", "mixinStaticMethod(): string", "Mixin static method", usageArgs(sourceFile, "mixinStaticMethod"))
     } finally {
@@ -127,7 +130,7 @@ it("tsserver definition resolves fixture-like consumer super members from import
 
 type ManualMixDefinition = {
     file  : string,
-    start : { line : number, offset : number }
+    start : { line: number, offset: number }
 }
 
 // Go-to-definition on a member reached through a manual `.mix(Base)` of a *dependent* mixin
@@ -196,7 +199,7 @@ function manualMixDefinitionLands(definitions: ManualMixDefinition[], sourceFile
 xit("tsserver go-to-definition resolves a member reached through a manual .mix of a dependent mixin", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : manualMixDependencyText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: manualMixDependencyText } ]
     })
 
     try {

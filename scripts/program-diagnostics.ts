@@ -41,13 +41,13 @@ if (parsed === undefined) {
 const program      = ts.createProgram(parsed.fileNames, parsed.options, ts.createCompilerHost(parsed.options))
 const plugins      = parsed.options.plugins as ts.PluginImport[] | undefined
 const pluginConfig = (plugins?.[0] ?? {}) as Record<string, unknown>
-const next        = transformProgram(
+const next         = transformProgram(
     program,
     undefined,
     { ...pluginConfig, transform: "ts-mixin-class", mode } as Parameters<typeof transformProgram>[2],
     { ts } as Parameters<typeof transformProgram>[3]
 )
-const checker = next.getTypeChecker()
+const checker      = next.getTypeChecker()
 
 const targets = next.getSourceFiles().filter((sourceFile) => {
     return !sourceFile.isDeclarationFile &&
@@ -73,7 +73,7 @@ function reportPropertyTypes(sourceFile: ts.SourceFile, name: string): void {
 
             if (ts.isCallExpression(node.parent) && node.parent.expression === node) {
                 const signature = checker.getResolvedSignature(node.parent)
-                returnType = signature === undefined
+                returnType      = signature === undefined
                     ? ""
                     : ` -> returns ${checker.typeToString(checker.getReturnTypeOfSignature(signature))}`
             }

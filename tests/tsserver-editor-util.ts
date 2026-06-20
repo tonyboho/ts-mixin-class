@@ -5,13 +5,13 @@ import { assertResponseBody, positionToLineOffset, runTypeScriptServerRequest } 
 import type { TsServerResponse } from "./tsserver-util.js"
 
 export type TextPosition = {
-    line : number,
+    line   : number,
     offset : number
 }
 
 export type TextSpan = {
     start : TextPosition,
-    end : TextPosition
+    end   : TextPosition
 }
 
 export type DefinitionInfo = TextSpan & {
@@ -28,7 +28,7 @@ export type QuickInfoBody = TextSpan & {
 
 export type RenameResponseBody = {
     info? : {
-        canRename? : boolean,
+        canRename?   : boolean,
         displayName? : string
     },
     locs? : RenameFileLocation[]
@@ -183,10 +183,10 @@ export const fixtureLikeConsumerText = trimIndent(`
 `)
 
 export async function createEditorFixture(): Promise<{
-    dispose : () => Promise<void>,
+    dispose    : () => Promise<void>,
     sourceFile : string
 }> {
-    const fixture = await createTypeScriptFixture({
+    const fixture    = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
             {
@@ -601,7 +601,7 @@ export function sourceSlice(source: string, span: TextSpan): string {
 }
 
 export function positionToIndex(source: string, position: TextPosition): number {
-    const lines = source.split("\n")
+    const lines      = source.split("\n")
     const beforeLine = lines
         .slice(0, position.line - 1)
         .reduce((sum, line) => sum + line.length + 1, 0)

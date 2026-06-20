@@ -8,8 +8,8 @@ import { createTypeScriptFixture, packageRoot, requiredFixtureSourceFile, trimIn
 import { assertDiagnosticParts, assertResponseBody, runTypeScriptServerRequest } from "./tsserver-util.js"
 
 type SemanticDiagnostic = {
-    code? : number,
-    text? : string,
+    code?    : number,
+    text?    : string,
     message? : string
 }
 
@@ -242,7 +242,7 @@ it("tsserver semantic diagnostics report mixin transform type errors", async (t:
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -250,10 +250,10 @@ it("tsserver semantic diagnostics report mixin transform type errors", async (t:
                 sourceFile,
                 diagnosticText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, requiredBaseDiagnosticParts)
         assertDiagnosticParts(t, messages, linearizationDiagnosticParts)
@@ -276,11 +276,11 @@ const disabledConstructionText = trimIndent(`
 it("tsserver semantic diagnostics disable direct construction with a descriptive message", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : disabledConstructionText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: disabledConstructionText } ]
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -288,10 +288,10 @@ it("tsserver semantic diagnostics disable direct construction with a descriptive
                 sourceFile,
                 disabledConstructionText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, [
             "direct `new Model(...)` is disabled",
@@ -320,7 +320,7 @@ it("tsserver semantic diagnostics report imported required-base mixin errors", a
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -328,10 +328,10 @@ it("tsserver semantic diagnostics report imported required-base mixin errors", a
                 sourceFile,
                 importedRequiredBaseDiagnosticText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, requiredBaseDiagnosticParts)
     } finally {
@@ -345,7 +345,7 @@ it("tsserver semantic diagnostics report invalid mixin declarations with custom 
         compilerOptions        : {
             declaration : true
         },
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "source.ts",
                 text     : invalidMixinDiagnosticText
@@ -354,7 +354,7 @@ it("tsserver semantic diagnostics report invalid mixin declarations with custom 
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -362,10 +362,10 @@ it("tsserver semantic diagnostics report invalid mixin declarations with custom 
                 sourceFile,
                 invalidMixinDiagnosticText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, invalidMixinDiagnosticParts)
     } finally {
@@ -379,7 +379,7 @@ it("tsserver semantic diagnostics report anonymous mixin consumers with a custom
         compilerOptions        : {
             declaration : true
         },
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "source.ts",
                 text     : anonymousConsumerDiagnosticText
@@ -388,7 +388,7 @@ it("tsserver semantic diagnostics report anonymous mixin consumers with a custom
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -396,10 +396,10 @@ it("tsserver semantic diagnostics report anonymous mixin consumers with a custom
                 sourceFile,
                 anonymousConsumerDiagnosticText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, anonymousConsumerDiagnosticParts)
     } finally {
@@ -413,7 +413,7 @@ it("tsserver semantic diagnostics report unsupported mixin consumer base express
         compilerOptions        : {
             declaration : true
         },
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "source.ts",
                 text     : unsupportedBaseDiagnosticText
@@ -422,7 +422,7 @@ it("tsserver semantic diagnostics report unsupported mixin consumer base express
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -430,10 +430,10 @@ it("tsserver semantic diagnostics report unsupported mixin consumer base express
                 sourceFile,
                 unsupportedBaseDiagnosticText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, unsupportedBaseDiagnosticParts)
     } finally {
@@ -444,7 +444,7 @@ it("tsserver semantic diagnostics report unsupported mixin consumer base express
 it("tsserver semantic diagnostics report declaration mixins without runtime values", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        extraFiles            : [
+        extraFiles             : [
             {
                 fileName : "node_modules/broken-mixin-package/package.json",
                 text     : JSON.stringify({
@@ -458,7 +458,7 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
                 }, null, 4)
             }
         ],
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "source.ts",
                 text     : missingRuntimeImportConsumerText
@@ -471,7 +471,7 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -479,10 +479,10 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
                 sourceFile,
                 missingRuntimeImportConsumerText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, missingRuntimeImportDiagnosticParts)
     } finally {
@@ -527,16 +527,16 @@ it("a manual .mix of a dependent mixin is clean in source-view", async (t: Test)
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
         const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
-            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file : sourceFile })
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file: sourceFile })
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         t.equal(messages, "", "manual .mix of a dependent mixin has no IDE semantic diagnostics")
     } finally {
@@ -561,7 +561,7 @@ it("tsserver semantic diagnostics stay clean for fixture-suite runtime tests", a
                 sourceFile,
                 text,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
         const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
@@ -576,17 +576,17 @@ it("tsserver semantic diagnostics report copied fixture type-errors without expe
         path.join(packageRoot, "tests", "fixture-suite", "src", "type-errors.ts"),
         "utf8"
     )
-    const typeErrorsText = removeExpectErrorLines(typeErrorsSource)
-    const mixinsText = await readFile(
+    const typeErrorsText   = removeExpectErrorLines(typeErrorsSource)
+    const mixinsText       = await readFile(
         path.join(packageRoot, "tests", "fixture-suite", "src", "mixins.ts"),
         "utf8"
     )
-    const fixture = await createTypeScriptFixture({
+    const fixture          = await createTypeScriptFixture({
         experimentalDecorators : false,
         compilerOptions        : {
             declaration : true
         },
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "type-errors.ts",
                 text     : typeErrorsText
@@ -599,7 +599,7 @@ it("tsserver semantic diagnostics report copied fixture type-errors without expe
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "type-errors.ts")
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "type-errors.ts")
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
             t,
             await runTypeScriptServerRequest(
@@ -607,10 +607,10 @@ it("tsserver semantic diagnostics report copied fixture type-errors without expe
                 sourceFile,
                 typeErrorsText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
-        const messages = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
         assertDiagnosticParts(t, messages, requiredBaseDiagnosticParts)
         assertDiagnosticParts(t, messages, linearizationDiagnosticParts)
@@ -628,7 +628,7 @@ it("fixture type-errors keeps expect-error suppressions for expected diagnostics
     const expectErrorLines = typeErrorsSource
         .split("\n")
         .filter((line) => line.includes("@ts-expect-error"))
-    const expectErrorText = expectErrorLines.join("\n")
+    const expectErrorText  = expectErrorLines.join("\n")
 
     t.equal(expectErrorLines.length, 5, "Fixture has one suppression per expected diagnostic")
     t.match(expectErrorText, "ContractSourceClass1", "Fixture suppresses the first contract diagnostic")

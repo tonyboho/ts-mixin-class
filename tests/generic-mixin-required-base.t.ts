@@ -62,7 +62,7 @@ async function buildFixture(
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
@@ -112,8 +112,8 @@ void Bad
 `
 
 it("a generic mixin extending a generic required base forwards its type parameter", async (t: Test) => {
-    const emitResult     = await buildFixture(genericRequiredBaseText, undefined)
-    const sourceViewResult = await buildFixture(genericRequiredBaseText, { noEmit : true })
+    const emitResult       = await buildFixture(genericRequiredBaseText, undefined)
+    const sourceViewResult = await buildFixture(genericRequiredBaseText, { noEmit: true })
 
     t.equal(emitResult.exitCode, 0,
         `Emit build of a forwarded generic required base succeeds.\n${commandOutput(emitResult)}`)
@@ -123,8 +123,8 @@ it("a generic mixin extending a generic required base forwards its type paramete
 })
 
 it("forwarding a generic required base still enforces it on consumers", async (t: Test) => {
-    const emitResult     = await buildFixture(unsatisfiedRequiredBaseText, undefined)
-    const sourceViewResult = await buildFixture(unsatisfiedRequiredBaseText, { noEmit : true })
+    const emitResult       = await buildFixture(unsatisfiedRequiredBaseText, undefined)
+    const sourceViewResult = await buildFixture(unsatisfiedRequiredBaseText, { noEmit: true })
 
     for (const [ label, result ] of [ [ "Emit", emitResult ], [ "Source-view", sourceViewResult ] ] as const) {
         t.notEqual(result.exitCode, 0,

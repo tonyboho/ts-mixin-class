@@ -20,7 +20,7 @@ it("emits an exported named config alias and references it from the generated st
             public name?: string = ""
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(
         printed,
@@ -52,7 +52,7 @@ it("emits a generic config alias carrying the class type parameters", async (t: 
             public ownValue: T | undefined
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(
         printed,
@@ -78,7 +78,7 @@ it("names the config alias in `.new(...)` type errors instead of an inline Pick"
 
         Model.new({ id : "x" })
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.match(messages, "ModelConfig", "The type error names the generated config alias")
     // An all-required config is a single `Pick`, which carries the alias symbol, so
@@ -103,7 +103,7 @@ it("exports the config alias for reuse as a factory parameter or annotation", as
         const literal: ModelConfig = { id : "b", name : "n" }
         void [ created, literal ]
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "The exported alias is usable as a factory parameter and a variable annotation")
 })
@@ -119,7 +119,7 @@ it("rejects a missing required field when the alias is used as a factory paramet
         const bad: ModelConfig = {}
         void bad
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.match(messages, "ModelConfig", "A missing required field is reported against the named alias")
 })
@@ -141,7 +141,7 @@ it("lets a consumer type its initialize override with the strict config alias", 
         const created = Model.new({ id : "a" })
         void created
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "A strict-required initialize override typed with the alias produces no diagnostics")
 })
@@ -161,7 +161,7 @@ it("keeps the initialize override body strictly typed against the config alias",
 
         void Model
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.match(messages, "nope", "An unknown field inside the override body is still rejected")
 })
@@ -207,7 +207,7 @@ it("lets a mixin type its initialize override with its own config alias and a co
 
         void [ created, missingA, missingB ]
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     // Both mixins override initialize with their own strict config; the consumer's
     // generated base interface re-declares the Base.initialize protocol member, so the
@@ -253,7 +253,7 @@ it("supports an initialize override through a mixin dependency chain", async (t:
         const created = Record.new({ id : "r1", audited : true, name : "n" })
         void created
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "A consumer of a mixin chain whose members override initialize typechecks")
 })
@@ -285,7 +285,7 @@ it("lets a plain class extend a construction mixin and add a required config fie
 
         void [ created, missingName ]
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "Extending a construction mixin and adding a required field typechecks (no TS2417 static-side clash)")
 })
@@ -326,7 +326,7 @@ it("supports a three-level chain where each construction mixin/consumer override
 
         void [ created, missingOne, missingTwo, missingThree ]
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "A three-level chain each overriding initialize with its own config typechecks and accumulates the config")
 })
@@ -378,7 +378,7 @@ it("lets a construction mixin apply several initialize-overriding mixins without
 
         void [ created, missingA, missingB, missingX, missingH ]
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.is(messages, "", "Merging mixins typechecks and the merged config requires every contributed field")
 })
@@ -400,7 +400,7 @@ it("keeps a mixin's initialize override body strictly typed against its own conf
 
         void A
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     t.match(messages, "nope", "An unknown field inside the mixin override body is still rejected")
 })
@@ -424,7 +424,7 @@ it("still surfaces a genuine initialize clash for a non-construction consumer of
 
         void (null as unknown as C)
     `))
-    const messages = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
+    const messages        = typecheckText(printSourceFile(ts, transformedFile)).join("\n")
 
     // No package Base, so this is NOT a construction consumer: the protocol member is
     // not injected and a real, user-meaningful initialize conflict is not masked.
@@ -444,8 +444,8 @@ it("falls back to a suffixed alias name when the class name is already taken", a
         const user: ModelConfig = { custom : "x" }
         void user
     `))
-    const printed  = printSourceFile(ts, transformedFile)
-    const messages = typecheckText(printed).join("\n")
+    const printed         = printSourceFile(ts, transformedFile)
+    const messages        = typecheckText(printed).join("\n")
 
     t.match(printed, "export type ModelConfig_ =", "Collision with a user type appends an underscore")
     t.match(printed, "static new(props: ModelConfig_): Model;", "The static new references the suffixed alias")

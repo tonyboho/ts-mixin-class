@@ -23,9 +23,9 @@ import type { CommandResult, TypeScriptFixture } from "./util.js"
 async function runBoth(text: string): Promise<{ emit: CommandResult, ide: CommandResult, fixture: TypeScriptFixture }> {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : true,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
-    const tsc = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
+    const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 
     const emit = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile ], fixture.directory)
     const ide  = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile, "--noEmit" ], fixture.directory)
@@ -90,7 +90,7 @@ export class Box<T> implements Container<T> {
 `
 
 it("emit (tsc) flags a non-generic mixin that does not satisfy its implements contract", async (t: Test) => {
-    const classLine = nonGenericMissing.split("\n").findIndex((line) => line.includes("class GreeterMixin")) + 1
+    const classLine              = nonGenericMissing.split("\n").findIndex((line) => line.includes("class GreeterMixin")) + 1
     const { emit, ide, fixture } = await runBoth(nonGenericMissing)
 
     try {
@@ -104,7 +104,7 @@ it("emit (tsc) flags a non-generic mixin that does not satisfy its implements co
 })
 
 it("emit (tsc) flags a GENERIC mixin that does not satisfy its implements contract", async (t: Test) => {
-    const classLine = genericMissing.split("\n").findIndex((line) => line.includes("class Box")) + 1
+    const classLine              = genericMissing.split("\n").findIndex((line) => line.includes("class Box")) + 1
     const { emit, ide, fixture } = await runBoth(genericMissing)
 
     try {

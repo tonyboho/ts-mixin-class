@@ -3,13 +3,13 @@ import path from "node:path"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 export type TsServerMessage = {
-    body? : unknown,
-    type? : string,
-    command? : string,
-    event? : string,
-    message? : string,
-    request_seq? : number
-    success? : boolean
+    body?        : unknown,
+    type?        : string,
+    command?     : string,
+    event?       : string,
+    message?     : string,
+    request_seq? : number,
+    success?     : boolean
 }
 
 export type TsServerResponse = TsServerMessage
@@ -46,7 +46,7 @@ export function openTsServerSession(
     logFile = path.join(fixtureDirectory, "tsserver.log")
 ): TsServerSession {
     const tsserverFile = path.join(fixtureDirectory, "node_modules", "typescript", "lib", "tsserver.js")
-    const server = fork(tsserverFile, [
+    const server       = fork(tsserverFile, [
         "--logVerbosity",
         "verbose",
         "--logFile",

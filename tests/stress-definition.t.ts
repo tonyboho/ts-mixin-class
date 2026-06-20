@@ -46,13 +46,13 @@ it("tsserver go-to-definition succeeds on every fixture symbol with the bound sp
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : corpus.map((file) => ({ fileName : file.fileName, text : file.text }))
+        sourceFiles            : corpus.map((file) => ({ fileName: file.fileName, text: file.text }))
     })
 
     const sites: SiteWithFile[] = corpus.flatMap((file) => {
         const absolutePath = fixture.sourceFiles.get(file.fileName)!
 
-        return collectIdentifierSites(file).map((site) => ({ ...site, file : absolutePath }))
+        return collectIdentifierSites(file).map((site) => ({ ...site, file: absolutePath }))
     })
 
     const session = openTsServerSession(fixture.directory)

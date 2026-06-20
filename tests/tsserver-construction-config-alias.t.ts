@@ -64,23 +64,23 @@ async function aliasRequest(
         sourceFile,
         aliasUsageText,
         command,
-        { file : sourceFile, ...positionToLineOffset(aliasUsageText, position) }
+        { file: sourceFile, ...positionToLineOffset(aliasUsageText, position) }
     )
 }
 
 it("tsserver go-to-definition on a config-alias reference resolves into the owning class without crashing", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : aliasUsageText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: aliasUsageText } ]
     })
 
     try {
         const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
 
         for (const { name, alias, marker, owner, after } of [
-            { name : "AccountConfig", alias : "AccountConfig", marker : "config?: AccountConfig", owner : "class Account", after : "const accountConfig" },
-            { name : "AccountConfig (annotation)", alias : "AccountConfig", marker : "accountConfig: AccountConfig", owner : "class Account", after : "const accountConfig" },
-            { name : "BoxConfig", alias : "BoxConfig", marker : "config?: BoxConfig<T>", owner : "class Box", after : "const box" }
+            { name: "AccountConfig", alias: "AccountConfig", marker: "config?: AccountConfig", owner: "class Account", after: "const accountConfig" },
+            { name: "AccountConfig (annotation)", alias: "AccountConfig", marker: "accountConfig: AccountConfig", owner: "class Account", after: "const accountConfig" },
+            { name: "BoxConfig", alias: "BoxConfig", marker: "config?: BoxConfig<T>", owner: "class Box", after: "const box" }
         ]) {
             const definitions = assertResponseBody<DefinitionInfo[]>(
                 t,
@@ -108,7 +108,7 @@ it("tsserver go-to-definition on a config-alias reference resolves into the owni
 it("tsserver quickinfo on a config-alias reference shows the expanded config type without crashing", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : aliasUsageText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: aliasUsageText } ]
     })
 
     try {
@@ -139,7 +139,7 @@ it("tsserver quickinfo on a config-alias reference shows the expanded config typ
 it("tsserver rename on a config-alias reference responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : aliasUsageText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: aliasUsageText } ]
     })
 
     try {
@@ -164,7 +164,7 @@ it("tsserver rename on a config-alias reference responds instead of crashing the
 it("tsserver find-all-references on a config-alias reference responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : aliasUsageText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: aliasUsageText } ]
     })
 
     try {
@@ -221,7 +221,7 @@ const initializeOverrideText = trimIndent(`
 it("tsserver reports no TS2320 in the editor for a consumer of mixins overriding initialize", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : initializeOverrideText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: initializeOverrideText } ]
     })
 
     try {
@@ -233,7 +233,7 @@ it("tsserver reports no TS2320 in the editor for a consumer of mixins overriding
                 sourceFile,
                 initializeOverrideText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
 
@@ -295,7 +295,7 @@ const mixinMergeText = trimIndent(`
 it("tsserver reports no merge/config errors in the editor for a construction mixin merging initialize-overriding mixins", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : mixinMergeText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: mixinMergeText } ]
     })
 
     try {
@@ -307,7 +307,7 @@ it("tsserver reports no merge/config errors in the editor for a construction mix
                 sourceFile,
                 mixinMergeText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
 
@@ -370,7 +370,7 @@ const chainText = trimIndent(`
 it("tsserver reports no merge/config errors in the editor for a chain where a construction mixin overrides initialize and depends on another", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : chainText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: chainText } ]
     })
 
     try {
@@ -382,7 +382,7 @@ it("tsserver reports no merge/config errors in the editor for a chain where a co
                 sourceFile,
                 chainText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
 
@@ -402,7 +402,7 @@ it("tsserver reports no merge/config errors in the editor for a chain where a co
 it("tsserver rename on a mixin's initialize override responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : initializeOverrideText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: initializeOverrideText } ]
     })
 
     try {
@@ -417,7 +417,7 @@ it("tsserver rename on a mixin's initialize override responds instead of crashin
                 sourceFile,
                 initializeOverrideText,
                 "rename",
-                { file : sourceFile, ...positionToLineOffset(initializeOverrideText, position) }
+                { file: sourceFile, ...positionToLineOffset(initializeOverrideText, position) }
             )
         )
 
@@ -458,7 +458,7 @@ const extendsMixinText = trimIndent(`
 it("tsserver reports no static-side errors in the editor when a class extends a construction mixin and adds a required field", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : extendsMixinText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: extendsMixinText } ]
     })
 
     try {
@@ -470,7 +470,7 @@ it("tsserver reports no static-side errors in the editor when a class extends a 
                 sourceFile,
                 extendsMixinText,
                 "semanticDiagnosticsSync",
-                { file : sourceFile }
+                { file: sourceFile }
             )
         )
 

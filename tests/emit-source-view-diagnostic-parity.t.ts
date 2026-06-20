@@ -38,7 +38,7 @@ function diagnosticLine(result: CommandResult): number | undefined {
 it("reports a diagnostic on the same source line in emit and source-view modes", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : true,
-        sourceFiles            : [ { fileName : "source.ts", text : fixtureText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: fixtureText } ]
     })
     const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 
@@ -91,7 +91,7 @@ function override2416Line(result: CommandResult): number | undefined {
 it("reports an incompatible override as TS2416 on the same source line in emit and source-view modes", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : overrideConflictText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: overrideConflictText } ]
     })
     const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 
@@ -154,13 +154,13 @@ function lineOf(text: string, needle: string): number {
 }
 
 const badBareLine   = lineOf(disabledConstructionText, "badBare")
-const badConfigLine  = lineOf(disabledConstructionText, "badConfig")
-const okManualLine   = lineOf(disabledConstructionText, "okManual")
+const badConfigLine = lineOf(disabledConstructionText, "badConfig")
+const okManualLine  = lineOf(disabledConstructionText, "okManual")
 
 it("disables direct `new` on construction classes with a descriptive error in emit and source-view modes", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : disabledConstructionText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: disabledConstructionText } ]
     })
     const tsc     = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 

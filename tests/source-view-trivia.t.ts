@@ -26,7 +26,7 @@ function strandedIdentifier(text: string, pos: number, end: number): { text: str
 
     for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
         if (token === ts.SyntaxKind.Identifier && scanner.getTokenEnd() <= end) {
-            return { text : scanner.getTokenText(), pos : scanner.getTokenStart() }
+            return { text: scanner.getTokenText(), pos: scanner.getTokenStart() }
         }
     }
 
@@ -68,12 +68,12 @@ function collectTriviaCrashes(): string[] {
 
     // noEmit forces the position-preserving source-view pass (the mode tsserver
     // uses); emit mode hides the bug behind throwaway generated ranges.
-    const compilerOptions = { ...parsed.options, noEmit : true }
+    const compilerOptions = { ...parsed.options, noEmit: true }
     const program         = ts.createProgram(parsed.fileNames, compilerOptions, ts.createCompilerHost(compilerOptions))
     const transformed     = transformProgram(
         program,
         undefined,
-        { transform : "ts-mixin-class" } as Parameters<typeof transformProgram>[2],
+        { transform: "ts-mixin-class" } as Parameters<typeof transformProgram>[2],
         { ts } as Parameters<typeof transformProgram>[3]
     )
 

@@ -73,7 +73,7 @@ export class Widget extends Base implements Labelled {
 
 it("aggregates a mixin's settable accessor into the consumer's .new config", async (t: Test) => {
     const emit       = await buildConstructionSource(text, undefined)
-    const sourceView = await buildConstructionSource(text, { noEmit : true })
+    const sourceView = await buildConstructionSource(text, { noEmit: true })
 
     t.equal(emit.exitCode, 0,
         `A mixin's settable accessor is part of the consumer's .new config (emit).\n${commandOutput(emit)}`)

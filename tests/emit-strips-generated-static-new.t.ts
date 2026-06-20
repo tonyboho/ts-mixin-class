@@ -30,8 +30,8 @@ export const constructedBalance = account.balance
 it("strips the redundant generated static new from JS emit but keeps it in declarations", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text : constructionClassText } ]
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ { fileName: "source.ts", text: constructionClassText } ]
     })
 
     try {
@@ -58,7 +58,7 @@ it("strips the redundant generated static new from JS emit but keeps it in decla
         t.match(declaration, "AccountConfig", "declaration keeps the generated config alias")
 
         // Runtime: the stripped JS still constructs correctly via the inherited Base.new.
-        const moduleUrl = pathToFileURL(path.join(fixture.directory, "dist", "source.js")).href
+        const moduleUrl   = pathToFileURL(path.join(fixture.directory, "dist", "source.js")).href
         const constructed = await import(moduleUrl) as { constructedId: string, constructedBalance: number }
 
         t.equal(constructed.constructedId, "a1", "Account.new assigned the id at runtime (via inherited Base.new)")

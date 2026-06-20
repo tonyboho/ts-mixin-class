@@ -51,7 +51,7 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : corpus.map((file) => ({ fileName : file.fileName, text : file.text }))
+        sourceFiles            : corpus.map((file) => ({ fileName: file.fileName, text: file.text }))
     })
 
     const textByFile = new Map<string, string>()
@@ -61,7 +61,7 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
 
         textByFile.set(absolutePath, file.text)
 
-        return collectIdentifierSites(file).map((site) => ({ ...site, file : absolutePath }))
+        return collectIdentifierSites(file).map((site) => ({ ...site, file: absolutePath }))
     })
 
     const session = openTsServerSession(fixture.directory)
@@ -72,10 +72,10 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
         }
 
         let failure: string | undefined
-        let withSelf       = 0
-        let emptyResults   = 0
-        let spanChecks     = 0
-        let toleratedMix   = 0
+        let withSelf     = 0
+        let emptyResults = 0
+        let spanChecks   = 0
+        let toleratedMix = 0
 
         const describe = (site: SiteWithFile): string =>
             `${site.fileName} symbol ${JSON.stringify(site.name)} ` +

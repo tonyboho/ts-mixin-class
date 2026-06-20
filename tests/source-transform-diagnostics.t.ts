@@ -28,7 +28,7 @@ it("transformed required-base mixin rejects unrelated consumer bases at typechec
     `))
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const messages    = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Mixin required base mismatch",
@@ -93,7 +93,7 @@ it("reports unsupported mixin class declarations", async (t: Test) => {
     `))
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const messages    = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Invalid mixin class declaration",
@@ -118,8 +118,8 @@ it("reports anonymous default mixin classes with a custom diagnostic", async (t:
             value: string = "x"
         }
     `))
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Invalid mixin class declaration",
@@ -140,8 +140,8 @@ it("reports anonymous mixin consumer class declarations with a custom diagnostic
         export default class implements SourceMixin {
         }
     `))
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Invalid mixin consumer declaration",
@@ -167,8 +167,8 @@ it("reports unsupported mixin consumer base expressions with a custom diagnostic
         class Consumer extends makeBase() implements SourceMixin {
         }
     `))
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Unsupported mixin consumer base expression",
@@ -195,8 +195,8 @@ it("reports conflicting static members between consumed mixins", async (t: Test)
         class Consumer implements LeftStaticMixin, RightStaticMixin {
         }
     `))
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Static mixin member collision",
@@ -223,8 +223,8 @@ it("reports conflicting static members between consumer base and mixins", async 
         class Consumer extends Base implements StaticMixin {
         }
     `))
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     assertMessageParts(t, messages, [
         "Static mixin member collision",
@@ -236,7 +236,7 @@ it("reports conflicting static members between consumer base and mixins", async 
 })
 
 it("reports method-shaped static collisions only in strict mode", async (t: Test) => {
-    const sourceFile = createSourceFile(`
+    const sourceFile         = createSourceFile(`
         import { mixin } from "ts-mixin-class"
 
         @mixin()
@@ -257,11 +257,11 @@ it("reports method-shaped static collisions only in strict mode", async (t: Test
         }
     `)
     const defaultDiagnostics = typecheckText(printSourceFile(ts, transformSourceFile(ts, sourceFile)))
-    const strictDiagnostics = typecheckText(printSourceFile(ts, transformSourceFile(ts, sourceFile, {
+    const strictDiagnostics  = typecheckText(printSourceFile(ts, transformSourceFile(ts, sourceFile, {
         staticCollisionCheck : "strict"
     })))
-    const defaultMessages = defaultDiagnostics.join("\n")
-    const strictMessages = strictDiagnostics.join("\n")
+    const defaultMessages    = defaultDiagnostics.join("\n")
+    const strictMessages     = strictDiagnostics.join("\n")
 
     t.notMatch(defaultMessages, "Static mixin member collision", "Default mode does not report method-shaped collisions")
     assertMessageParts(t, strictMessages, [
@@ -291,8 +291,8 @@ it("can disable static collision diagnostics", async (t: Test) => {
     `), {
         staticCollisionCheck : false
     })
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
+    const messages        = diagnostics.join("\n")
 
     t.notMatch(messages, "Static mixin member collision", "Disabled static collision check does not report collisions")
 })

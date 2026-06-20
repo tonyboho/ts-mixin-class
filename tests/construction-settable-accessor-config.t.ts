@@ -49,7 +49,7 @@ void [ p.first, p.last, p.full, q.first ]
 
 it("includes a settable accessor in the construction config", async (t: Test) => {
     const emitResult       = await buildConstructionSource(settableAccessorConfigText, undefined)
-    const sourceViewResult = await buildConstructionSource(settableAccessorConfigText, { noEmit : true })
+    const sourceViewResult = await buildConstructionSource(settableAccessorConfigText, { noEmit: true })
 
     t.equal(emitResult.exitCode, 0,
         `A settable accessor should be accepted by .new config (emit).\n${commandOutput(emitResult)}`)

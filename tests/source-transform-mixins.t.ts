@@ -45,7 +45,7 @@ it("expands an imported class-level @mixin() class into interface + factory + co
             method1 (): string { return this.value1 }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     const interfaceDeclaration = requiredInterface(transformedFile, "SourceClass")
     const interfaceMembers     = interfaceDeclaration.members.map((member) => memberName(member))
@@ -96,7 +96,7 @@ it("expands a named default-exported mixin class", async (t: Test) => {
             }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface DefaultMixin", "Default mixin interface is generated")
     t.match(printed, "export const __DefaultMixin$mixin", "Default mixin factory is exported for generated imports")
@@ -166,7 +166,7 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
             childMethod (a: T): string { return String(super.passThrough1(a)) }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "function <T>(base: AnyConstructor<SourceClass1<T>>)",
         "Dependent mixin base parameter is typed with the dependency")
@@ -198,7 +198,7 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
             leafValue: string = "leaf"
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface LeafMixin extends ChildMixin",
         "Generated mixin interface keeps only the non-transitive type heritage")
@@ -224,7 +224,7 @@ it("keeps non-mixin implements entries on a mixin as type-only contracts", async
             }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface SourceMixin extends PlainContract",
         "Generated mixin interface keeps the plain TypeScript contract")
@@ -255,7 +255,7 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
         class Consumer extends RealBase implements RequiredMixin {
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface RequiredMixin extends RequiredBase",
         "Generated interface keeps the required base as an instance constraint")
@@ -380,7 +380,7 @@ it("does not throw transforming a mixin while the `extends` keyword is being typ
             nextText,
             ts.createTextChangeRange(ts.createTextSpan(position, 0), character.length)
         )
-        text = nextText
+        text       = nextText
         position++
 
         t.doesNotThrow(

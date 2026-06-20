@@ -68,11 +68,11 @@ import { packageRoot } from "./util.js"
 const corpusDirectory = path.join(packageRoot, "tests", "fixture-suite", "src")
 
 const compilerOptions: ts.CompilerOptions = {
-    target                 : ts.ScriptTarget.ES2022,
-    module                 : ts.ModuleKind.ESNext,
-    moduleResolution       : ts.ModuleResolutionKind.Bundler,
-    lib                    : [ "lib.es2022.d.ts", "lib.dom.d.ts" ],
-    strict                 : true,
+    target                  : ts.ScriptTarget.ES2022,
+    module                  : ts.ModuleKind.ESNext,
+    moduleResolution        : ts.ModuleResolutionKind.Bundler,
+    lib                     : [ "lib.es2022.d.ts", "lib.dom.d.ts" ],
+    strict                  : true,
     useDefineForClassFields : false,
     skipLibCheck            : true,
     declaration             : true,
@@ -81,10 +81,10 @@ const compilerOptions: ts.CompilerOptions = {
 }
 
 type Perturbation = {
-    fileName : string
-    text     : string
-    line     : number
-    column   : number
+    fileName : string,
+    text     : string,
+    line     : number,
+    column   : number,
     word     : string
 }
 
@@ -119,7 +119,7 @@ function originalSourceOfFile(fileName: string): ts.SourceFile | undefined {
 }
 
 function createCachingHost(perturbation: Perturbation): ts.CompilerHost {
-    const host         = ts.createCompilerHost(compilerOptions, true)
+    const host          = ts.createCompilerHost(compilerOptions, true)
     const baseGetSource = host.getSourceFile.bind(host)
 
     host.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
@@ -146,13 +146,13 @@ function createCachingHost(perturbation: Perturbation): ts.CompilerHost {
 }
 
 function buildProgram(rootNames: string[], mode: "emit" | "ide", perturbation: Perturbation): ts.Program {
-    const host         = createCachingHost(perturbation)
-    const baseProgram  = ts.createProgram(rootNames, compilerOptions, host)
+    const host        = createCachingHost(perturbation)
+    const baseProgram = ts.createProgram(rootNames, compilerOptions, host)
 
     return transformProgram(
         baseProgram,
         host,
-        { allowUndefinedForRequiredProperties : true, mode },
+        { allowUndefinedForRequiredProperties: true, mode },
         { ts } as never
     )
 }
@@ -188,9 +188,9 @@ function heritageRanges(originalSourceFile: ts.SourceFile): Array<{ start: numbe
 }
 
 type DiagnosticEntry = {
-    line    : string  // `basename:line`
-    column  : number
-    code    : number
+    line    : string,  // `basename:line`
+    column  : number,
+    code    : number,
     message : string
 }
 
@@ -233,7 +233,7 @@ function diagnosticEntries(
             }
 
             const original = originalSourceFor(diagnostic.file.fileName)
-            const start     = diagnostic.start
+            const start    = diagnostic.start
 
             if (original !== undefined &&
                 heritageRanges(original).some((range) => start >= range.start && start < range.end)
@@ -349,8 +349,8 @@ it("emit and source-view report diagnostics at the same source positions across 
             return
         }
 
-        const offset       = random.pick(offsets)
-        const location     = ts.getLineAndCharacterOfPosition(parsed, offset)
+        const offset                     = random.pick(offsets)
+        const location                   = ts.getLineAndCharacterOfPosition(parsed, offset)
         const perturbation: Perturbation = {
             fileName,
             text   : `${text.slice(0, offset)}Zq9${text.slice(offset)}`,
@@ -362,7 +362,7 @@ it("emit and source-view report diagnostics at the same source positions across 
         // Heritage-clause spans come from the *original* text the compiled file holds:
         // the perturbed text for the edited file, on-disk text for the rest. Both modes'
         // diagnostics are in these coordinates, so the same ranges filter both.
-        const perturbedSource  = ts.createSourceFile(fileName, perturbation.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+        const perturbedSource   = ts.createSourceFile(fileName, perturbation.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
         const originalSourceFor = (diagnosticFileName: string): ts.SourceFile | undefined => {
             return diagnosticFileName === fileName ? perturbedSource : originalSourceOfFile(diagnosticFileName)
         }
@@ -429,7 +429,7 @@ it("emit and source-view report diagnostics at the same source positions across 
                     `${JSON.stringify([ ...(ideColumns.get(columnKey(columnMismatch)) ?? []) ])}`
             ].join("\n")
         }
-    }, { durationMs : 8000, maxIterations : 24 })
+    }, { durationMs: 8000, maxIterations: 24 })
 
     if (failure !== undefined) {
         t.fail(failure)

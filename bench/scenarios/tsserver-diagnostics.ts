@@ -37,10 +37,10 @@ export async function runTsServerDiagnostics(config: BenchConfig): Promise<Bench
             samples.push(await runSemanticDiagnosticsRequest(fixture.directory, fixture.consumerFile))
         }
 
-        rows.push({ name : scenarioDirectoryName(scenario), samples })
+        rows.push({ name: scenarioDirectoryName(scenario), samples })
     }
 
-    return { id : "tsserver-diagnostics", title : "Tsserver semantic diagnostics", rows }
+    return { id: "tsserver-diagnostics", title: "Tsserver semantic diagnostics", rows }
 }
 
 function diagnosticsScenarios(config: BenchConfig): BenchmarkScenario[] {
@@ -56,14 +56,14 @@ function diagnosticsScenarios(config: BenchConfig): BenchmarkScenario[] {
 }
 
 async function runSemanticDiagnosticsRequest(fixtureDirectory: string, consumerFile: string): Promise<number> {
-    const text = await readFile(consumerFile, "utf8")
+    const text    = await readFile(consumerFile, "utf8")
     const session = createTsServerSession(tsserverFile, fixtureDirectory)
 
     try {
         await openFile(session, consumerFile, text)
 
-        const start = performance.now()
-        const response = await session.sendRequest("semanticDiagnosticsSync", { file : consumerFile })
+        const start    = performance.now()
+        const response = await session.sendRequest("semanticDiagnosticsSync", { file: consumerFile })
         const duration = performance.now() - start
 
         assertSuccessfulTsServerResponse(response, "semanticDiagnosticsSync")

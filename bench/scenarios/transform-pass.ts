@@ -21,8 +21,8 @@ import type { BenchReport, BenchRow } from "../lib/report.js"
 //   emit (compile):               transform -> print -> reparse
 
 const tsInstance = tsModule as unknown as TypeScript
-const fileName = "/virtual/transform-pass.ts"
-const target = tsModule.ScriptTarget.ES2022
+const fileName   = "/virtual/transform-pass.ts"
+const target     = tsModule.ScriptTarget.ES2022
 
 type TransformPassScenario = {
     name             : string,
@@ -33,7 +33,7 @@ type TransformPassScenario = {
 }
 
 export function runTransformPass(config: BenchConfig): BenchReport {
-    const modes = passModesFor(config.passMode)
+    const modes            = passModesFor(config.passMode)
     const rows: BenchRow[] = []
 
     for (const scenario of transformPassScenarios()) {
@@ -44,7 +44,7 @@ export function runTransformPass(config: BenchConfig): BenchReport {
         }
     }
 
-    return { id : "transform-pass", title : "Transform-pass (in-process)", rows }
+    return { id: "transform-pass", title: "Transform-pass (in-process)", rows }
 }
 
 function runScenario(
@@ -58,16 +58,16 @@ function runScenario(
         runSample(mode, sourceFile, config.transformPassIterations)
     }
 
-    const samples: number[] = []
+    const samples: number[]                       = []
     const breakdownTotals: Record<string, number> = {}
 
     for (let index = 0; index < config.iterations; index++) {
         const steps = runSample(mode, sourceFile, config.transformPassIterations)
-        let total = 0
+        let total   = 0
 
         for (const [ step, value ] of Object.entries(steps)) {
             breakdownTotals[step] = (breakdownTotals[step] ?? 0) + value
-            total += value
+            total                += value
         }
 
         samples.push(total)
@@ -80,7 +80,7 @@ function runScenario(
     }
 
     return {
-        name    : labelMode ? `${scenario.name} · ${mode}` : scenario.name,
+        name : labelMode ? `${scenario.name} · ${mode}` : scenario.name,
         samples,
         breakdown
     }
@@ -93,7 +93,7 @@ function runSample(
     iterations: number
 ): Record<string, number> {
     const totals: Record<string, number> = {}
-    const runPass = mode === "emit" ? runEmitOnce : runSourceViewOnce
+    const runPass                        = mode === "emit" ? runEmitOnce : runSourceViewOnce
 
     for (let index = 0; index < iterations; index++) {
         runPass(sourceFile, totals)
@@ -109,8 +109,8 @@ function runSample(
 }
 
 function runSourceViewOnce(sourceFile: ts.SourceFile, into: Record<string, number>): void {
-    const cloned = time(into, "clone", () => cloneSourceFileForTransform(tsInstance, sourceFile, target))
-    const transformed = time(into, "xform", () => transformSourceFile(tsInstance, cloned, { sourceView : true }))
+    const cloned      = time(into, "clone", () => cloneSourceFileForTransform(tsInstance, sourceFile, target))
+    const transformed = time(into, "xform", () => transformSourceFile(tsInstance, cloned, { sourceView: true }))
 
     if (transformed === cloned) {
         throw new Error("Generated transform-pass file was not transformed -- mixin detection failed")
@@ -121,7 +121,7 @@ function runSourceViewOnce(sourceFile: ts.SourceFile, into: Record<string, numbe
 }
 
 function runEmitOnce(sourceFile: ts.SourceFile, into: Record<string, number>): void {
-    const transformed = time(into, "xform", () => transformSourceFile(tsInstance, sourceFile, { sourceView : false }))
+    const transformed = time(into, "xform", () => transformSourceFile(tsInstance, sourceFile, { sourceView: false }))
 
     if (transformed === sourceFile) {
         throw new Error("Generated transform-pass file was not transformed -- mixin detection failed")
@@ -133,7 +133,7 @@ function runEmitOnce(sourceFile: ts.SourceFile, into: Record<string, number>): v
 }
 
 function time<T>(into: Record<string, number>, step: string, run: () => T): T {
-    const mark = performance.now()
+    const mark   = performance.now()
     const result = run()
 
     into[step] = (into[step] ?? 0) + (performance.now() - mark)

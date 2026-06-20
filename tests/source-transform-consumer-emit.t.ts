@@ -26,7 +26,7 @@ it("expands a consumer class into a merged intermediate base", async (t: Test) =
         class Consumer<A> extends Base implements SourceClass1<string>, SourceClass2<A> {
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface __Consumer$base<A> extends SourceClass1<string>, SourceClass2<A>",
         "Merged interface repeats the implements list verbatim")
@@ -52,7 +52,7 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
         class Consumer<T> implements SourceClass1<T> {
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "class __Consumer$empty {\n}",
         "An explicit empty base class is generated")
@@ -83,7 +83,7 @@ it("adds a synthetic super call to consumer constructors without an explicit bas
             }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "constructor(value: T) {\n        super();\n        this.value = value;\n    }",
         "Consumer constructor gets a leading synthetic super call")
@@ -116,7 +116,7 @@ it("emits a generic consumer base class", async (t: Test) => {
             }
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface __Consumer$base<A> extends Base<A>, SourceClass1<string>",
         "Merged interface includes the instantiated generic base")
@@ -139,7 +139,7 @@ it("consumer transitively applies mixin dependencies", async (t: Test) => {
         class Consumer<T> implements ChildMixin<T> {
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "mixinChain(__Consumer$empty, ChildMixin)",
         "Consumer delegates transitive dependency application to the runtime helper")
@@ -164,7 +164,7 @@ it("does not treat non-mixin implements entries as mixins", async (t: Test) => {
             contractMethod (): void {}
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "interface __Consumer$base<T> extends SourceClass1<T> {",
         "Merged interface contains only mixin entries")
@@ -196,7 +196,7 @@ it("generates public-only static construction config overloads by default", asyn
             skippedOwnValue: T | undefined
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(
         printed,
@@ -229,7 +229,7 @@ it("generates public-only static construction config overloads for plain Base de
             skippedValue: string = ""
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(
         printed,
@@ -261,7 +261,7 @@ it("generates construction members for transitive same-file Base descendants", a
             public l: boolean = false
         }
     `))
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "): GrandBase;",
         "A direct Base descendant gets its own static new")
@@ -291,7 +291,7 @@ it("can emit undefined non-null initializers for public-only construction config
     `), {
         allowUndefinedForRequiredProperties : true
     })
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "public baseValue: number = undefined!",
         "Base public-only config field gets a local undefined non-null initializer")
@@ -315,7 +315,7 @@ it("can emit undefined non-null initializers for plain Base descendants without 
     `), {
         allowUndefinedForRequiredProperties : true
     })
-    const printed = printSourceFile(ts, transformedFile)
+    const printed         = printSourceFile(ts, transformedFile)
 
     t.match(printed, "public value: number = undefined!",
         "Plain Base descendant required property gets a local undefined non-null initializer")

@@ -53,7 +53,7 @@ async function buildFixture(
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
@@ -69,7 +69,7 @@ async function buildFixture(
 
 it("a mixin may declare a defaulted type parameter (compiles in emit and source-view)", async (t: Test) => {
     const emitResult       = await buildFixture(defaultedTypeParamMixinText, undefined)
-    const sourceViewResult = await buildFixture(defaultedTypeParamMixinText, { noEmit : true })
+    const sourceViewResult = await buildFixture(defaultedTypeParamMixinText, { noEmit: true })
 
     t.equal(emitResult.exitCode, 0,
         `Emit build of a defaulted-type-parameter mixin should succeed.\n${commandOutput(emitResult)}`)

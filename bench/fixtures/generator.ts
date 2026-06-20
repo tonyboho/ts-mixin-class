@@ -7,22 +7,22 @@ export type BenchmarkMemberKind = "properties"
 export type BenchmarkPropertyVisibility = "implicit" | "public"
 
 export type PreviousWindowGraphOptions = {
-    dependencyWindow     : number,
-    maxDependencyCount   : number,
-    minDependencyCount   : number,
-    seed                 : number
+    dependencyWindow   : number,
+    maxDependencyCount : number,
+    minDependencyCount : number,
+    seed               : number
 }
 
 export type BenchmarkScenario = {
-    name              : string,
-    size              : number,
-    graph             : BenchmarkGraphKind,
-    members           : BenchmarkMemberKind,
-    propertyCount     : number,
+    name               : string,
+    size               : number,
+    graph              : BenchmarkGraphKind,
+    members            : BenchmarkMemberKind,
+    propertyCount      : number,
     propertyVisibility : BenchmarkPropertyVisibility,
     construction       : BenchmarkConstructionMode,
     previousWindow?    : PreviousWindowGraphOptions,
-    consumerLeafCount : number
+    consumerLeafCount  : number
 }
 
 export type BenchmarkFixture = {
@@ -46,8 +46,8 @@ type SourceFile = {
 export async function createBenchmarkFixture(options: CreateBenchmarkFixtureOptions): Promise<BenchmarkFixture> {
     const directory = path.join(options.root, scenarioDirectoryName(options.scenario))
 
-    await rm(directory, { force : true, recursive : true })
-    await mkdir(directory, { recursive : true })
+    await rm(directory, { force: true, recursive: true })
+    await mkdir(directory, { recursive: true })
 
     const sourceFiles = generateSourceFiles(options.scenario)
 
@@ -61,7 +61,7 @@ export async function createBenchmarkFixture(options: CreateBenchmarkFixtureOpti
     for (const sourceFile of sourceFiles) {
         const fileName = path.join(directory, sourceFile.fileName)
 
-        await mkdir(path.dirname(fileName), { recursive : true })
+        await mkdir(path.dirname(fileName), { recursive: true })
         await writeFile(fileName, sourceFile.text)
     }
 
@@ -71,7 +71,7 @@ export async function createBenchmarkFixture(options: CreateBenchmarkFixtureOpti
         directory,
         tsconfigFile : path.join(directory, "tsconfig.json"),
         consumerFile : path.join(directory, "src", "consumer.ts"),
-        mixinFiles   : Array.from({ length : options.scenario.size }, (_, index) => {
+        mixinFiles   : Array.from({ length: options.scenario.size }, (_, index) => {
             return path.join(directory, "src", `${mixinModuleName(index)}.ts`)
         })
     }
@@ -137,12 +137,12 @@ export function previousWindowPropertiesScenario(
             `${graphOptions.dependencyWindow}-window`
         ].filter((part) => part !== undefined).join("-"),
         size,
-        graph          : "previous-window",
-        members        : "properties",
+        graph             : "previous-window",
+        members           : "properties",
         propertyCount,
         propertyVisibility,
         construction,
-        previousWindow : graphOptions,
+        previousWindow    : graphOptions,
         consumerLeafCount : Math.min(8, Math.max(1, Math.ceil(size / 32)))
     }
 }
@@ -154,7 +154,7 @@ export function binaryTreePropertiesScenario(
     construction: BenchmarkConstructionMode = "plain"
 ): BenchmarkScenario {
     return {
-        name              : [
+        name : [
             "binary-tree",
             size,
             `${propertyVisibility}-properties`,
@@ -193,7 +193,7 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
     }
 
     return [
-        ...Array.from({ length : scenario.size }, (_, index) => {
+        ...Array.from({ length: scenario.size }, (_, index) => {
             return {
                 fileName : `src/${mixinModuleName(index)}.ts`,
                 text     : mixinSource(scenario, index)
@@ -208,17 +208,17 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
 
 function mixinSource(scenario: BenchmarkScenario, index: number): string {
     const dependencyIndexes = mixinDependencyIndexes(scenario, index)
-    const imports = [
+    const imports           = [
         `import { mixin } from "ts-mixin-class"`,
         ...dependencyIndexes.map((dependencyIndex) => {
             return `import { ${mixinClassName(dependencyIndex)} } from "./${mixinModuleName(dependencyIndex)}.js"`
         })
     ]
-    const implementsClause = dependencyIndexes.length === 0
+    const implementsClause  = dependencyIndexes.length === 0
         ? ""
         : ` implements ${dependencyIndexes.map((dependencyIndex) => mixinClassName(dependencyIndex)).join(", ")}`
-    const visibility = scenario.propertyVisibility === "public" ? "public " : ""
-    const properties = Array.from({ length : scenario.propertyCount }, (_, propertyIndex) => {
+    const visibility        = scenario.propertyVisibility === "public" ? "public " : ""
+    const properties        = Array.from({ length: scenario.propertyCount }, (_, propertyIndex) => {
         return `    ${visibility}value${index}_${propertyIndex}: number = ${index * 1000 + propertyIndex}`
     })
 
@@ -240,12 +240,12 @@ function mixinDependencyIndexes(scenario: BenchmarkScenario, index: number): num
         return [ Math.floor((index - 1) / 2) ]
     }
 
-    const options = scenario.previousWindow ?? defaultPreviousWindowGraphOptions()
-    const firstCandidate = Math.max(0, index - options.dependencyWindow)
-    const candidates = Array.from({ length : index - firstCandidate }, (_, offset) => firstCandidate + offset).reverse()
-    const random = createSeededRandom(options.seed + index * 9973)
-    const minCount = Math.min(options.minDependencyCount, candidates.length)
-    const maxCount = Math.min(Math.max(options.maxDependencyCount, minCount), candidates.length)
+    const options         = scenario.previousWindow ?? defaultPreviousWindowGraphOptions()
+    const firstCandidate  = Math.max(0, index - options.dependencyWindow)
+    const candidates      = Array.from({ length: index - firstCandidate }, (_, offset) => firstCandidate + offset).reverse()
+    const random          = createSeededRandom(options.seed + index * 9973)
+    const minCount        = Math.min(options.minDependencyCount, candidates.length)
+    const maxCount        = Math.min(Math.max(options.maxDependencyCount, minCount), candidates.length)
     const dependencyCount = minCount + Math.floor(random() * (maxCount - minCount + 1))
 
     return candidates.slice(0, dependencyCount)
@@ -259,7 +259,7 @@ function createSeededRandom(seed: number): () => number {
 
         let value = state
 
-        value = Math.imul(value ^ value >>> 15, value | 1)
+        value  = Math.imul(value ^ value >>> 15, value | 1)
         value ^= value + Math.imul(value ^ value >>> 7, value | 61)
 
         return ((value ^ value >>> 14) >>> 0) / 4294967296
@@ -267,21 +267,21 @@ function createSeededRandom(seed: number): () => number {
 }
 
 function consumerSource(scenario: BenchmarkScenario): string {
-    const leafIndexes = consumerLeafIndexes(scenario.size, scenario.consumerLeafCount)
-    const imports = [
+    const leafIndexes      = consumerLeafIndexes(scenario.size, scenario.consumerLeafCount)
+    const imports          = [
         ...(scenario.construction === "base" ? [ `import { Base } from "ts-mixin-class/base"` ] : []),
         ...leafIndexes.map((index) => {
             return `import { ${mixinClassName(index)} } from "./${mixinModuleName(index)}.js"`
         })
     ]
     const implementsClause = leafIndexes.map((index) => mixinClassName(index)).join(", ")
-    const extendsClause = scenario.construction === "base" ? " extends Base" : ""
-    const checks = leafIndexes.flatMap((index) => {
-        return Array.from({ length : scenario.propertyCount }, (_, propertyIndex) => {
+    const extendsClause    = scenario.construction === "base" ? " extends Base" : ""
+    const checks           = leafIndexes.flatMap((index) => {
+        return Array.from({ length: scenario.propertyCount }, (_, propertyIndex) => {
             return `consumer.value${index}_${propertyIndex}`
         })
     })
-    const construction = scenario.construction === "base"
+    const construction     = scenario.construction === "base"
         ? constructionSource(scenario, leafIndexes)
         : ""
 
@@ -300,7 +300,7 @@ ${checks.map((check) => `void ${check}`).join("\n")}
 function constructionSource(scenario: BenchmarkScenario, leafIndexes: number[]): string {
     const configProperties = scenario.propertyVisibility === "public"
         ? [ ...mixinDependencyClosure(scenario, leafIndexes) ].flatMap((index) => {
-            return Array.from({ length : scenario.propertyCount }, (_, propertyIndex) => {
+            return Array.from({ length: scenario.propertyCount }, (_, propertyIndex) => {
                 return `    value${index}_${propertyIndex}: ${index * 1000 + propertyIndex}`
             })
         })
@@ -315,7 +315,7 @@ void configured`
 
 function mixinDependencyClosure(scenario: BenchmarkScenario, roots: number[]): number[] {
     const visited = new Set<number>()
-    const visit = (index: number): void => {
+    const visit   = (index: number): void => {
         if (visited.has(index)) {
             return
         }
@@ -336,7 +336,7 @@ function mixinDependencyClosure(scenario: BenchmarkScenario, roots: number[]): n
 
 function consumerLeafIndexes(size: number, count: number): number[] {
     const firstLeaf = Math.floor(size / 2)
-    const leaves = Array.from({ length : size - firstLeaf }, (_, offset) => firstLeaf + offset)
+    const leaves    = Array.from({ length: size - firstLeaf }, (_, offset) => firstLeaf + offset)
 
     return leaves.slice(-Math.min(count, leaves.length)).reverse()
 }
@@ -375,7 +375,7 @@ function createTsconfig(): unknown {
 async function linkNodeModules(packageRoot: string, directory: string): Promise<void> {
     const nodeModules = path.join(directory, "node_modules")
 
-    await mkdir(nodeModules, { recursive : true })
+    await mkdir(nodeModules, { recursive: true })
     await symlink(packageRoot, path.join(nodeModules, "ts-mixin-class"), "dir")
     await symlink(path.join(packageRoot, "node_modules", "typescript"), path.join(nodeModules, "typescript"), "dir")
 }

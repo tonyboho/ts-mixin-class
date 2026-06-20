@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
+const packageRoot   = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..")
 const generatedRoot = path.join(packageRoot, "bench", "fixtures", "generated", "typescript-interface-repro")
-const tscFile = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
+const tscFile       = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 
 type Scenario = {
     size   : number,
@@ -17,38 +17,38 @@ type Scenario = {
 }
 
 type ScenarioResult = {
-    scenario  : Scenario,
-    checkTime?: string,
-    totalTime?: string,
-    timedOut  : boolean
-    wallMs?   : number
+    scenario   : Scenario,
+    checkTime? : string,
+    totalTime? : string,
+    timedOut   : boolean,
+    wallMs?    : number
 }
 
-const sizes = numberListEnv("TS_INTERFACE_REPRO_SIZES", [ 25, 30, 32, 40 ])
-const props = numberEnv("TS_INTERFACE_REPRO_PROPS", 20)
+const sizes      = numberListEnv("TS_INTERFACE_REPRO_SIZES", [ 25, 30, 32, 40 ])
+const props      = numberEnv("TS_INTERFACE_REPRO_PROPS", 20)
 const windowSize = numberEnv("TS_INTERFACE_REPRO_WINDOW", 8)
-const timeoutMs = numberEnv("TS_INTERFACE_REPRO_TIMEOUT_MS", 30_000)
+const timeoutMs  = numberEnv("TS_INTERFACE_REPRO_TIMEOUT_MS", 30_000)
 
 const results: ScenarioResult[] = []
 
 for (const size of sizes) {
-    const scenario = { size, props, window : windowSize }
-    const fixture = await createInterfaceFixture(scenario)
+    const scenario = { size, props, window: windowSize }
+    const fixture  = await createInterfaceFixture(scenario)
     results.push(await runScenario(scenario, fixture.tsconfigFile))
 }
 
 printResults(results)
 
 async function createInterfaceFixture(scenario: Scenario): Promise<{ tsconfigFile: string }> {
-    const directory = path.join(
+    const directory    = path.join(
         generatedRoot,
         `interfaces-${scenario.size}-props-${scenario.props}-window-${scenario.window}`
     )
-    const sourceFile = path.join(directory, "index.ts")
+    const sourceFile   = path.join(directory, "index.ts")
     const tsconfigFile = path.join(directory, "tsconfig.json")
 
-    await rm(directory, { recursive : true, force : true })
-    await mkdir(directory, { recursive : true })
+    await rm(directory, { recursive: true, force: true })
+    await mkdir(directory, { recursive: true })
 
     await writeFile(sourceFile, interfaceSource(scenario))
     await writeFile(tsconfigFile, JSON.stringify({
@@ -69,7 +69,7 @@ function interfaceSource(scenario: Scenario): string {
     const lines: string[] = []
 
     for (let index = 0; index < scenario.size; index++) {
-        const bases = baseNames(index, scenario.window)
+        const bases    = baseNames(index, scenario.window)
         const heritage = bases.length === 0 ? "" : ` extends ${bases.join(", ")}`
 
         lines.push(`export interface I${index}${heritage} {`)
@@ -107,7 +107,7 @@ async function runScenario(scenario: Scenario, tsconfigFile: string): Promise<Sc
                 timeout : timeoutMs
             }
         )
-        const output = `${stdout}\n${stderr}`
+        const output             = `${stdout}\n${stderr}`
 
         return {
             scenario,
@@ -145,7 +145,7 @@ function printResults(results: ScenarioResult[]): void {
     for (const result of results) {
         const check = result.timedOut ? "timeout" : result.checkTime ?? "n/a"
         const total = result.timedOut ? "timeout" : result.totalTime ?? "n/a"
-        const wall = result.wallMs === undefined ? "n/a" : `${result.wallMs.toFixed(1)}ms`
+        const wall  = result.wallMs === undefined ? "n/a" : `${result.wallMs.toFixed(1)}ms`
 
         console.log(`${result.scenario.size.toString().padEnd(5)} ${wall.padEnd(9)} ${check.padEnd(9)} ${total}`)
     }

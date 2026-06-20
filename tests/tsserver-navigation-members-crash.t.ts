@@ -48,7 +48,7 @@ async function navigate<Body>(
     command: string,
     targetMarker: { fileName: string, text: string, marker: string, withinMarker?: number }
 ): Promise<Body> {
-    const fixture = await createTypeScriptFixture({ experimentalDecorators : false, sourceFiles : files })
+    const fixture = await createTypeScriptFixture({ experimentalDecorators: false, sourceFiles: files })
 
     try {
         const targetFile = requiredFixtureSourceFile(fixture.sourceFiles, targetMarker.fileName)
@@ -79,8 +79,8 @@ const genericMixinText = trimIndent(`
 it("tsserver navigation does not crash on a generic mixin's type parameter", async (t: Test) => {
     // Crash site: navigating a type parameter ran forEachSymbolTableInScope from
     // the generated (unbound-clone) class and read `.members` of undefined.
-    const files = [ { fileName : "source.ts", text : genericMixinText } ]
-    const usage = { fileName : "source.ts", text : genericMixinText, marker : "item?: T", withinMarker : "item?: ".length }
+    const files = [ { fileName: "source.ts", text: genericMixinText } ]
+    const usage = { fileName: "source.ts", text: genericMixinText, marker: "item?: T", withinMarker: "item?: ".length }
 
     const quickInfo = await navigate<QuickInfoBody>(t, files, "quickinfo", usage)
     t.match(quickInfo.displayString ?? "", "(type parameter) T", "Quickinfo on the type parameter resolves instead of crashing")
@@ -88,7 +88,7 @@ it("tsserver navigation does not crash on a generic mixin's type parameter", asy
     const definitions = await navigate<DefinitionBody>(t, files, "definition", usage)
     t.true(definitions.length > 0, "Go-to-definition on the type parameter resolves instead of crashing")
 
-    const rename = await navigate<RenameBody>(t, files, "rename", { fileName : "source.ts", text : genericMixinText, marker : "<T>", withinMarker : 1 })
+    const rename = await navigate<RenameBody>(t, files, "rename", { fileName: "source.ts", text: genericMixinText, marker: "<T>", withinMarker: 1 })
     t.true(rename.info?.canRename, "Rename on the type parameter responds instead of crashing")
     t.equal(rename.info?.displayName, "T", "Rename targets the type parameter")
 })
@@ -128,8 +128,8 @@ it("tsserver navigation does not crash on a generic consumer's type parameter ac
     // to the real declaration fixtures. The generated consumer heritage and its
     // type parameter both kept `.original` links into the unbound clone.
     const files = [
-        { fileName : "source.ts", text : decoratedConsumerText },
-        { fileName : "mixins.ts", text : genericMixinsText }
+        { fileName: "source.ts", text: decoratedConsumerText },
+        { fileName: "mixins.ts", text: genericMixinsText }
     ]
 
     const quickInfo = await navigate<QuickInfoBody>(t, files, "quickinfo", {
@@ -165,9 +165,9 @@ it("tsserver navigation does not crash on `new Box<…>()` of an implements-only
     // forEachSymbolTableInScope walked into the detached clone class and crashed.
     const definitions = await navigate<DefinitionBody>(
         t,
-        [ { fileName : "source.ts", text : genericConstructionText } ],
+        [ { fileName: "source.ts", text: genericConstructionText } ],
         "definition",
-        { fileName : "source.ts", text : genericConstructionText, marker : "new Box<number>", withinMarker : "new ".length }
+        { fileName: "source.ts", text: genericConstructionText, marker: "new Box<number>", withinMarker: "new ".length }
     )
 
     t.true(definitions.length > 0, "Go-to-definition on `new Box<number>()` resolves instead of crashing")

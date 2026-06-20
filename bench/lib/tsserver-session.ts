@@ -5,12 +5,12 @@ import path from "node:path"
 // real tsserver over Node IPC, send requests, await responses, exit cleanly.
 
 export type TsServerResponse = {
-    body?       : unknown,
-    command?    : string,
-    message?    : string,
-    request_seq?: number,
-    success?    : boolean,
-    type?       : string
+    body?        : unknown,
+    command?     : string,
+    message?     : string,
+    request_seq? : number,
+    success?     : boolean,
+    type?        : string
 }
 
 export type TsServerSession = {
@@ -19,7 +19,7 @@ export type TsServerSession = {
 }
 
 export function createTsServerSession(tsserverFile: string, fixtureDirectory: string): TsServerSession {
-    const server = fork(tsserverFile, [
+    const server           = fork(tsserverFile, [
         "--logVerbosity",
         "terse",
         "--logFile",
@@ -31,7 +31,7 @@ export function createTsServerSession(tsserverFile: string, fixtureDirectory: st
         silent : true
     })
     const pendingResponses = new Map<number, (response: TsServerResponse) => void>()
-    let sequence = 0
+    let sequence           = 0
 
     server.on("message", (message: TsServerResponse) => {
         if (message.type !== "response" || message.request_seq === undefined) {
@@ -45,7 +45,7 @@ export function createTsServerSession(tsserverFile: string, fixtureDirectory: st
     server.stderr?.on("data", () => {})
 
     return {
-        close       : stopServer,
+        close : stopServer,
         sendRequest
     }
 

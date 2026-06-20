@@ -32,13 +32,13 @@ it("tsserver rename succeeds on every fixture symbol and finds locations when re
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : corpus.map((file) => ({ fileName : file.fileName, text : file.text }))
+        sourceFiles            : corpus.map((file) => ({ fileName: file.fileName, text: file.text }))
     })
 
     const sites: SiteWithFile[] = corpus.flatMap((file) => {
         const absolutePath = fixture.sourceFiles.get(file.fileName)!
 
-        return collectIdentifierSites(file).map((site) => ({ ...site, file : absolutePath }))
+        return collectIdentifierSites(file).map((site) => ({ ...site, file: absolutePath }))
     })
 
     const session = openTsServerSession(fixture.directory)
@@ -49,7 +49,7 @@ it("tsserver rename succeeds on every fixture symbol and finds locations when re
         }
 
         let failure: string | undefined
-        let renameable = 0
+        let renameable    = 0
         let notRenameable = 0
 
         const describe = (site: SiteWithFile): string =>

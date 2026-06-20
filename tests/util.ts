@@ -13,37 +13,37 @@ export const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.u
 const execFileAsync = promisify(execFile)
 
 export type CommandResult = {
-    command : string,
+    command  : string,
     exitCode : number,
-    stdout : string,
-    stderr : string,
+    stdout   : string,
+    stderr   : string
 }
 
 type ExecFileFailure = Error & {
-    code? : number | string,
+    code?   : number | string,
     stdout? : string | Buffer,
-    stderr? : string | Buffer,
+    stderr? : string | Buffer
 }
 
 export type TypeScriptFixtureOptions = {
-    sourceFiles : TypeScriptFixtureSourceFile[],
-    extraFiles? : TypeScriptFixtureSourceFile[],
+    sourceFiles            : TypeScriptFixtureSourceFile[],
+    extraFiles?            : TypeScriptFixtureSourceFile[],
     experimentalDecorators : boolean,
-    compilerOptions? : Record<string, unknown>,
-    compilerPlugins? : Record<string, unknown>[],
-    keep? : boolean
+    compilerOptions?       : Record<string, unknown>,
+    compilerPlugins?       : Record<string, unknown>[],
+    keep?                  : boolean
 }
 
 export type TypeScriptFixtureSourceFile = {
     fileName : string,
-    text : string,
+    text     : string
 }
 
 export type TypeScriptFixture = {
-    directory : string,
-    sourceFiles : Map<string, string>,
+    directory    : string,
+    sourceFiles  : Map<string, string>,
     tsconfigFile : string,
-    dispose : () => Promise<void>
+    dispose      : () => Promise<void>
 }
 
 export function requiredFixtureSourceFile(sourceFiles: Map<string, string>, fileName: string): string {
@@ -73,7 +73,7 @@ export async function createTypeScriptFixture(options: TypeScriptFixtureOptions)
     for (const { fileName, text } of [ ...options.sourceFiles, ...(options.extraFiles ?? []) ]) {
         const sourceFilePath = path.join(directory, fileName)
 
-        await mkdir(path.dirname(sourceFilePath), { recursive : true })
+        await mkdir(path.dirname(sourceFilePath), { recursive: true })
         await writeFile(sourceFilePath, text)
     }
 
@@ -89,7 +89,7 @@ export async function createTypeScriptFixture(options: TypeScriptFixtureOptions)
                 return
             }
 
-            await rm(directory, { force : true, recursive : true })
+            await rm(directory, { force: true, recursive: true })
         }
     }
 }
@@ -132,7 +132,7 @@ function createTsconfig(
                 ...extraCompilerOptionPlugins
             ],
             ...restCompilerOptions,
-            strict                  : true,
+            strict : true,
             experimentalDecorators
         },
         files : sourceFileNames
@@ -143,8 +143,8 @@ async function linkNodeModules(directory: string): Promise<void> {
     const nodeModules  = path.join(directory, "node_modules")
     const bryntumScope = path.join(nodeModules, "@bryntum")
 
-    await mkdir(nodeModules, { recursive : true })
-    await mkdir(bryntumScope, { recursive : true })
+    await mkdir(nodeModules, { recursive: true })
+    await mkdir(bryntumScope, { recursive: true })
     await symlink(packageRoot, path.join(nodeModules, "ts-mixin-class"), "dir")
     await symlink(path.join(packageRoot, "node_modules/typescript"), path.join(nodeModules, "typescript"), "dir")
     await symlink(path.join(packageRoot, "node_modules/@bryntum/siesta"), path.join(bryntumScope, "siesta"), "dir")

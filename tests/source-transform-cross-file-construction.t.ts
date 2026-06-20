@@ -20,7 +20,7 @@ async function buildDeclarationPackage(
 ): Promise<TypeScriptFixtureSourceFile[]> {
     const library = await createTypeScriptFixture({
         experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
+        compilerOptions        : { declaration: true },
         sourceFiles            : libraryFiles
     })
 
@@ -47,7 +47,7 @@ async function buildDeclarationPackage(
             if (name.endsWith(".js")) {
                 const stem = name.slice(0, -3)
 
-                exportsMap[`./${stem}`] = { types : `./${stem}.d.ts`, default : `./${stem}.js` }
+                exportsMap[`./${stem}`] = { types: `./${stem}.d.ts`, default: `./${stem}.js` }
             }
         }
 
@@ -125,7 +125,7 @@ it("regenerates construction members for an ordinary class extending an imported
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
-            { fileName : "provider.ts", text : providerText },
+            { fileName: "provider.ts", text: providerText },
             {
                 fileName : "consumer.ts",
                 text     : `
@@ -167,7 +167,7 @@ it("reports a failing cross-file `.new(...)` call as a type error without crashi
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
-            { fileName : "provider.ts", text : providerText },
+            { fileName: "provider.ts", text: providerText },
             {
                 fileName : "consumer.ts",
                 text     : `
@@ -204,7 +204,7 @@ it("regenerates construction members for a consumer of an imported Base-descenda
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
-            { fileName : "provider.ts", text : providerText },
+            { fileName: "provider.ts", text: providerText },
             {
                 fileName : "consumer.ts",
                 text     : `
@@ -240,7 +240,7 @@ it("supports a consumer of an imported mixin that extends Base directly, includi
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
-            { fileName : "provider.ts", text : providerText },
+            { fileName: "provider.ts", text: providerText },
             {
                 fileName : "consumer.ts",
                 text     : `
@@ -270,7 +270,7 @@ it("supports a consumer of an imported mixin that extends Base directly, includi
         const run = await runCommand("node", [ path.join(fixture.directory, "dist", "consumer.js") ], fixture.directory)
 
         t.isStrict(run.exitCode, 0, `Emitted consumer runs:\n${commandOutput(run)}`)
-        t.match(run.stdout, `RESULT:${JSON.stringify({ a : 7, b : true, tag : "init:7" })}`,
+        t.match(run.stdout, `RESULT:${JSON.stringify({ a: 7, b: true, tag: "init:7" })}`,
             "The mixin's initialize override (which calls super.initialize on Base) runs for the consumer")
     } finally {
         await fixture.dispose()
@@ -286,7 +286,7 @@ it("aggregates an imported construction consumer's mixin config when subclassed 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
-            { fileName : "provider.ts", text : providerText },
+            { fileName: "provider.ts", text: providerText },
             {
                 fileName : "consumer.ts",
                 text     : `

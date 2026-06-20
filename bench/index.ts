@@ -29,10 +29,10 @@ import { runTsServerEdit } from "./scenarios/tsserver-edit.js"
 type Scenario = "all" | "compile" | "edit" | "transform" | "tsserver"
 
 const transcript: string[] = []
-const reportFile = path.join(resultsRoot, "report.txt")
-const cli = parseArgs(process.argv.slice(2))
-const config = withCliOverrides(readBenchConfig(), cli)
-const baseline = cli.baseline === undefined ? undefined : await loadBaseline(baselineFile(cli.baseline))
+const reportFile           = path.join(resultsRoot, "report.txt")
+const cli                  = parseArgs(process.argv.slice(2))
+const config               = withCliOverrides(readBenchConfig(), cli)
+const baseline             = cli.baseline === undefined ? undefined : await loadBaseline(baselineFile(cli.baseline))
 
 printHeader(config, cli.scenario)
 
@@ -101,18 +101,18 @@ function printHeader(config: BenchConfig, scenario: Scenario): void {
 }
 
 function withCliOverrides(config: BenchConfig, cli: CliArgs): BenchConfig {
-    return cli.full ? { ...config, table : "full" } : config
+    return cli.full ? { ...config, table: "full" } : config
 }
 
 type CliArgs = {
-    scenario : Scenario,
-    full     : boolean,
-    save?    : string,
-    baseline?: string
+    scenario  : Scenario,
+    full      : boolean,
+    save?     : string,
+    baseline? : string
 }
 
 function parseArgs(args: string[]): CliArgs {
-    const result: CliArgs = { scenario : "all", full : false }
+    const result: CliArgs = { scenario: "all", full: false }
 
     for (let index = 0; index < args.length; index++) {
         const arg = args[index]!
@@ -164,7 +164,7 @@ function emit(line = ""): void {
 }
 
 async function writeReport(): Promise<void> {
-    await mkdir(resultsRoot, { recursive : true })
+    await mkdir(resultsRoot, { recursive: true })
     await writeFile(reportFile, `${transcript.join("\n")}\n`)
     console.log("")
     console.log(`Report written to ${path.relative(process.cwd(), reportFile)}`)

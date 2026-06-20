@@ -17,7 +17,7 @@ export async function buildConstructionSource(
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
@@ -34,8 +34,8 @@ export async function buildConstructionSource(
 export async function readConstructionConfigDts(text: string): Promise<string> {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {

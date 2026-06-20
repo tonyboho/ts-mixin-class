@@ -38,7 +38,7 @@ it("tsserver rename does not crash on a construction-base mixin's generated .new
     // checker with "Cannot read properties of undefined (reading 'members')".
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : standaloneConstructionText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: standaloneConstructionText } ]
     })
 
     try {
@@ -52,7 +52,7 @@ it("tsserver rename does not crash on a construction-base mixin's generated .new
                 sourceFile,
                 standaloneConstructionText,
                 "rename",
-                { file : sourceFile, ...positionToLineOffset(standaloneConstructionText, newCall + 1) }
+                { file: sourceFile, ...positionToLineOffset(standaloneConstructionText, newCall + 1) }
             )
         )
 
@@ -67,10 +67,10 @@ it("tsserver rename updates mixin method usages from self, external and super ca
 
     try {
         for (const scenario of [
-            { args : selfMixinMethodArgs(sourceFile), description : "self mixin method call" },
-            { args : usageArgs(sourceFile, "mixinMethod"), description : "external mixin method call" },
-            { args : superMixinMethodArgs(sourceFile), description : "super mixin method call" },
-            { args : consumerSuperMixinMethodArgs(sourceFile), description : "consumer super mixin method call" }
+            { args: selfMixinMethodArgs(sourceFile), description: "self mixin method call" },
+            { args: usageArgs(sourceFile, "mixinMethod"), description: "external mixin method call" },
+            { args: superMixinMethodArgs(sourceFile), description: "super mixin method call" },
+            { args: consumerSuperMixinMethodArgs(sourceFile), description: "consumer super mixin method call" }
         ]) {
             const renamedText = assertRenameAllowed(
                 t,
@@ -149,10 +149,10 @@ it("tsserver rename updates mixin property usages from self, external and super 
 
     try {
         for (const scenario of [
-            { args : selfMixinPropertyArgs(sourceFile), description : "self mixin property usage" },
-            { args : usageArgs(sourceFile, "mixinProperty"), description : "external mixin property usage" },
-            { args : superMixinPropertyArgs(sourceFile), description : "super mixin property usage" },
-            { args : consumerSuperMixinPropertyArgs(sourceFile), description : "consumer super mixin property usage" }
+            { args: selfMixinPropertyArgs(sourceFile), description: "self mixin property usage" },
+            { args: usageArgs(sourceFile, "mixinProperty"), description: "external mixin property usage" },
+            { args: superMixinPropertyArgs(sourceFile), description: "super mixin property usage" },
+            { args: consumerSuperMixinPropertyArgs(sourceFile), description: "consumer super mixin property usage" }
         ]) {
             const renamedText = assertRenameAllowed(
                 t,
@@ -177,8 +177,8 @@ it("tsserver rename updates mixin static members from self and external accesses
 
     try {
         for (const scenario of [
-            { args : selfMixinStaticPropertyArgs(sourceFile), description : "self mixin static property usage" },
-            { args : usageArgs(sourceFile, "mixinStaticProperty"), description : "external mixin static property usage" }
+            { args: selfMixinStaticPropertyArgs(sourceFile), description: "self mixin static property usage" },
+            { args: usageArgs(sourceFile, "mixinStaticProperty"), description: "external mixin static property usage" }
         ]) {
             const renamedText = assertRenameAllowed(
                 t,
@@ -237,7 +237,7 @@ it("tsserver rename of a base class reaches a non-generic consumer's extends cla
     // the residual heritage-navigation gap (AGENTS.md invariant #9 / Current gaps).
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : renameBaseBoundaryText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: renameBaseBoundaryText } ]
     })
 
     try {

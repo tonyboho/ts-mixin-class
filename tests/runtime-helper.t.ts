@@ -3,7 +3,7 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import {
     defineMixinClass,
-    mixinChain,
+    mixinChain
 } from "../src/index.js"
 import {
     base,
@@ -69,8 +69,8 @@ it("exposes runtime metadata through exported symbols", async (t: Test) => {
     class RequiredBase {
     }
 
-    const A = createNamedMixin("A")
-    const B = createNamedMixin("B", [ A ])
+    const A             = createNamedMixin("A")
+    const B             = createNamedMixin("B", [ A ])
     const RequiredMixin = defineMixinClass("RequiredMixin", ((base: AnyConstructor<RequiredBase>) => {
         return class extends base {}
     }) as unknown as MixinFactory, [], RequiredBase)

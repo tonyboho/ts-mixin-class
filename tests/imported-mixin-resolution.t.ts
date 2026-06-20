@@ -63,7 +63,7 @@ const consumerUsing = (importSpecifier: string, localName: string): string => tr
 async function build(files: TypeScriptFixtureSourceFile[]): Promise<{ result: CommandResult, consumerJs: string }> {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
+        compilerOptions        : { declaration: true },
         sourceFiles            : files
     })
 
@@ -102,8 +102,8 @@ async function assertApplied(t: Test, label: string, localName: string, files: T
 
 it("resolves an aliased mixin import (import { Logger as Log })", async (t: Test) => {
     await assertApplied(t, "aliased import", "Log", [
-        { fileName : "logger.ts", text : loggerMixin },
-        { fileName : "consumer.ts", text : trimIndent(`
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName : "consumer.ts", text     : trimIndent(`
             import { Logger as Log } from "./logger"
 
             export class Service implements Log {
@@ -116,41 +116,41 @@ it("resolves an aliased mixin import (import { Logger as Log })", async (t: Test
 
 it("resolves a mixin imported through a named re-export barrel", async (t: Test) => {
     await assertApplied(t, "named barrel", "Logger", [
-        { fileName : "logger.ts", text : loggerMixin },
-        { fileName : "barrel.ts", text : `export { Logger } from "./logger"` },
-        { fileName : "consumer.ts", text : consumerUsing("./barrel", "Logger") }
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName: "barrel.ts", text: `export { Logger } from "./logger"` },
+        { fileName: "consumer.ts", text: consumerUsing("./barrel", "Logger") }
     ])
 })
 
 it("resolves a mixin imported through an aliased re-export (export { Logger as Renamed })", async (t: Test) => {
     await assertApplied(t, "aliased re-export", "Renamed", [
-        { fileName : "logger.ts", text : loggerMixin },
-        { fileName : "barrel.ts", text : `export { Logger as Renamed } from "./logger"` },
-        { fileName : "consumer.ts", text : consumerUsing("./barrel", "Renamed") }
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName: "barrel.ts", text: `export { Logger as Renamed } from "./logger"` },
+        { fileName: "consumer.ts", text: consumerUsing("./barrel", "Renamed") }
     ])
 })
 
 it("resolves a mixin imported through a star re-export (export * from)", async (t: Test) => {
     await assertApplied(t, "star re-export", "Logger", [
-        { fileName : "logger.ts", text : loggerMixin },
-        { fileName : "barrel.ts", text : `export * from "./logger"` },
-        { fileName : "consumer.ts", text : consumerUsing("./barrel", "Logger") }
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName: "barrel.ts", text: `export * from "./logger"` },
+        { fileName: "consumer.ts", text: consumerUsing("./barrel", "Logger") }
     ])
 })
 
 it("resolves a default-exported mixin re-exported by name (export { default as Logger })", async (t: Test) => {
     await assertApplied(t, "default passthrough", "Logger", [
-        { fileName : "logger.ts", text : defaultLoggerMixin },
-        { fileName : "barrel.ts", text : `export { default as Logger } from "./logger"` },
-        { fileName : "consumer.ts", text : consumerUsing("./barrel", "Logger") }
+        { fileName: "logger.ts", text: defaultLoggerMixin },
+        { fileName: "barrel.ts", text: `export { default as Logger } from "./logger"` },
+        { fileName: "consumer.ts", text: consumerUsing("./barrel", "Logger") }
     ])
 })
 
 it("resolves a mixin imported through a nested (two-level) barrel", async (t: Test) => {
     await assertApplied(t, "nested barrel", "Logger", [
-        { fileName : "logger.ts", text : loggerMixin },
-        { fileName : "inner.ts", text : `export { Logger } from "./logger"` },
-        { fileName : "outer.ts", text : `export { Logger } from "./inner"` },
-        { fileName : "consumer.ts", text : consumerUsing("./outer", "Logger") }
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName: "inner.ts", text: `export { Logger } from "./logger"` },
+        { fileName: "outer.ts", text: `export { Logger } from "./inner"` },
+        { fileName: "consumer.ts", text: consumerUsing("./outer", "Logger") }
     ])
 })

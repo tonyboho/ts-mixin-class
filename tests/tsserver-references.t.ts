@@ -21,7 +21,7 @@ import type { DefinitionInfo, QuickInfoBody, TextSpan } from "./tsserver-editor-
 
 type ReferencesBody = {
     refs? : Array<TextSpan & {
-        file : string,
+        file          : string,
         isDefinition? : boolean
     }>
 }
@@ -31,10 +31,10 @@ it("tsserver references resolve mixin properties from self, external and super u
 
     try {
         for (const scenario of [
-            { args : selfMixinPropertyArgs(sourceFile), description : "self mixin property usage" },
-            { args : usageArgs(sourceFile, "mixinProperty"), description : "external mixin property usage" },
-            { args : superMixinPropertyArgs(sourceFile), description : "mixin super property usage" },
-            { args : consumerSuperMixinPropertyArgs(sourceFile), description : "consumer super property usage" }
+            { args: selfMixinPropertyArgs(sourceFile), description: "self mixin property usage" },
+            { args: usageArgs(sourceFile, "mixinProperty"), description: "external mixin property usage" },
+            { args: superMixinPropertyArgs(sourceFile), description: "mixin super property usage" },
+            { args: consumerSuperMixinPropertyArgs(sourceFile), description: "consumer super property usage" }
         ]) {
             const body = assertResponseBody<ReferencesBody>(
                 t,
@@ -55,10 +55,10 @@ it("tsserver references resolve plain class members from instance and static usa
 
     try {
         for (const scenario of [
-            { args : usageArgs(sourceFile, "baseProperty"), count : 3, memberName : "baseProperty", description : "plain base property usage" },
-            { args : usageArgs(sourceFile, "baseMethod"), count : 2, memberName : "baseMethod", description : "plain base method usage" },
-            { args : usageArgs(sourceFile, "baseStaticProperty"), count : 3, memberName : "baseStaticProperty", description : "plain base static property usage" },
-            { args : usageArgs(sourceFile, "baseStaticMethod"), count : 2, memberName : "baseStaticMethod", description : "plain base static method usage" }
+            { args: usageArgs(sourceFile, "baseProperty"), count: 3, memberName: "baseProperty", description: "plain base property usage" },
+            { args: usageArgs(sourceFile, "baseMethod"), count: 2, memberName: "baseMethod", description: "plain base method usage" },
+            { args: usageArgs(sourceFile, "baseStaticProperty"), count: 3, memberName: "baseStaticProperty", description: "plain base static property usage" },
+            { args: usageArgs(sourceFile, "baseStaticMethod"), count: 2, memberName: "baseStaticMethod", description: "plain base static method usage" }
         ]) {
             const body = assertResponseBody<ReferencesBody>(
                 t,
@@ -79,10 +79,10 @@ it("tsserver references resolve mixin methods from self, external and super usag
 
     try {
         for (const scenario of [
-            { args : selfMixinMethodArgs(sourceFile), description : "self mixin method call" },
-            { args : usageArgs(sourceFile, "mixinMethod"), description : "external mixin method call" },
-            { args : superMixinMethodArgs(sourceFile), description : "mixin super method call" },
-            { args : consumerSuperMixinMethodArgs(sourceFile), description : "consumer super method call" }
+            { args: selfMixinMethodArgs(sourceFile), description: "self mixin method call" },
+            { args: usageArgs(sourceFile, "mixinMethod"), description: "external mixin method call" },
+            { args: superMixinMethodArgs(sourceFile), description: "mixin super method call" },
+            { args: consumerSuperMixinMethodArgs(sourceFile), description: "consumer super method call" }
         ]) {
             const body = assertResponseBody<ReferencesBody>(
                 t,
@@ -103,9 +103,9 @@ it("tsserver references resolve mixin static members from self and external usag
 
     try {
         for (const scenario of [
-            { args : selfMixinStaticPropertyArgs(sourceFile), count : 3, memberName : "mixinStaticProperty", description : "self mixin static property usage" },
-            { args : usageArgs(sourceFile, "mixinStaticProperty"), count : 3, memberName : "mixinStaticProperty", description : "external mixin static property usage" },
-            { args : usageArgs(sourceFile, "mixinStaticMethod"), count : 2, memberName : "mixinStaticMethod", description : "external mixin static method usage" }
+            { args: selfMixinStaticPropertyArgs(sourceFile), count: 3, memberName: "mixinStaticProperty", description: "self mixin static property usage" },
+            { args: usageArgs(sourceFile, "mixinStaticProperty"), count: 3, memberName: "mixinStaticProperty", description: "external mixin static property usage" },
+            { args: usageArgs(sourceFile, "mixinStaticMethod"), count: 2, memberName: "mixinStaticMethod", description: "external mixin static method usage" }
         ]) {
             const body = assertResponseBody<ReferencesBody>(
                 t,
@@ -147,7 +147,7 @@ it("tsserver navigation on a consumer class name reaches its own declaration", a
     // position again.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : consumerClassNameText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: consumerClassNameText } ]
     })
 
     try {
@@ -225,7 +225,7 @@ it("tsserver navigation on a base type in an extends clause reaches the base cla
     // #9 "Known gap"), so navigation on their base name remains unresolved.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : consumerExtendsLocalBaseText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: consumerExtendsLocalBaseText } ]
     })
 
     try {
@@ -296,7 +296,7 @@ function countLocalSpans(sourceFile: string, spans: Array<TextSpan & { file?: st
 // the base name in `extends <Base>` reach the real base class. Variants beyond the
 // plain-local case: a concrete-generic base, a qualified base, and a cross-file base.
 async function assertBaseNameNavigates(t: Test, options: {
-    sourceFiles       : Array<{ fileName : string, text : string }>,
+    sourceFiles       : Array<{ fileName: string, text: string }>,
     targetFileName    : string,
     targetText        : string,
     baseNameIndex     : number,
@@ -364,7 +364,7 @@ it("tsserver navigation on a concrete-generic base name (`extends Holder<string>
     `)
 
     await assertBaseNameNavigates(t, {
-        sourceFiles       : [ { fileName : "source.ts", text } ],
+        sourceFiles       : [ { fileName: "source.ts", text } ],
         targetFileName    : "source.ts",
         targetText        : text,
         baseNameIndex     : text.indexOf("extends Holder<string>") + "extends ".length,
@@ -406,12 +406,12 @@ it("tsserver keeps a qualified-base consumer (`extends shapes.Base`) type-checki
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
         const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ text? : string }>>(
+        const diagnostics = assertResponseBody<Array<{ text?: string }>>(
             t,
             await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", {
                 file : sourceFile
@@ -431,7 +431,7 @@ it("tsserver navigation on a cross-file base name (`extends RemoteBase`) reaches
             baseValue: number = 0
         }
     `)
-    const text = trimIndent(`
+    const text     = trimIndent(`
         import { RemoteBase } from "./base.js"
         import { mixin } from "ts-mixin-class"
 
@@ -446,7 +446,7 @@ it("tsserver navigation on a cross-file base name (`extends RemoteBase`) reaches
     `)
 
     await assertBaseNameNavigates(t, {
-        sourceFiles       : [ { fileName : "base.ts", text : baseText }, { fileName : "source.ts", text } ],
+        sourceFiles       : [ { fileName: "base.ts", text: baseText }, { fileName: "source.ts", text } ],
         targetFileName    : "source.ts",
         targetText        : text,
         baseNameIndex     : text.indexOf("extends RemoteBase") + "extends ".length,

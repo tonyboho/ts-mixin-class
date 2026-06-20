@@ -80,7 +80,7 @@ it("transform survives randomized editor-like edits across the fixture corpus", 
         }
 
         try {
-            transformSourceFile(ts, buffer.sourceFile, sourceView ? { sourceView : true } : {})
+            transformSourceFile(ts, buffer.sourceFile, sourceView ? { sourceView: true } : {})
             transformCalls++
 
             return true
@@ -170,10 +170,10 @@ it("transform survives randomized editor-like edits across the fixture corpus", 
         }
 
         const file        = random.pick(corpus)
-        const buffer       = buffers.get(file.fileName)!
-        const original     = buffer.text
-        const sourceView   = random.int(0, 3) !== 0
-        const insertFirst  = random.bool()
+        const buffer      = buffers.get(file.fileName)!
+        const original    = buffer.text
+        const sourceView  = random.int(0, 3) !== 0
+        const insertFirst = random.bool()
 
         if (insertFirst) {
             const position = random.int(0, original.length)

@@ -10,10 +10,10 @@ import { assertSuccessfulCommand, commandOutput, createTypeScriptFixture, packag
 // all clean+rebuild the SHARED `tests/fixture-suite` build output in place, and siesta runs
 // `it` blocks within a file sequentially (one worker) — so they never race. (Split across
 // files, one test's `clean:standard` wiped another's just-built `dist/standard` mid-read.)
-const fixtureSuiteDirectory     = path.join(packageRoot, "tests", "fixture-suite")
+const fixtureSuiteDirectory       = path.join(packageRoot, "tests", "fixture-suite")
 const declarationFixtureDirectory = path.join(packageRoot, "tests", "declaration-fixture-suite")
-const installResult            = await runPnpm(fixtureSuiteDirectory, "install")
-const declarationInstallResult = await runPnpm(declarationFixtureDirectory, "install")
+const installResult               = await runPnpm(fixtureSuiteDirectory, "install")
+const declarationInstallResult    = await runPnpm(declarationFixtureDirectory, "install")
 
 it("builds and runs the fixture suite with standard decorators", async (t: Test) => {
     assertSuccessfulCommand(t, installResult, "Install fixture suite dependencies")
@@ -58,7 +58,7 @@ it("builds and runs the fixture suite with legacy decorators", async (t: Test) =
 it("reports imported declaration mixins without runtime values", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        extraFiles            : [
+        extraFiles             : [
             {
                 fileName : "node_modules/broken-mixin-package/package.json",
                 text     : JSON.stringify({
@@ -72,7 +72,7 @@ it("reports imported declaration mixins without runtime values", async (t: Test)
                 }, null, 4)
             }
         ],
-        sourceFiles            : [
+        sourceFiles : [
             {
                 fileName : "node_modules/broken-mixin-package/index.d.ts",
                 text     : `
@@ -132,7 +132,7 @@ it("builds and runs the declaration fixture suite", async (t: Test) => {
         "Build fixture suite library package"
     )
 
-    const mixinsDeclaration = await readFile(
+    const mixinsDeclaration       = await readFile(
         path.join(fixtureSuiteDirectory, "dist", "standard", "mixins.d.ts"),
         "utf8"
     )

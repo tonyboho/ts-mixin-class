@@ -62,8 +62,8 @@ it('mode "ide" keeps original source text even when emit is enabled', async (t: 
         ...preserveCompilerOptions,
         noEmit : false
     }
-    const host       = createMemoryCompilerHost(new Map([ [ sourceFileName, sourceText ] ]), emitOptions)
-    const sourceFile = getTransformedSourceFile(t, host, emitOptions, { mode : "ide" })
+    const host        = createMemoryCompilerHost(new Map([ [ sourceFileName, sourceText ] ]), emitOptions)
+    const sourceFile  = getTransformedSourceFile(t, host, emitOptions, { mode: "ide" })
 
     t.equal(sourceFile.text, sourceText, 'mode "ide" keeps original source text')
     t.not.isStrict(findClass(sourceFile, "__Consumer$empty"), undefined, 'mode "ide" exposes the generated empty consumer base')
@@ -72,7 +72,7 @@ it('mode "ide" keeps original source text even when emit is enabled', async (t: 
 
 it('mode "emit" prints transformed source even when noEmit is set', async (t: Test) => {
     const host       = createMemoryCompilerHost(new Map([ [ sourceFileName, sourceText ] ]), preserveCompilerOptions)
-    const sourceFile = getTransformedSourceFile(t, host, preserveCompilerOptions, { mode : "emit" })
+    const sourceFile = getTransformedSourceFile(t, host, preserveCompilerOptions, { mode: "emit" })
 
     t.not.isStrict(sourceFile.text, sourceText, 'mode "emit" replaces the source text')
     t.match(sourceFile.text, "__SourceClass$mixin", 'mode "emit" source text contains generated declarations')
@@ -88,7 +88,7 @@ it("unknown mode option throws", async (t: Test) => {
             ts,
             host,
             preserveCompilerOptions,
-            { mode : "watch" } as unknown as MixinClassTransformerConfig
+            { mode: "watch" } as unknown as MixinClassTransformerConfig
         )
     } catch (caught) {
         error = caught as Error
@@ -104,7 +104,7 @@ function createMemoryCompilerHost(
     files: Map<string, string>,
     compilerOptions: ts.CompilerOptions
 ): ts.CompilerHost {
-    const host = ts.createCompilerHost(compilerOptions, true)
+    const host                  = ts.createCompilerHost(compilerOptions, true)
     const originalGetSourceFile = host.getSourceFile.bind(host)
 
     host.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {

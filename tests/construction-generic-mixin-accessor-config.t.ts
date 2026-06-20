@@ -100,7 +100,7 @@ export class Box<U> extends Base implements Boxed<U> {
 
 it("types a mixin's generic split accessor in the consumer's .new config by the substituted setter type", async (t: Test) => {
     const emit       = await buildConstructionSource(text, undefined)
-    const sourceView = await buildConstructionSource(text, { noEmit : true })
+    const sourceView = await buildConstructionSource(text, { noEmit: true })
 
     t.equal(emit.exitCode, 0,
         `A mixin's generic split accessor flows into the consumer .new config typed by the setter (emit).\n${commandOutput(emit)}`)

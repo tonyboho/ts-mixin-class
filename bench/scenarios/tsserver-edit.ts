@@ -38,10 +38,10 @@ export async function runTsServerEdit(config: BenchConfig): Promise<BenchReport>
             samples.push(...await runEditProcessingRequests(fixture, config.editCount))
         }
 
-        rows.push({ name : scenarioDirectoryName(scenario), samples })
+        rows.push({ name: scenarioDirectoryName(scenario), samples })
     }
 
-    return { id : "tsserver-edit", title : "Tsserver edit processing", rows }
+    return { id: "tsserver-edit", title: "Tsserver edit processing", rows }
 }
 
 function editScenarios(config: BenchConfig): BenchmarkScenario[] {
@@ -57,8 +57,8 @@ function editScenarios(config: BenchConfig): BenchmarkScenario[] {
 }
 
 async function runEditProcessingRequests(fixture: BenchmarkFixture, requestedEditCount: number): Promise<number[]> {
-    const session = createTsServerSession(tsserverFile, fixture.directory)
-    const editFiles = fixture.mixinFiles.slice(-Math.min(requestedEditCount, fixture.mixinFiles.length))
+    const session    = createTsServerSession(tsserverFile, fixture.directory)
+    const editFiles  = fixture.mixinFiles.slice(-Math.min(requestedEditCount, fixture.mixinFiles.length))
     const textByFile = new Map<string, string>()
 
     try {
@@ -74,31 +74,31 @@ async function runEditProcessingRequests(fixture: BenchmarkFixture, requestedEdi
         }
 
         assertSuccessfulTsServerResponse(
-            await session.sendRequest("semanticDiagnosticsSync", { file : fixture.consumerFile }),
+            await session.sendRequest("semanticDiagnosticsSync", { file: fixture.consumerFile }),
             "semanticDiagnosticsSync"
         )
 
         const durations: number[] = []
 
         for (let editIndex = 0; editIndex < requestedEditCount; editIndex++) {
-            const fileName = editFiles[editIndex % editFiles.length]!
+            const fileName    = editFiles[editIndex % editFiles.length]!
             const currentText = textByFile.get(fileName)!
-            const edit = createMixinPropertyInitializerEdit(currentText, editIndex)
-            const start = performance.now()
+            const edit        = createMixinPropertyInitializerEdit(currentText, editIndex)
+            const start       = performance.now()
 
             assertSuccessfulTsServerResponse(
                 await session.sendRequest("change", {
-                    file      : fileName,
-                    line      : edit.line,
-                    offset    : edit.offset,
-                    endLine   : edit.endLine,
-                    endOffset : edit.endOffset,
+                    file         : fileName,
+                    line         : edit.line,
+                    offset       : edit.offset,
+                    endLine      : edit.endLine,
+                    endOffset    : edit.endOffset,
                     insertString : edit.insertString
                 }),
                 "change"
             )
             assertSuccessfulTsServerResponse(
-                await session.sendRequest("semanticDiagnosticsSync", { file : fixture.consumerFile }),
+                await session.sendRequest("semanticDiagnosticsSync", { file: fixture.consumerFile }),
                 "semanticDiagnosticsSync"
             )
 
@@ -129,12 +129,12 @@ function createMixinPropertyInitializerEdit(
         throw new Error("Cannot find benchmark property initializer to edit")
     }
 
-    const prefix = match[0].replace(/\d+$/, "")
-    const start = match.index + prefix.length
-    const end = match.index + match[0].length
-    const insertString = String(10_000_000 + editIndex)
+    const prefix        = match[0].replace(/\d+$/, "")
+    const start         = match.index + prefix.length
+    const end           = match.index + match[0].length
+    const insertString  = String(10_000_000 + editIndex)
     const startPosition = positionToLineOffset(text, start)
-    const endPosition = positionToLineOffset(text, end)
+    const endPosition   = positionToLineOffset(text, end)
 
     return {
         ...startPosition,
@@ -147,7 +147,7 @@ function createMixinPropertyInitializerEdit(
 
 function positionToLineOffset(text: string, position: number): { line: number, offset: number } {
     const before = text.slice(0, position)
-    const lines = before.split("\n")
+    const lines  = before.split("\n")
 
     return {
         line   : lines.length,

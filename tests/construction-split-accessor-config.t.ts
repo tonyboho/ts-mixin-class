@@ -45,7 +45,7 @@ void [ fromString.value, fromNumber.value, minimal.value ]
 
 it("types a split get/set accessor in .new config by the setter parameter type", async (t: Test) => {
     const emit       = await buildConstructionSource(splitAccessorText, undefined)
-    const sourceView = await buildConstructionSource(splitAccessorText, { noEmit : true })
+    const sourceView = await buildConstructionSource(splitAccessorText, { noEmit: true })
 
     t.equal(emit.exitCode, 0,
         `.new should accept a setter-valid value for a split get/set accessor (emit).\n${commandOutput(emit)}`)

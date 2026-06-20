@@ -330,7 +330,7 @@ it("public-only construction config rejects undefined initializers by default", 
     `))
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages = diagnostics.join("\n")
+    const messages    = diagnostics.join("\n")
 
     t.match(messages, "TS2322", "Plain undefined initializer is still rejected without opt-in")
     t.match(messages, "Type 'undefined' is not assignable to type 'number'",

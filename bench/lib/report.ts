@@ -35,7 +35,7 @@ type DurationStats = {
     min    : number
 }
 
-const NAME_WIDTH = 52
+const NAME_WIDTH   = 52
 const COLUMN_WIDTH = 9
 
 export function renderReports(
@@ -55,7 +55,7 @@ export function renderReports(
 }
 
 export function buildBaseline(reports: BenchReport[]): Baseline {
-    const baseline: Baseline = { savedAt : new Date().toISOString(), reports : {} }
+    const baseline: Baseline = { savedAt: new Date().toISOString(), reports: {} }
 
     for (const report of reports) {
         const rows: Record<string, { median: number, mean: number }> = {}
@@ -63,7 +63,7 @@ export function buildBaseline(reports: BenchReport[]): Baseline {
         for (const row of report.rows) {
             const stats = durationStats(row.samples)
 
-            rows[row.name] = { mean : stats.mean, median : stats.median }
+            rows[row.name] = { mean: stats.mean, median: stats.median }
         }
 
         baseline.reports[report.id] = rows
@@ -73,7 +73,7 @@ export function buildBaseline(reports: BenchReport[]): Baseline {
 }
 
 export async function saveBaseline(file: string, baseline: Baseline): Promise<void> {
-    await mkdir(path.dirname(file), { recursive : true })
+    await mkdir(path.dirname(file), { recursive: true })
     await writeFile(file, `${JSON.stringify(baseline, null, 4)}\n`)
 }
 
@@ -82,9 +82,9 @@ export async function loadBaseline(file: string): Promise<Baseline> {
 }
 
 function renderReport(report: BenchReport, table: TableMode, baseline: Baseline | undefined): string[] {
-    const baselineRows = baseline?.reports[report.id]
+    const baselineRows  = baseline?.reports[report.id]
     const breakdownKeys = table === "full" ? collectBreakdownKeys(report) : []
-    const lines = [ renderHeader(table, breakdownKeys, baselineRows !== undefined) ]
+    const lines         = [ renderHeader(table, breakdownKeys, baselineRows !== undefined) ]
 
     for (const row of report.rows) {
         lines.push(renderRow(row, table, breakdownKeys, baselineRows?.[row.name]?.median))
@@ -173,7 +173,7 @@ function formatDelta(current: number, base: number): string {
     }
 
     const percent = ((current - base) / base) * 100
-    const sign = percent > 0 ? "+" : ""
+    const sign    = percent > 0 ? "+" : ""
 
     return `${sign}${percent.toFixed(1)}%`
 }

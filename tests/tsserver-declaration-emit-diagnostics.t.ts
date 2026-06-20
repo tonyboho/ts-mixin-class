@@ -39,8 +39,8 @@ const mixinUnderDeclarationEmitText = trimIndent(`
 it("tsserver semantic diagnostics succeed and surface errors on a mixin under declaration emit", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : true,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text : mixinUnderDeclarationEmitText } ]
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ { fileName: "source.ts", text: mixinUnderDeclarationEmitText } ]
     })
 
     try {
@@ -50,7 +50,7 @@ it("tsserver semantic diagnostics succeed and surface errors on a mixin under de
             sourceFile,
             mixinUnderDeclarationEmitText,
             "semanticDiagnosticsSync",
-            { file : sourceFile }
+            { file: sourceFile }
         )
         const diagnostics = assertResponseBody<SemanticDiagnostic[]>(t, response)
         const codes       = diagnostics.map((diagnostic) => diagnostic.code)

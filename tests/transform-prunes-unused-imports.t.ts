@@ -34,8 +34,8 @@ void service
 `
 
 it("transformed output compiles under noUnusedLocals (no unused generated or decorator imports)", async (t: Test) => {
-    const emit       = await buildConstructionSource(source, { noUnusedLocals : true })
-    const sourceView = await buildConstructionSource(source, { noUnusedLocals : true, noEmit : true })
+    const emit       = await buildConstructionSource(source, { noUnusedLocals: true })
+    const sourceView = await buildConstructionSource(source, { noUnusedLocals: true, noEmit: true })
 
     t.equal(emit.exitCode, 0,
         `A transformed mixin/consumer file must carry no unused imports under noUnusedLocals (emit).\n${commandOutput(emit)}`)

@@ -14,13 +14,13 @@ export type LineOffset = {
 }
 
 export type SymbolSite = {
-    fileName : string,
-    name     : string,
+    fileName         : string,
+    name             : string,
     // Position to aim the request at (the first character of the identifier).
-    query    : LineOffset,
+    query            : LineOffset,
     // The exact identifier span, for "highlight is exactly on the symbol" checks.
-    start    : LineOffset,
-    end      : LineOffset,
+    start            : LineOffset,
+    end              : LineOffset,
     // True when the identifier sits inside a class heritage clause (the base name
     // or a type argument of an `extends`/`implements` clause). In source view the
     // heritage clause is rewritten, so these positions resolve to a generated node
@@ -29,11 +29,11 @@ export type SymbolSite = {
     // True when the identifier is the member name of a property access (`obj.member`).
     // An access to a non-existent member has no symbol, so it legitimately returns
     // empty references (e.g. a deliberate negative-test `obj.noSuchStatic`).
-    isMemberName : boolean
+    isMemberName     : boolean
 }
 
 export function collectIdentifierSites(file: CorpusFile): SymbolSite[] {
-    const sourceFile        = ts.createSourceFile(file.fileName, file.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const sourceFile          = ts.createSourceFile(file.fileName, file.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
     const sites: SymbolSite[] = []
 
     const visit = (node: ts.Node): void => {
@@ -42,9 +42,9 @@ export function collectIdentifierSites(file: CorpusFile): SymbolSite[] {
             const end   = positionToLineOffset(file.text, node.getEnd())
 
             sites.push({
-                fileName : file.fileName,
-                name     : node.text,
-                query    : start,
+                fileName         : file.fileName,
+                name             : node.text,
+                query            : start,
                 start,
                 end,
                 inHeritageClause : ts.findAncestor(node, (ancestor) => ts.isHeritageClause(ancestor)) !== undefined,

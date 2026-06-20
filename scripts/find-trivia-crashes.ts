@@ -72,8 +72,8 @@ function strandedIdentifier(text: string, pos: number, end: number): { text: str
 // strands an identifier (between node.pos and the first child, between siblings,
 // or after the last child), descending into NodeArrays the same way.
 function firstStrandedGap(node: ts.Node, sourceFile: ts.SourceFile): { text: string, pos: number } | undefined {
-    const text     = sourceFile.text
-    let pos        = node.pos
+    const text = sourceFile.text
+    let pos    = node.pos
     let stranded: { text: string, pos: number } | undefined
 
     const consider = (childPos: number, childEnd: number): void => {

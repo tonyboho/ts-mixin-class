@@ -140,7 +140,7 @@ it("tsserver quickinfo reports construction base class declarations", async (t: 
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile        = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const classNamePosition = constructionConsumerText.indexOf("ConstructableBase extends")
 
         if (classNamePosition < 0) {
@@ -181,7 +181,7 @@ it("tsserver quickinfo reports mixin consumer class declarations", async (t: Tes
     })
 
     try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile        = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
         const classNamePosition = constructionConsumerText.indexOf("ConstructableConsumer extends")
 
         if (classNamePosition < 0) {
@@ -314,7 +314,7 @@ it("tsserver quickinfo does not crash on a construction-base mixin's class name"
     // quickinfo (and rename) on the mixin name.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : constructionBaseMixinText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: constructionBaseMixinText } ]
     })
 
     try {
@@ -328,7 +328,7 @@ it("tsserver quickinfo does not crash on a construction-base mixin's class name"
                 sourceFile,
                 constructionBaseMixinText,
                 "quickinfo",
-                { file : sourceFile, ...positionToLineOffset(constructionBaseMixinText, namePosition + 1) }
+                { file: sourceFile, ...positionToLineOffset(constructionBaseMixinText, namePosition + 1) }
             )
         )
 
@@ -358,7 +358,7 @@ async function assertQuickInfoOnClassNameDoesNotCrash(
 ): Promise<void> {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
@@ -377,7 +377,7 @@ async function assertQuickInfoOnClassNameDoesNotCrash(
                 sourceFile,
                 text,
                 "quickinfo",
-                { file : sourceFile, ...positionToLineOffset(text, namePosition + 1) }
+                { file: sourceFile, ...positionToLineOffset(text, namePosition + 1) }
             )
         )
 
@@ -484,7 +484,7 @@ it("tsserver quickinfo highlights exactly the consumer's second type parameter",
     // covering the entire list. Each clone now maps onto its own source parameter.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : genericConsumerTypeParametersText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: genericConsumerTypeParametersText } ]
     })
 
     try {
@@ -498,7 +498,7 @@ it("tsserver quickinfo highlights exactly the consumer's second type parameter",
                 sourceFile,
                 genericConsumerTypeParametersText,
                 "quickinfo",
-                { file : sourceFile, ...positionToLineOffset(genericConsumerTypeParametersText, paramPosition) }
+                { file: sourceFile, ...positionToLineOffset(genericConsumerTypeParametersText, paramPosition) }
             )
         )
 
@@ -537,7 +537,7 @@ it("tsserver quickinfo highlights exactly a mixin's source base type name", asyn
     // guard here is the span, mirroring stress-quickinfo.)
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName : "source.ts", text : mixinExtendsMixinText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: mixinExtendsMixinText } ]
     })
 
     try {
@@ -551,7 +551,7 @@ it("tsserver quickinfo highlights exactly a mixin's source base type name", asyn
                 sourceFile,
                 mixinExtendsMixinText,
                 "quickinfo",
-                { file : sourceFile, ...positionToLineOffset(mixinExtendsMixinText, basePosition) }
+                { file: sourceFile, ...positionToLineOffset(mixinExtendsMixinText, basePosition) }
             )
         )
 

@@ -6,17 +6,17 @@ import { transformSourceFile } from "../src/index.js"
 import { createSourceFile, trimIndent } from "./util.js"
 
 type SourceSpan = {
-    pos : number,
-    end : number,
-    start : number,
+    pos    : number,
+    end    : number,
+    start  : number,
     finish : number,
-    text : string
+    text   : string
 }
 
 type StableSignatureCollection = {
-    counts : Map<string, number>,
+    counts                         : Map<string, number>,
     syntheticOutsideGeneratedNodes : string[],
-    total : number
+    total                          : number
 }
 
 const sourceText = trimIndent(`
@@ -140,9 +140,9 @@ function collectStableSignatures(
     sourceFile: ts.SourceFile,
     excludedRanges: SourceSpan[]
 ): StableSignatureCollection {
-    const counts                         = new Map<string, number>()
+    const counts                                    = new Map<string, number>()
     const syntheticOutsideGeneratedNodes : string[] = []
-    let total                            = 0
+    let total                                       = 0
 
     const visit = (node: ts.Node): void => {
         if (node !== root && isSynthetic(node)) {
@@ -235,7 +235,7 @@ function expandRangeToLeadingDecorators(sourceFile: ts.SourceFile, range: Source
 }
 
 function findLeadingDecoratorStart(text: string, position: number): number | undefined {
-    let lineStart      = text.lastIndexOf("\n", position - 1) + 1
+    let lineStart                           = text.lastIndexOf("\n", position - 1) + 1
     let decoratorStart : number | undefined = undefined
 
     while (lineStart > 0) {

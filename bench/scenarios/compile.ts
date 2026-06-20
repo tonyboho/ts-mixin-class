@@ -39,10 +39,10 @@ export async function runCompile(config: BenchConfig): Promise<BenchReport> {
             samples.push(await runCleanCompile(fixture.tsconfigFile, fixture.directory))
         }
 
-        rows.push({ name : scenarioDirectoryName(scenario), samples })
+        rows.push({ name: scenarioDirectoryName(scenario), samples })
     }
 
-    return { id : "compile", title : "Compile (tsc -p)", rows }
+    return { id: "compile", title: "Compile (tsc -p)", rows }
 }
 
 function compileScenarios(config: BenchConfig): BenchmarkScenario[] {
@@ -58,7 +58,7 @@ function compileScenarios(config: BenchConfig): BenchmarkScenario[] {
 }
 
 async function runCleanCompile(tsconfigFile: string, directory: string): Promise<number> {
-    await rm(path.join(directory, "dist"), { force : true, recursive : true })
+    await rm(path.join(directory, "dist"), { force: true, recursive: true })
 
     const start = performance.now()
 
@@ -76,8 +76,8 @@ async function runCleanCompile(tsconfigFile: string, directory: string): Promise
 
 function commandError(command: string, error: unknown): Error {
     const failure = error as { message?: string, stdout?: string | Buffer, stderr?: string | Buffer }
-    const stdout = outputToString(failure.stdout)
-    const stderr = outputToString(failure.stderr)
+    const stdout  = outputToString(failure.stdout)
+    const stderr  = outputToString(failure.stderr)
 
     return new Error([
         `${command} failed`,

@@ -38,8 +38,8 @@ export const localFactory = Local
 it("the generated config alias is exported only when its class is exported", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text } ]
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ { fileName: "source.ts", text } ]
     })
 
     try {
@@ -65,7 +65,7 @@ it("the generated config alias is exported only when its class is exported", asy
         t.match(declaration, "static new(props: LocalConfig): Local", "local class keeps its typed static new")
 
         // Runtime is unaffected by the alias export status.
-        const moduleUrl = pathToFileURL(path.join(fixture.directory, "dist", "source.js")).href
+        const moduleUrl   = pathToFileURL(path.join(fixture.directory, "dist", "source.js")).href
         const constructed = await import(moduleUrl) as { accountId: string, localToken: string }
 
         t.equal(constructed.accountId, "a1", "exported class constructs at runtime")

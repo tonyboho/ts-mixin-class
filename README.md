@@ -382,8 +382,10 @@ class Model extends Base {
 Model.new({ id : "a" })
 ```
 
-The alias is exported, so you can reuse it for your own factory helpers and annotations
-(it tracks the class type parameters):
+When the class is exported the alias is too (see [Export tracks the class; import the
+config separately](#export-tracks-the-class-import-the-config-separately) below), so you
+can reuse it for your own factory helpers and annotations (it tracks the class type
+parameters):
 
 ```ts
 function makeModel(config: ModelConfig): Model {
@@ -423,6 +425,44 @@ their strict overrides.
 If the `<ClassName>Config` name is already declared or imported in the same file, the
 generated alias is suffixed with `_` (`ModelConfig_`) so it never collides with your own
 type.
+
+#### Export tracks the class; import the config separately
+
+The alias's `export` mirrors the class's own: an exported class (or `@mixin`) gets
+`export type <Name>Config`; a module-local class gets a non-exported alias, so an internal
+class does not leak its config. Because the alias is a **separate named export**, importing
+the class binds only the class — the `<Name>Config` name does **not** come with it.
+
+You do **not** need the config to construct. `.new({ ... })` on an imported class resolves
+its argument type through the class's static signature, and a failing `.new(...)` still
+names `<Name>Config` in the error:
+
+```ts
+import { Model } from "./model"
+
+const m = Model.new({ id : "a", role : "admin" })   // no ModelConfig import needed
+```
+
+You only need the config when you want to **name the type yourself** — to annotate a
+variable, a factory parameter, or a subclass's `initialize` argument in another file. Then
+import it explicitly alongside the class (or derive it from the class, without a second
+import):
+
+```ts
+import { Model, type ModelConfig } from "./model"
+
+const draft: ModelConfig = { id : "a", role : "admin" }
+
+function makeModel(config: ModelConfig): Model {
+    return Model.new(config)
+}
+
+// Or, without importing the name — derive it from the class:
+type ModelConfigDerived = Parameters<typeof Model.new>[0]
+```
+
+(The `initialize(config: <Name>Config)` examples above work without an import only because
+they sit in the **same file** as the class, where the generated alias is a local sibling.)
 
 ### Initializing required properties
 

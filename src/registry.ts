@@ -684,30 +684,27 @@ function collectDeclarationFileMixinCandidates(
     return candidates
 }
 
-// The required-base identifier from a `RuntimeMixinClass<Base>` marker inside the
-// mixin value's declared type (an intersection like `… & RuntimeMixinClass<Base>`).
-// `RuntimeMixinClass` with no type argument (a mixin without a required base) yields
-// undefined.
-function runtimeMixinClassRequiredBaseIdentifier(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.Identifier | undefined {
+// Locates the `RuntimeMixinClass<…>` marker type reference inside a mixin value's
+// declared type, descending through intersections/unions (`… & RuntimeMixinClass<Base>`)
+// and parentheses. Returns the reference node itself (so callers can read its type
+// argument), or undefined when the type carries no such marker.
+function findRuntimeMixinClassReference(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode
+): ts.TypeReferenceNode | undefined {
     if (tsInstance.isTypeReferenceNode(typeNode) &&
         tsInstance.isIdentifier(typeNode.typeName) &&
         typeNode.typeName.text === runtimeMixinClassName
     ) {
-        const argument = typeNode.typeArguments?.[0]
-
-        return argument !== undefined &&
-            tsInstance.isTypeReferenceNode(argument) &&
-            tsInstance.isIdentifier(argument.typeName)
-            ? argument.typeName
-            : undefined
+        return typeNode
     }
 
     if (tsInstance.isIntersectionTypeNode(typeNode) || tsInstance.isUnionTypeNode(typeNode)) {
         for (const type of typeNode.types) {
-            const identifier = runtimeMixinClassRequiredBaseIdentifier(tsInstance, type)
+            const found = findRuntimeMixinClassReference(tsInstance, type)
 
-            if (identifier !== undefined) {
-                return identifier
+            if (found !== undefined) {
+                return found
             }
         }
 
@@ -715,29 +712,27 @@ function runtimeMixinClassRequiredBaseIdentifier(tsInstance: TypeScript, typeNod
     }
 
     if (tsInstance.isParenthesizedTypeNode(typeNode)) {
-        return runtimeMixinClassRequiredBaseIdentifier(tsInstance, typeNode.type)
+        return findRuntimeMixinClassReference(tsInstance, typeNode.type)
     }
 
     return undefined
 }
 
+// The required-base identifier from a `RuntimeMixinClass<Base>` marker inside the
+// mixin value's declared type. `RuntimeMixinClass` with no type argument (a mixin
+// without a required base) yields undefined.
+function runtimeMixinClassRequiredBaseIdentifier(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.Identifier | undefined {
+    const argument = findRuntimeMixinClassReference(tsInstance, typeNode)?.typeArguments?.[0]
+
+    return argument !== undefined &&
+        tsInstance.isTypeReferenceNode(argument) &&
+        tsInstance.isIdentifier(argument.typeName)
+        ? argument.typeName
+        : undefined
+}
+
 function typeReferencesRuntimeMixinClass(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {
-    if (tsInstance.isTypeReferenceNode(typeNode) &&
-        tsInstance.isIdentifier(typeNode.typeName) &&
-        typeNode.typeName.text === runtimeMixinClassName
-    ) {
-        return true
-    }
-
-    if (tsInstance.isIntersectionTypeNode(typeNode) || tsInstance.isUnionTypeNode(typeNode)) {
-        return typeNode.types.some((type) => typeReferencesRuntimeMixinClass(tsInstance, type))
-    }
-
-    if (tsInstance.isParenthesizedTypeNode(typeNode)) {
-        return typeReferencesRuntimeMixinClass(tsInstance, typeNode.type)
-    }
-
-    return false
+    return findRuntimeMixinClassReference(tsInstance, typeNode) !== undefined
 }
 
 function interfaceExtendsNames(

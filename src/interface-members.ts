@@ -60,8 +60,7 @@ export function buildInterfaceMembers(
                     : undefined,
                 cloneNode(tsInstance, member.name),
                 cloneOptionalNode(tsInstance, member.questionToken),
-                cloneOptionalNode(tsInstance, member.type) ??
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                clonedTypeOrAny(tsInstance, member.type)
             ), interfaceMemberRange(member)))
             continue
         }
@@ -73,8 +72,7 @@ export function buildInterfaceMembers(
                 cloneOptionalNode(tsInstance, member.questionToken),
                 cloneOptionalNodeArray(tsInstance, member.typeParameters),
                 member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
-                cloneOptionalNode(tsInstance, member.type) ??
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                clonedTypeOrAny(tsInstance, member.type)
             ), interfaceMemberRange(member)))
             continue
         }
@@ -180,9 +178,19 @@ function accessorSignature(
         setter === undefined ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ] : undefined,
         cloneNode(tsInstance, member.name),
         undefined,
-        cloneOptionalNode(tsInstance, type) ??
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+        clonedTypeOrAny(tsInstance, type)
     ), interfaceMemberRange(member))
+}
+
+// A cloned copy of `type`, or the `any` keyword when the source omitted it. The mixin
+// validator already requires explicit annotations, so the `any` fallback is only a
+// belt-and-braces default for members that slip through (e.g. on a broken declaration).
+function clonedTypeOrAny(
+    tsInstance: TypeScript,
+    type: ts.TypeNode | undefined
+): ts.TypeNode {
+    return cloneOptionalNode(tsInstance, type) ??
+        tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
 }
 
 function signatureParameter(
@@ -197,8 +205,7 @@ function signatureParameter(
         parameter.initializer === undefined
             ? cloneOptionalNode(tsInstance, parameter.questionToken)
             : tsInstance.factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-        cloneOptionalNode(tsInstance, parameter.type) ??
-            tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword),
+        clonedTypeOrAny(tsInstance, parameter.type),
         undefined
     ), parameterSignatureRange(parameter))
 }

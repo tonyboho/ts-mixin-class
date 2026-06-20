@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { MixinTransformError } from "./expand-util.js"
+import { intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
 import {
     accumulateRegisteredMixinConfig,
     registryKey,
@@ -551,7 +551,7 @@ function createConstructionConfig(
     }
 
     return {
-        type              : parts.length === 1 ? parts[0] : factory.createIntersectionTypeNode(parts),
+        type              : intersectionOrSingle(tsInstance, parts),
         optionalParameter : requiredType === undefined
     }
 }
@@ -636,35 +636,13 @@ function mixinImplementsTypeArguments(
 
 // Replace every bare reference to a mapped type-parameter name inside `typeNode` with its
 // replacement type (deep-cloned so the result is position-less and safe in both planes).
-// Mirrors `eraseOwnTypeParameterReferences` (mixin-expand.ts) but substitutes instead of
-// erasing to `any`.
 function substituteTypeReferences(
     tsInstance: TypeScript,
     typeNode: ts.TypeNode,
     replacements: Map<string, ts.TypeNode>
 ): ts.TypeNode {
-    const result = tsInstance.transform(typeNode, [
-        (context) => {
-            const visit: ts.Visitor = (node) => {
-                if (tsInstance.isTypeReferenceNode(node) &&
-                    tsInstance.isIdentifier(node.typeName) &&
-                    node.typeArguments === undefined &&
-                    replacements.has(node.typeName.text)) {
-                    return deepCloneNode(tsInstance, replacements.get(node.typeName.text)!)
-                }
-
-                return tsInstance.visitEachChild(node, visit, context)
-            }
-
-            return (node) => tsInstance.visitNode(node, visit) as ts.TypeNode
-        }
-    ])
-
-    try {
-        return result.transformed[0]
-    } finally {
-        result.dispose()
-    }
+    return rewriteTypeReferences(tsInstance, typeNode, (name) =>
+        replacements.has(name) ? deepCloneNode(tsInstance, replacements.get(name)!) : undefined)
 }
 
 function literalKeyUnionType(

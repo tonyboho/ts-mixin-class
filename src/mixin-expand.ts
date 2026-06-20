@@ -30,7 +30,8 @@ import {
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
     mixinValueIdentifier,
-    MixinTransformError
+    MixinTransformError,
+    rewriteTypeReferences
 } from "./expand-util.js"
 import {
     createMixinApplyType,
@@ -672,30 +673,10 @@ function eraseOwnTypeParameterReferences(
         return typeNode
     }
 
-    const names  = new Set(typeParameters.map((typeParameter) => typeParameter.name.text))
-    const result = tsInstance.transform(typeNode, [
-        (context) => {
-            const visit: ts.Visitor = (node) => {
-                if (tsInstance.isTypeReferenceNode(node) &&
-                    tsInstance.isIdentifier(node.typeName) &&
-                    node.typeArguments === undefined &&
-                    names.has(node.typeName.text)
-                ) {
-                    return context.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                }
+    const names = new Set(typeParameters.map((typeParameter) => typeParameter.name.text))
 
-                return tsInstance.visitEachChild(node, visit, context)
-            }
-
-            return (node) => tsInstance.visitNode(node, visit) as ts.TypeNode
-        }
-    ])
-
-    try {
-        return result.transformed[0]
-    } finally {
-        result.dispose()
-    }
+    return rewriteTypeReferences(tsInstance, typeNode, (name) =>
+        names.has(name) ? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword) : undefined)
 }
 
 function interfaceHeritageClauses(

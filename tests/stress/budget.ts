@@ -14,6 +14,50 @@ export const defaultStressBudget: StressBudget = {
     maxIterations : 500
 }
 
+// Env-tunable budget so a stress test can be pushed far harder when chasing a flake:
+//   MIXIN_STRESS_DURATION_MS    - time budget per test (ms)
+//   MIXIN_STRESS_MAX_ITERATIONS - iteration cap
+// e.g. `MIXIN_STRESS_DURATION_MS=5000 MIXIN_STRESS_MAX_ITERATIONS=100000 pnpm test`.
+export function resolveStressBudget(base: StressBudget = defaultStressBudget): StressBudget {
+    const readPositiveInt = (name: string, fallback: number): number => {
+        const raw = process.env[name]
+
+        if (raw === undefined || raw.trim() === "") {
+            return fallback
+        }
+
+        const parsed = Number.parseInt(raw, 10)
+
+        if (Number.isNaN(parsed) || parsed <= 0) {
+            throw new Error(`Invalid ${name}: ${JSON.stringify(raw)} must be a positive integer.`)
+        }
+
+        return parsed
+    }
+
+    return {
+        durationMs    : readPositiveInt("MIXIN_STRESS_DURATION_MS", base.durationMs),
+        maxIterations : readPositiveInt("MIXIN_STRESS_MAX_ITERATIONS", base.maxIterations)
+    }
+}
+
+// Exhaustive mode walks EVERY enumerated AST site exactly once instead of random sampling
+// within a budget. The site set comes from the parse tree, so it is finite — this is
+// deterministic and reproducible (random sampling can hide a rare offending site for many
+// runs, which is exactly how a real crash slipped through as an intermittent flake).
+//
+// It is the DEFAULT. Set `MIXIN_STRESS_EXHAUSTIVE=0` (or `false`) to fall back to the older
+// random+budget mode (e.g. for a quick local smoke run).
+export function stressExhaustive(): boolean {
+    const raw = process.env.MIXIN_STRESS_EXHAUSTIVE
+
+    if (raw === undefined || raw.trim() === "") {
+        return true
+    }
+
+    return raw.trim() !== "0" && raw.trim().toLowerCase() !== "false"
+}
+
 export function runWithinBudget(
     iterate: (iteration: number) => void,
     budget: StressBudget = defaultStressBudget

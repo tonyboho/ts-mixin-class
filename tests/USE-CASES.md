@@ -234,6 +234,19 @@ plain consumer / manual construction instead). See §9.
     larger, position-sensitive changes. Same trilemma family as the §12.9 quickinfo
     limitation: navigable real positions strand → crash; collapsed → no navigation; name
     reference → circular.
+  - *Same root, worse symptom — find-all-references CRASHES the server.* Find-all-references on
+    the generated `.mix` method itself (`Main.mix`) throws in tsserver
+    (`Cannot read properties of undefined (reading 'members')`): computing the reference's
+    definition display enters TS's node-reuse path
+    (`writeType` → `visitExistingNodeTreeSymbols` → `tryVisitTypeReference` →
+    `resolveEntityName` → `resolveNameHelper`), which resolves the synthetic `.mix` type's
+    entity names against an enclosing scope — but the type is the deliberately scopeless
+    `{-1,-1}` collapsed node, so name resolution reads `.members` of `undefined` and throws
+    (TS is not defensive on this path). The only real fix is to remove entity-name references
+    from the displayed type (structurally inline the dependency's members), which is risky and
+    incomplete for cross-file/generic dependencies. **Deferred.** `stress-references.t.ts`
+    tolerates this one documented `.mix` member-name site (and fails on any other crash); the
+    exhaustive stress mode hits it every run, so it cannot silently regress further.
 
 - **Quickinfo on a `<ClassName>Config` reference renders the alias *name* as the class
   brace (§12.9), cosmetic.** Hovering a reference (`config?: AccountConfig`) shows

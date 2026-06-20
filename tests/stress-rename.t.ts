@@ -5,7 +5,7 @@ import { createTypeScriptFixture } from "./util.js"
 import { openTsServerSession } from "./tsserver-util.js"
 import type { RenameResponseBody } from "./tsserver-editor-util.js"
 import { loadCorpus } from "./stress/corpus.js"
-import { runWithinBudgetAsync } from "./stress/budget.js"
+import { runStressAsync } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 import { collectIdentifierSites } from "./stress/symbols.js"
 import type { SymbolSite } from "./stress/symbols.js"
@@ -55,12 +55,7 @@ it("tsserver rename succeeds on every fixture symbol and finds locations when re
         const describe = (site: SiteWithFile): string =>
             `${site.fileName} symbol ${JSON.stringify(site.name)} at ${site.start.line}:${site.start.offset}`
 
-        const iterations = await runWithinBudgetAsync(async () => {
-            if (failure !== undefined) {
-                return
-            }
-
-            const site = random.pick(sites)
+        const probe = async (site: SiteWithFile): Promise<void> => {
             let response
 
             try {
@@ -113,7 +108,14 @@ it("tsserver rename succeeds on every fixture symbol and finds locations when re
             }
 
             renameable++
-        })
+        }
+
+        const iterations = await runStressAsync(
+            sites,
+            () => random.pick(sites),
+            probe,
+            () => failure !== undefined
+        )
 
         if (failure !== undefined) {
             t.fail(failure)

@@ -58,6 +58,65 @@ export function stressExhaustive(): boolean {
     return raw.trim() !== "0" && raw.trim().toLowerCase() !== "false"
 }
 
+// Drives a stress test over a finite item set (e.g. every enumerated AST site, or every root
+// file): exhaustively walk each item once (the default), or random-sample within the budget.
+// `stop` short-circuits on the first failure so a found bug halts immediately.
+export async function runStressAsync<Item>(
+    items: readonly Item[],
+    pickRandom: () => Item,
+    probe: (item: Item) => Promise<void>,
+    stop: () => boolean = () => false
+): Promise<number> {
+    if (stressExhaustive()) {
+        let count = 0
+
+        for (const item of items) {
+            if (stop()) {
+                break
+            }
+
+            await probe(item)
+            count++
+        }
+
+        return count
+    }
+
+    return runWithinBudgetAsync(async () => {
+        if (!stop()) {
+            await probe(pickRandom())
+        }
+    }, resolveStressBudget())
+}
+
+export function runStress<Item>(
+    items: readonly Item[],
+    pickRandom: () => Item,
+    probe: (item: Item) => void,
+    stop: () => boolean = () => false
+): number {
+    if (stressExhaustive()) {
+        let count = 0
+
+        for (const item of items) {
+            if (stop()) {
+                break
+            }
+
+            probe(item)
+            count++
+        }
+
+        return count
+    }
+
+    return runWithinBudget(() => {
+        if (!stop()) {
+            probe(pickRandom())
+        }
+    }, resolveStressBudget())
+}
+
 export function runWithinBudget(
     iterate: (iteration: number) => void,
     budget: StressBudget = defaultStressBudget

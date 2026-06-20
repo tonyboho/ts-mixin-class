@@ -5,7 +5,7 @@ import { createTypeScriptFixture } from "./util.js"
 import { openTsServerSession } from "./tsserver-util.js"
 import { positionToIndex } from "./tsserver-editor-util.js"
 import { loadCorpus } from "./stress/corpus.js"
-import { resolveStressBudget, runWithinBudgetAsync, stressExhaustive } from "./stress/budget.js"
+import { runStressAsync } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 import { collectIdentifierSites, sameLineOffset } from "./stress/symbols.js"
 import type { LineOffset, SymbolSite } from "./stress/symbols.js"
@@ -186,28 +186,12 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
             }
         }
 
-        // Exhaustive mode walks every enumerated site once (deterministic, pinpoints the
-        // offending fixture); otherwise sample random sites within the (env-tunable) budget.
-        let iterations: number
-
-        if (stressExhaustive()) {
-            iterations = 0
-
-            for (const site of sites) {
-                if (failure !== undefined) {
-                    break
-                }
-
-                await probe(site)
-                iterations++
-            }
-        } else {
-            iterations = await runWithinBudgetAsync(async () => {
-                if (failure === undefined) {
-                    await probe(random.pick(sites))
-                }
-            }, resolveStressBudget())
-        }
+        const iterations = await runStressAsync(
+            sites,
+            () => random.pick(sites),
+            probe,
+            () => failure !== undefined
+        )
 
         if (failure !== undefined) {
             t.fail(failure)

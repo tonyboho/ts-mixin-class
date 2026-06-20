@@ -5,7 +5,7 @@ import { createTypeScriptFixture } from "./util.js"
 import { openTsServerSession } from "./tsserver-util.js"
 import type { QuickInfoBody } from "./tsserver-editor-util.js"
 import { loadCorpus } from "./stress/corpus.js"
-import { runWithinBudgetAsync } from "./stress/budget.js"
+import { runStressAsync } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 import { collectIdentifierSites, sameLineOffset } from "./stress/symbols.js"
 import type { SymbolSite } from "./stress/symbols.js"
@@ -60,12 +60,7 @@ it("tsserver quickinfo succeeds on every fixture symbol with the highlight exact
             `${site.fileName} symbol ${JSON.stringify(site.name)} ` +
             `at ${site.start.line}:${site.start.offset}-${site.end.line}:${site.end.offset}`
 
-        const iterations = await runWithinBudgetAsync(async () => {
-            if (failure !== undefined) {
-                return
-            }
-
-            const site = random.pick(sites)
+        const probe = async (site: SiteWithFile): Promise<void> => {
             let response
 
             try {
@@ -117,7 +112,14 @@ it("tsserver quickinfo succeeds on every fixture symbol with the highlight exact
             }
 
             spanChecks++
-        })
+        }
+
+        const iterations = await runStressAsync(
+            sites,
+            () => random.pick(sites),
+            probe,
+            () => failure !== undefined
+        )
 
         if (failure !== undefined) {
             t.fail(failure)

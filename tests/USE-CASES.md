@@ -55,6 +55,8 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 2.3 | Consumer subclassed again (`class Sub extends Consumer`) | ✅ | `consumer-inheritance.t.ts` (`SubConsumer`) |
 | 2.4 | Consumer with its own explicit constructor (no `Base`) | ✅ | `fixture-suite/src/consumer-constructor.t.ts` |
 | 2.5 | Consumer base statics inherited | ✅ | `mixin-statics.t.ts`, `consumer-inheritance.t.ts` |
+| 2.6 | **Two mixins declaring the SAME-named instance method** with a compatible signature (instance-member overlap, vs the diagnosed STATIC collision of §11.5): merges cleanly into the consumer's interface (no TS2320), stays callable, and the **first-listed mixin in `implements` wins deterministically** at runtime (C3 order) | ✅ | `fixture-suite/src/mixin-shared-instance-member.t.ts` |
+| 2.7 | **Abstract consumer** (`abstract class Task implements Mixin` with its own `abstract` method): stays abstract (`new Task()` rejected, the abstract method required of subclasses) while the mixin members are injected and usable from a concrete method; a concrete subclass carries the mixin members and matches `instanceof` | ✅ | `fixture-suite/src/mixin-abstract-consumer.t.ts` |
 
 ## 3. Linearization (C3)
 
@@ -97,6 +99,7 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 6.3 | Generic type arguments preserved through imported mixins | ✅ | `consumer-imported-mixins.t.ts`, `type-only-imported-mixin.t.ts` |
 | 6.4 | **Multiple** type parameters and a **constraint** (`K extends string`) on a mixin, fixed by a consumer and forwarded (constrained) through a consumer | ✅ | `generic-mixin-variations.t.ts` |
 | 6.5 | **Defaulted** type parameter on a mixin (`<V = number>`) compiles in emit + source-view | ✅ | `generic-mixin-defaulted-type-param.t.ts`. Fixed: the generated `.mix`'s synthetic `__MixinBase` now carries a default (equal to its constraint) when the mixin has a defaulted own param, so it is no longer a required-after-optional parameter (TS2706). See Resolved. |
+| 6.6 | A mixin **METHOD with its own type parameter** (`mapItems<U>(project: (item: T) => U): U[]`), distinct from a class-level generic (§6.4): the method-level type parameter survives into the consumer's generated interface member and is inferred independently per call site | ✅ | `fixture-suite/src/mixin-generic-method.t.ts` |
 
 ## 7. Instantiation / construction (`extends Base`, static `.new`)
 

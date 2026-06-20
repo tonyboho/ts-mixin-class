@@ -5,6 +5,7 @@ import {
     createSourceViewConsumerBaseHeadType,
     expressionToEntityName,
     heritageTypeToTypeReference,
+    intersectionOrSingle,
     mixinValueIdentifier,
     type ConstructionBrand
 } from "./expand-util.js"
@@ -32,15 +33,18 @@ function createMixinStaticsType(
     tsInstance: TypeScript,
     valueName: string
 ): ts.TypeNode {
-    const factory = tsInstance.factory
+    return createStaticsBag(tsInstance, tsInstance.factory.createIdentifier(valueName))
+}
 
-    return factory.createTypeReferenceNode("Omit", [
-        factory.createTypeQueryNode(factory.createIdentifier(valueName)),
-        factory.createUnionTypeNode([
-            factory.createLiteralTypeNode(factory.createStringLiteral("prototype")),
-            factory.createLiteralTypeNode(factory.createStringLiteral("new"))
-        ])
-    ])
+// The statics bag of every applied mixin whose runtime value is available in the
+// file (`Omit<typeof X, "prototype" | "new">` each). Shared by all four base casts.
+function mixinStaticsTypes(
+    tsInstance: TypeScript,
+    mixinRefs: ResolvedMixinRef[]
+): ts.TypeNode[] {
+    return mixinRefs
+        .filter((ref) => ref.localValueName !== undefined)
+        .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
 }
 
 function createMixinChainExpression(
@@ -314,9 +318,7 @@ function createNavigableConsumerBaseCastType(
     ])
     const staticsTypes        = [
         createStaticsBag(tsInstance, expressionToEntityName(tsInstance, extendsType.expression)),
-        ...linearizedMixinRefs
-            .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
+        ...mixinStaticsTypes(tsInstance, linearizedMixinRefs)
     ]
 
     return factory.createIntersectionTypeNode([ instanceConstructor, ...staticsTypes ])
@@ -373,16 +375,12 @@ function createConsumerBaseCastType(
     mixinRefs: ResolvedMixinRef[],
     construction?: ConstructionBrand
 ): ts.TypeNode {
-    const factory = tsInstance.factory
-
     const types = [
         createConsumerBaseHeadType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName, construction),
-        ...mixinRefs
-            .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
+        ...mixinStaticsTypes(tsInstance, mixinRefs)
     ]
 
-    return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)
+    return intersectionOrSingle(tsInstance, types)
 }
 
 function createSourceViewConsumerBaseCastType(
@@ -393,33 +391,26 @@ function createSourceViewConsumerBaseCastType(
     mixinRefs: ResolvedMixinRef[],
     construction?: ConstructionBrand
 ): ts.TypeNode {
-    const factory = tsInstance.factory
-
     const types = [
         createSourceViewConsumerBaseHeadType(
             tsInstance, extendsType, implicitRequiredBase, emptyBaseName, construction
         ),
-        ...mixinRefs
-            .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
+        ...mixinStaticsTypes(tsInstance, mixinRefs)
     ]
 
-    return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)
+    return intersectionOrSingle(tsInstance, types)
 }
 
 function createUnsupportedBaseConsumerCastType(
     tsInstance: TypeScript,
     mixinRefs: ResolvedMixinRef[]
 ): ts.TypeNode {
-    const factory = tsInstance.factory
-    const types   = [
-        factory.createTypeReferenceNode(anyConstructorName, undefined),
-        ...mixinRefs
-            .filter((ref) => ref.localValueName !== undefined)
-            .map((ref) => createMixinStaticsType(tsInstance, ref.localValueName as string))
+    const types = [
+        tsInstance.factory.createTypeReferenceNode(anyConstructorName, undefined),
+        ...mixinStaticsTypes(tsInstance, mixinRefs)
     ]
 
-    return types.length === 1 ? types[0] : factory.createIntersectionTypeNode(types)
+    return intersectionOrSingle(tsInstance, types)
 }
 
 function createConsumerBaseHeadType(

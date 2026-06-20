@@ -68,6 +68,16 @@ export function cloneExpressionWithTypeArguments(
     )
 }
 
+// A single type is returned as-is; two or more are wrapped in an intersection. Callers
+// pass a non-empty list (a head type plus optional extras), so the empty case is not
+// expected — kept here as the one place that decides "intersect only when needed".
+export function intersectionOrSingle(
+    tsInstance: TypeScript,
+    types: ts.TypeNode[]
+): ts.TypeNode {
+    return types.length === 1 ? types[0] : tsInstance.factory.createIntersectionTypeNode(types)
+}
+
 export function heritageTypeToTypeReference(
     tsInstance: TypeScript,
     heritageType: ts.ExpressionWithTypeArguments

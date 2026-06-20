@@ -193,17 +193,29 @@ export function createMissingRuntimeImportValidations(
     return validations
 }
 
+// The emit path uses a shallow `cloneNode`; source view needs a `deepCloneNode` so the
+// reused type parameters carry no shared source positions (the binder reparents a shared
+// node onto its last declaration, breaking tsserver name resolution).
+function appendValidationTypeParameters(
+    tsInstance: TypeScript,
+    consumerTypeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+    validations: RequiredBaseValidation[],
+    clone: (tsInstance: TypeScript, node: ts.TypeParameterDeclaration) => ts.TypeParameterDeclaration
+): ts.NodeArray<ts.TypeParameterDeclaration> | undefined {
+    const typeParameters = [
+        ...(consumerTypeParameters?.map((typeParameter) => clone(tsInstance, typeParameter)) ?? []),
+        ...validations.map((validation) => clone(tsInstance, validation.typeParameter))
+    ]
+
+    return typeParameters.length === 0 ? undefined : tsInstance.factory.createNodeArray(typeParameters)
+}
+
 export function appendRequiredBaseValidationTypeParameters(
     tsInstance: TypeScript,
     consumerTypeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
     validations: RequiredBaseValidation[]
 ): ts.NodeArray<ts.TypeParameterDeclaration> | undefined {
-    const typeParameters = [
-        ...(consumerTypeParameters?.map((typeParameter) => cloneNode(tsInstance, typeParameter)) ?? []),
-        ...validations.map((validation) => cloneNode(tsInstance, validation.typeParameter))
-    ]
-
-    return typeParameters.length === 0 ? undefined : tsInstance.factory.createNodeArray(typeParameters)
+    return appendValidationTypeParameters(tsInstance, consumerTypeParameters, validations, cloneNode)
 }
 
 export function appendSourceViewValidationTypeParameters(
@@ -211,12 +223,7 @@ export function appendSourceViewValidationTypeParameters(
     consumerTypeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
     validations: RequiredBaseValidation[]
 ): ts.NodeArray<ts.TypeParameterDeclaration> | undefined {
-    const typeParameters = [
-        ...(consumerTypeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)) ?? []),
-        ...validations.map((validation) => deepCloneNode(tsInstance, validation.typeParameter))
-    ]
-
-    return typeParameters.length === 0 ? undefined : tsInstance.factory.createNodeArray(typeParameters)
+    return appendValidationTypeParameters(tsInstance, consumerTypeParameters, validations, deepCloneNode)
 }
 
 function missingRuntimeImportDiagnosticMessage(

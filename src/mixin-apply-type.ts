@@ -124,10 +124,11 @@ function createSourceViewMixinInstanceType(
 ): ts.TypeNode {
     const factory        = tsInstance.factory
     const ownType        = factory.createTypeLiteralNode(createSourceViewMixinInstanceMembers(tsInstance, declaration))
+    const requiredBase   = requiredBaseType(tsInstance, declaration)
     const inheritedTypes = [
-        ...(requiredBaseType(tsInstance, declaration) === undefined
+        ...(requiredBase === undefined
             ? []
-            : [ heritageTypeToTypeReference(tsInstance, requiredBaseType(tsInstance, declaration)!) ]),
+            : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]),
         ...implementsTypes(tsInstance, declaration).map((heritageType) => {
             return heritageTypeToTypeReference(tsInstance, heritageType)
         })
@@ -167,33 +168,55 @@ function createSourceViewMixinInstanceMembers(
         }
 
         if (tsInstance.isPropertyDeclaration(member)) {
-            return [ factory.createPropertySignature(
-                !hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
-                    ? undefined
-                    : [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ],
-                deepCloneNode(tsInstance, member.name),
-                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-                member.type === undefined
-                    ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                    : deepCloneNode(tsInstance, member.type)
-            ) ]
+            return [ createSourceViewPropertySignature(tsInstance, member, true) ]
         }
 
         if (tsInstance.isMethodDeclaration(member)) {
-            return [ factory.createMethodSignature(
-                undefined,
-                deepCloneNode(tsInstance, member.name),
-                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-                member.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
-                member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
-                member.type === undefined
-                    ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                    : deepCloneNode(tsInstance, member.type)
-            ) ]
+            return [ createSourceViewMethodSignature(tsInstance, member) ]
         }
 
         return []
     })
+}
+
+// Property/method signature builders shared by the instance and statics member
+// collectors. The instance side keeps a member's `readonly`; the statics side does
+// not model it, so it passes `includeReadonly: false`.
+function createSourceViewPropertySignature(
+    tsInstance: TypeScript,
+    member: ts.PropertyDeclaration,
+    includeReadonly: boolean
+): ts.PropertySignature {
+    const factory = tsInstance.factory
+
+    return factory.createPropertySignature(
+        includeReadonly && hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+            ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+            : undefined,
+        deepCloneNode(tsInstance, member.name),
+        member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
+        member.type === undefined
+            ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+            : deepCloneNode(tsInstance, member.type)
+    )
+}
+
+function createSourceViewMethodSignature(
+    tsInstance: TypeScript,
+    member: ts.MethodDeclaration
+): ts.MethodSignature {
+    const factory = tsInstance.factory
+
+    return factory.createMethodSignature(
+        undefined,
+        deepCloneNode(tsInstance, member.name),
+        member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
+        member.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
+        member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
+        member.type === undefined
+            ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+            : deepCloneNode(tsInstance, member.type)
+    )
 }
 
 function createSourceViewMixinStaticsType(
@@ -206,27 +229,11 @@ function createSourceViewMixinStaticsType(
         }
 
         if (tsInstance.isPropertyDeclaration(member) && !tsInstance.isPrivateIdentifier(member.name)) {
-            return [ tsInstance.factory.createPropertySignature(
-                undefined,
-                deepCloneNode(tsInstance, member.name),
-                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-                member.type === undefined
-                    ? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                    : deepCloneNode(tsInstance, member.type)
-            ) ]
+            return [ createSourceViewPropertySignature(tsInstance, member, false) ]
         }
 
         if (tsInstance.isMethodDeclaration(member) && !tsInstance.isPrivateIdentifier(member.name)) {
-            return [ tsInstance.factory.createMethodSignature(
-                undefined,
-                deepCloneNode(tsInstance, member.name),
-                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-                member.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
-                member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
-                member.type === undefined
-                    ? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-                    : deepCloneNode(tsInstance, member.type)
-            ) ]
+            return [ createSourceViewMethodSignature(tsInstance, member) ]
         }
 
         return []

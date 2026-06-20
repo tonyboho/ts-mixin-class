@@ -20,13 +20,13 @@ import {
     requiredBaseType,
     runtimeMixinClassName,
     type FileMixinContext,
-    type MixinDeclarationDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
 import {
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
+    createMixinDeclarationDiagnosticAliases,
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
     mixinValueIdentifier,
@@ -60,7 +60,6 @@ import {
     deepCloneNode,
     generatedTextRange,
     hasModifier,
-    preserveGeneratedDeclarationRange,
     preserveSourceViewGeneratedClassLikeRange,
     preserveTextRange
 } from "./util.js"
@@ -234,29 +233,6 @@ export function expandMixinClass(
         ...defaultExportStatement,
         ...configAliasStatement
     ]
-}
-
-function createMixinDeclarationDiagnosticAliases(
-    tsInstance: TypeScript,
-    className: string,
-    diagnostics: MixinDeclarationDiagnostic[],
-    original: ts.ClassDeclaration
-): ts.TypeAliasDeclaration[] {
-    const factory = tsInstance.factory
-
-    return diagnostics.map((diagnostic, index) => {
-        return preserveGeneratedDeclarationRange(tsInstance, factory.createTypeAliasDeclaration(
-            undefined,
-            generatedName(className, `$mixinDeclarationError${index}`),
-            [ factory.createTypeParameterDeclaration(
-                undefined,
-                "__mixinDeclarationError",
-                factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
-                factory.createLiteralTypeNode(factory.createStringLiteral(diagnostic.message))
-            ) ],
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
-        ), diagnostic.node, original)
-    })
 }
 
 // The construction config must reflect the mixin's whole applied chain: a mixin
@@ -767,11 +743,7 @@ function createBaseParameter(
         ...(requiredBase === undefined
             ? []
             : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]),
-        ...implementsTypes(tsInstance, declaration)
-            .filter((heritageType) => {
-                return tsInstance.isIdentifier(heritageType.expression) &&
-                    context.byLocalName.has(heritageType.expression.text)
-            })
+        ...localMixinHeritageTypes(tsInstance, declaration, context)
             .map((heritageType) => heritageTypeToTypeReference(tsInstance, heritageType))
     ]
 

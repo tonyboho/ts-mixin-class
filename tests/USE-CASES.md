@@ -119,6 +119,7 @@ plain consumer / manual construction instead). See §9.
 | 7.5d | A **split** get/set accessor (getter type ≠ setter type, e.g. `get():number`/`set(v:number\|string)`) in `.new` config is typed by the **setter** parameter type (since `.new`'s `Object.assign` fires the setter) — `.new({ value: <setter-valid> })` compiles | ✅ | `construction-split-accessor-config.t.ts`. A settable accessor is emitted as an explicit `name?: <setterParamType>` config member (not `Pick<Class, name>`, which would read the getter type), so the setter type is honored in emit and source-view. Cross-file imported mixin accessors (whose setter type node is unavailable) still fall back to `Pick`. See Resolved. |
 | 7.5e | A **mixin-contributed** public settable accessor flows into a construction **consumer's** `.new` config (as an optional key, typed by the setter), alongside the mixin's public **data fields** — the consumer's `Object.assign` fires the inherited setter the same way | ✅ | `construction-mixin-accessor-config.t.ts` (config alias carries the mixin's `label`; `@ts-expect-error` on a number argument proves the setter typing) |
 | 7.5f | A public **function-typed DATA field** (`onClick: () => string`) is **included** in `.new` config (it is an assignable property), while a declared **method** of the same call shape stays **excluded** — the config builder keys on declaration kind (property vs method), not on whether the type is a function; the supplied function is assigned and fires at runtime | ✅ | `fixture-suite/src/construction-function-typed-field.t.ts` |
+| 7.5g | A **local mixin's GENERIC split accessor** (setter type references the mixin's own type param, `set value(input: T \| string)`) flowing into a construction **consumer** that fixes the param (`implements Boxed<number>`): the consumer's `.new` config types `value` by the **substituted** setter type (`value?: number \| string`), and **forwards** the consumer's own param when it does (`class Box<U> implements Boxed<U>` → `value?: U \| string`) — never a dangling `T` | ✅ | `construction-generic-mixin-accessor-config.t.ts`. Fixed: mixin config collection substitutes the mixin's type params with the consumer's `implements` type arguments before cloning the setter node (`substituteMixinConfigTypeParameters` in `construction-config.ts`); an unfixed param falls back to its default/`any`. Was a dangling-`T` TS2304 that broke construction in emit **and** source-view. See Resolved. |
 | 7.6 | Optional (`?`), required, and definite-assignment (`!`) config fields | ✅ | `construction-public-only.t.ts` |
 | 7.6a | **readonly** data fields (immutable value-object): accepted by `.new` config **and** immutable on the constructed instance (post-construction reassignment is a type error) | ✅ | `construction-readonly-config.t.ts` |
 | 7.7 | `.new` excludes methods / rejects unknown keys | ✅ | `construction-public-only.t.ts`, `construction-public-only-generics.t.ts` |
@@ -297,6 +298,22 @@ plain consumer / manual construction instead). See §9.
   safe in both emit and source-view. A cross-file imported mixin accessor has no available type
   node, so it still falls back to `Pick` (getter type) — a documented narrower limitation.
   Covered by `construction-split-accessor-config.t.ts`.
+- **Local mixin's generic split accessor in a consumer's `.new` config (§7.5g).** A `@mixin`
+  with a settable accessor whose setter type references the mixin's own type parameter
+  (`set value(input: T | string)`) flowed into a consumer that fixes the parameter
+  (`implements Boxed<number>`) as a **dangling `T`**: the setter type node was cloned verbatim
+  into the consumer's `<Consumer>Config`, where `T` is unbound — `TS2304 "Cannot find name 'T'"`,
+  breaking construction in BOTH emit and source-view (not just declaration emit). Distinct from
+  the §7.5d cross-file fallback (there the setter node is unavailable, so it goes through `Pick`;
+  here the node is available but carried the wrong, unsubstituted param). Fixed by
+  `substituteMixinConfigTypeParameters` (`construction-config.ts`): when collecting a local
+  mixin's config properties, it maps the mixin's type parameters to the consumer's `implements`
+  type arguments (matched by the mixin's local binding name) and rewrites the setter type node —
+  mirroring `eraseOwnTypeParameterReferences` (`mixin-expand.ts`) but substituting instead of
+  erasing to `any`. A parameter the consumer leaves unfixed falls back to its default (or `any`),
+  so nothing dangles; a forwarded parameter (`class Box<U> implements Boxed<U>`) maps `T → U`,
+  in scope in the generic `BoxConfig<U>`. Covered by
+  `construction-generic-mixin-accessor-config.t.ts` (concrete arg + forwarded param).
 - **Re-export barrel mixin resolution (§10.1c).** A consumer importing a mixin through a
   re-export (`export { X } from`, `export { X as Y } from`, `export * from`, `export { default
   as X } from`, or a nested barrel) used to leave the consumer untransformed (`TS2420`/`TS2335`/

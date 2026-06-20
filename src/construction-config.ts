@@ -568,9 +568,103 @@ function staticConstructionConfigProperties(
 ): ConfigProperty[] {
     return uniqueConfigProperties([
         ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
-        ...mixinRefs.flatMap((ref) => ref.configProperties),
+        ...mixinRefs.flatMap((ref) => substituteMixinConfigTypeParameters(tsInstance, declaration, ref)),
         ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? [])
     ])
+}
+
+// A mixin's settable accessor whose setter type references the mixin's own type parameter
+// (`set value(input: T | string)`) is collected with that raw `T` node. When the accessor
+// flows into a consumer that fixes the parameter (`implements Boxed<number>`), the cloned
+// setter type must substitute `T` -> the consumer's type argument (`number`); otherwise the
+// generated `<Consumer>Config` references an unbound `T` (TS2304), breaking construction in
+// BOTH emit and source-view. A parameter the consumer leaves unfixed falls back to its
+// default (or `any`), so nothing dangles. Only LOCAL mixins carry the declaration (hence the
+// type parameters) needed for this; an imported accessor has no available setter node and
+// goes through `Pick` (a documented narrower limitation).
+function substituteMixinConfigTypeParameters(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef
+): ConfigProperty[] {
+    const typeParameters = ref.declaration?.typeParameters
+
+    if (typeParameters === undefined || typeParameters.length === 0 ||
+        ref.configProperties.every((property) => property.valueType === undefined)) {
+        return ref.configProperties
+    }
+
+    const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
+    const replacements  = new Map<string, ts.TypeNode>()
+
+    typeParameters.forEach((typeParameter, index) => {
+        replacements.set(
+            typeParameter.name.text,
+            typeArguments?.[index]
+                ?? typeParameter.default
+                ?? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+        )
+    })
+
+    return ref.configProperties.map((property) => property.valueType === undefined
+        ? property
+        : { ...property, valueType: substituteTypeReferences(tsInstance, property.valueType, replacements) })
+}
+
+// The type arguments the consumer supplies to `ref` in its `implements` clause
+// (`implements Boxed<number>` -> `[number]`), matched by the mixin's local binding name.
+function mixinImplementsTypeArguments(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef
+): ts.NodeArray<ts.TypeNode> | undefined {
+    for (const clause of declaration.heritageClauses ?? []) {
+        if (clause.token !== tsInstance.SyntaxKind.ImplementsKeyword) {
+            continue
+        }
+
+        for (const type of clause.types) {
+            if (tsInstance.isIdentifier(type.expression) &&
+                (type.expression.text === ref.localValueName || type.expression.text === ref.className)) {
+                return type.typeArguments
+            }
+        }
+    }
+
+    return undefined
+}
+
+// Replace every bare reference to a mapped type-parameter name inside `typeNode` with its
+// replacement type (deep-cloned so the result is position-less and safe in both planes).
+// Mirrors `eraseOwnTypeParameterReferences` (mixin-expand.ts) but substitutes instead of
+// erasing to `any`.
+function substituteTypeReferences(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    replacements: Map<string, ts.TypeNode>
+): ts.TypeNode {
+    const result = tsInstance.transform(typeNode, [
+        (context) => {
+            const visit: ts.Visitor = (node) => {
+                if (tsInstance.isTypeReferenceNode(node) &&
+                    tsInstance.isIdentifier(node.typeName) &&
+                    node.typeArguments === undefined &&
+                    replacements.has(node.typeName.text)) {
+                    return deepCloneNode(tsInstance, replacements.get(node.typeName.text)!)
+                }
+
+                return tsInstance.visitEachChild(node, visit, context)
+            }
+
+            return (node) => tsInstance.visitNode(node, visit) as ts.TypeNode
+        }
+    ])
+
+    try {
+        return result.transformed[0]
+    } finally {
+        result.dispose()
+    }
 }
 
 function literalKeyUnionType(

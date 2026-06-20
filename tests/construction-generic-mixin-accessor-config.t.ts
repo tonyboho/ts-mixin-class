@@ -1,11 +1,8 @@
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
-import { commandOutput, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
-import type { CommandResult } from "./util.js"
+import { commandOutput } from "./util.js"
+import { buildConstructionSource, readConstructionConfigDts } from "./construction-build-util.js"
 
 // §7.5d × §7.5e × §6: a MIXIN's GENERIC settable accessor whose getter and setter types
 // DIFFER and both depend on the mixin's type parameter `T` (`get value(): T`,
@@ -50,24 +47,6 @@ void [ withString.value, withNumber.value, minimal.value ]
 Box.new({ id: "b4", value: true })
 `
 
-async function build(compilerOptions: Record<string, unknown> | undefined): Promise<CommandResult> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
-    })
-
-    try {
-        return await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-    } finally {
-        await fixture.dispose()
-    }
-}
-
 // Same consumer + mixin without any `.new(...)` call, so declarations emit cleanly and the
 // generated `BoxConfig` alias can be inspected directly.
 const configInspectionText = `
@@ -91,26 +70,6 @@ export class Box extends Base implements Boxed<number> {
     public id: string = ""
 }
 `
-
-async function readConfigAlias(): Promise<string> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text : configInspectionText } ]
-    })
-
-    try {
-        await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-
-        return await readFile(path.join(fixture.directory, "dist", "source.d.ts"), "utf8")
-    } finally {
-        await fixture.dispose()
-    }
-}
 
 // A consumer that FORWARDS its own type parameter to the mixin (`class Box<U> ... implements
 // Boxed<U>`): the substitution maps the mixin's `T` -> the consumer's `U`, which is in scope
@@ -139,36 +98,16 @@ export class Box<U> extends Base implements Boxed<U> {
 }
 `
 
-async function readForwardingConfigAlias(): Promise<string> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text : forwardingInspectionText } ]
-    })
-
-    try {
-        await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-
-        return await readFile(path.join(fixture.directory, "dist", "source.d.ts"), "utf8")
-    } finally {
-        await fixture.dispose()
-    }
-}
-
 it("types a mixin's generic split accessor in the consumer's .new config by the substituted setter type", async (t: Test) => {
-    const emit       = await build(undefined)
-    const sourceView = await build({ noEmit : true })
+    const emit       = await buildConstructionSource(text, undefined)
+    const sourceView = await buildConstructionSource(text, { noEmit : true })
 
     t.equal(emit.exitCode, 0,
         `A mixin's generic split accessor flows into the consumer .new config typed by the setter (emit).\n${commandOutput(emit)}`)
     t.equal(sourceView.exitCode, 0,
         `A mixin's generic split accessor flows into the consumer .new config typed by the setter (source-view).\n${commandOutput(sourceView)}`)
 
-    const dts = await readConfigAlias()
+    const dts = await readConstructionConfigDts(configInspectionText)
 
     // The setter type `T | string` is substituted to the consumer's argument: `number | string`.
     t.match(dts, "value?: number | string",
@@ -176,7 +115,7 @@ it("types a mixin's generic split accessor in the consumer's .new config by the 
 })
 
 it("forwards the consumer's own type parameter into the mixin's generic split accessor config", async (t: Test) => {
-    const dts = await readForwardingConfigAlias()
+    const dts = await readConstructionConfigDts(forwardingInspectionText)
 
     // The mixin's `T` is substituted to the consumer's forwarded `U`, in scope in `BoxConfig<U>`.
     t.match(dts, "value?: U | string",

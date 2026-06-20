@@ -1,10 +1,8 @@
-import path from "node:path"
-
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
-import { commandOutput, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
-import type { CommandResult } from "./util.js"
+import { commandOutput } from "./util.js"
+import { buildConstructionSource } from "./construction-build-util.js"
 
 // SPEC (currently UNMET — this test is expected to be RED until fixed): a construction
 // class's generated `<ClassName>Config` should include a **settable** accessor (a get/set
@@ -49,30 +47,9 @@ const q = Profile.new({ initials: "AL" })
 void [ p.first, p.last, p.full, q.first ]
 `
 
-async function buildFixture(
-    text: string,
-    compilerOptions: Record<string, unknown> | undefined
-): Promise<CommandResult> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
-    })
-
-    try {
-        return await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-    } finally {
-        await fixture.dispose()
-    }
-}
-
 it("includes a settable accessor in the construction config", async (t: Test) => {
-    const emitResult       = await buildFixture(settableAccessorConfigText, undefined)
-    const sourceViewResult = await buildFixture(settableAccessorConfigText, { noEmit : true })
+    const emitResult       = await buildConstructionSource(settableAccessorConfigText, undefined)
+    const sourceViewResult = await buildConstructionSource(settableAccessorConfigText, { noEmit : true })
 
     t.equal(emitResult.exitCode, 0,
         `A settable accessor should be accepted by .new config (emit).\n${commandOutput(emitResult)}`)

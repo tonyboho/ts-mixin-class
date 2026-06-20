@@ -1,12 +1,8 @@
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
-import { commandOutput, createTypeScriptFixture, packageRoot } from "./util.js"
-import { runCommand } from "./util.js"
-import type { CommandResult } from "./util.js"
+import { commandOutput } from "./util.js"
+import { buildConstructionSource, readConstructionConfigDts } from "./construction-build-util.js"
 
 // §7.5e: §7.5c established that a construction class's OWN public settable accessor is part
 // of its `.new` config. This pins the next dimension — a settable accessor contributed by a
@@ -51,24 +47,6 @@ void [ configured.label, minimal.label ]
 Widget.new({ id: "w3", tag: "t3", label: 42 })
 `
 
-async function build(compilerOptions: Record<string, unknown> | undefined): Promise<CommandResult> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions,
-        sourceFiles            : [ { fileName : "source.ts", text } ]
-    })
-
-    try {
-        return await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-    } finally {
-        await fixture.dispose()
-    }
-}
-
 // Same consumer + mixin without any `.new(...)` call, so declarations emit cleanly and the
 // generated `WidgetConfig` alias can be inspected directly.
 const configInspectionText = `
@@ -93,36 +71,16 @@ export class Widget extends Base implements Labelled {
 }
 `
 
-async function readConfigAlias(): Promise<string> {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        compilerOptions        : { declaration : true },
-        sourceFiles            : [ { fileName : "source.ts", text : configInspectionText } ]
-    })
-
-    try {
-        await runCommand(
-            "node",
-            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
-            fixture.directory
-        )
-
-        return await readFile(path.join(fixture.directory, "dist", "source.d.ts"), "utf8")
-    } finally {
-        await fixture.dispose()
-    }
-}
-
 it("aggregates a mixin's settable accessor into the consumer's .new config", async (t: Test) => {
-    const emit       = await build(undefined)
-    const sourceView = await build({ noEmit : true })
+    const emit       = await buildConstructionSource(text, undefined)
+    const sourceView = await buildConstructionSource(text, { noEmit : true })
 
     t.equal(emit.exitCode, 0,
         `A mixin's settable accessor is part of the consumer's .new config (emit).\n${commandOutput(emit)}`)
     t.equal(sourceView.exitCode, 0,
         `A mixin's settable accessor is part of the consumer's .new config (source-view).\n${commandOutput(sourceView)}`)
 
-    const dts = await readConfigAlias()
+    const dts = await readConstructionConfigDts(configInspectionText)
 
     // The mixin's settable accessor is emitted as an explicit `label?: string` config
     // member (typed by the setter), not folded into the data-field `Pick<...>`.

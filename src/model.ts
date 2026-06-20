@@ -183,6 +183,25 @@ export function generatedName(name: string, suffix: string): string {
     return `__${name}${suffix}`
 }
 
+// A type-parameter name based on `baseName` that does not collide with the class's own
+// type parameters; `_1`, `_2`, … are appended until it is unique. Used for the synthetic
+// diagnostic-carrier type parameters appended to generated `$base` declarations.
+export function uniqueTypeParameterName(
+    declaration: ts.ClassDeclaration,
+    baseName: string
+): string {
+    const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
+    let name       = baseName
+    let index      = 0
+
+    while (existing.has(name)) {
+        index++
+        name = `${baseName}_${index}`
+    }
+
+    return name
+}
+
 export function propertyNameText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
     if (tsInstance.isIdentifier(name) || tsInstance.isStringLiteral(name) || tsInstance.isNumericLiteral(name)) {
         return name.text

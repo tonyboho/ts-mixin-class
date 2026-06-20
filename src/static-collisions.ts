@@ -6,6 +6,7 @@ import {
 } from "./expand-util.js"
 import {
     staticConflictKeysName,
+    uniqueTypeParameterName,
     type RequiredBaseValidation,
     type ResolvedMixinRef,
     type StaticCollisionCheckMode,
@@ -62,7 +63,7 @@ export function createStaticCollisionValidations(
             validations.push({
                 typeParameter : preserveTextRange(tsInstance, tsInstance.factory.createTypeParameterDeclaration(
                     undefined,
-                    uniqueStaticCollisionTypeParameterName(declaration, validations.length),
+                    uniqueTypeParameterName(declaration, `__mixinStaticCollision${validations.length}`),
                     tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
                     undefined
                 ), generatedRange),
@@ -206,16 +207,3 @@ function staticCollisionDiagnosticMessage(
         "Fix: rename one static member, make the static member types compatible, or remove one mixin from the implements list."
 }
 
-function uniqueStaticCollisionTypeParameterName(declaration: ts.ClassDeclaration, validationIndex: number): string {
-    const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
-    const baseName = `__mixinStaticCollision${validationIndex}`
-    let name       = baseName
-    let index      = 0
-
-    while (existing.has(name)) {
-        index++
-        name = `${baseName}_${index}`
-    }
-
-    return name
-}

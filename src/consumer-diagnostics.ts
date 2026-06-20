@@ -9,6 +9,7 @@ import {
     extendsClause,
     metadataBaseLocalName,
     requiredBaseType,
+    uniqueTypeParameterName,
     type FileMixinContext,
     type RequiredBaseRequirement,
     type RequiredBaseValidation,
@@ -49,7 +50,7 @@ export function createConsumerDiagnosticValidation(
     return {
         typeParameter : preserveTextRange(tsInstance, factory.createTypeParameterDeclaration(
             undefined,
-            uniqueGeneratedTypeParameterName(declaration, parameterBaseName),
+            uniqueTypeParameterName(declaration, parameterBaseName),
             factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
             undefined
         ), generatedRange),
@@ -129,7 +130,7 @@ export function createRequiredBaseValidations(
 
         const typeParameter = preserveTextRange(tsInstance, tsInstance.factory.createTypeParameterDeclaration(
             undefined,
-            uniqueGeneratedTypeParameterName(declaration, `__mixinRequiredBase${validations.length}`),
+            uniqueTypeParameterName(declaration, `__mixinRequiredBase${validations.length}`),
             tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
             undefined
         ), generatedRange)
@@ -244,22 +245,6 @@ function missingRuntimeImportDiagnosticMessage(
         "Mixin classes must be available as runtime values so mixinChain(...) can apply them. " +
         `Fix: publish the JavaScript export for ${mixinRef.className}, expose it from "${missingImport.specifier}", ` +
         `import ${mixinRef.className} as a value, or remove ${mixinRef.className} from the implements list.`
-}
-
-function uniqueGeneratedTypeParameterName(
-    declaration: ts.ClassDeclaration,
-    baseName: string
-): string {
-    const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
-    let name       = baseName
-    let index      = 0
-
-    while (existing.has(name)) {
-        index++
-        name = `${baseName}_${index}`
-    }
-
-    return name
 }
 
 function requiredBaseRequirementOfMixinRef(

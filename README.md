@@ -153,7 +153,7 @@ For a mixin class, `extends ModelBase` means “this mixin can only be applied t
 `ModelBase` or one of its descendants”. It does not permanently lock the consumers of the mixin to that
 exact runtime base. Both typecheck and runtime enforce this requirement.
 
-## Mixin Classes Are Classes
+## Mixin classes are classes
 
 Mixin classes are still regular classes. You can instantiate them directly, access their
 static members, and use them with `instanceof`:
@@ -182,14 +182,14 @@ persisted instanceof ModelBase
 persisted instanceof Persisted
 ```
 
-## Manual Application
+## Manual application
 
 Mixin classes can also be applied manually. This is useful when a library publishes
 classes created with this transformer, but the consuming project does not run the
 transformer itself:
 
 ```ts
-import { Named } from 'library_providing_a_mixin'
+import { Named } from "library_providing_a_mixin"
 
 class UserBase {
     name: string = "Ada"
@@ -208,7 +208,7 @@ user instanceof UserBase
 
 For mixins with generics, TypeScript cannot infer the base type after explicit mixin type
 arguments in the same call. Provide both the generic type arguments of the mixin and the base constructor
-type as last type argument:
+type as the last type argument:
 
 ```ts
 @mixin()
@@ -254,12 +254,12 @@ const label: string = box.label()
 
 ## Cooperative initialization
 
-Constructor signatures for mixins are generally not composable, because JavaScript, unlike Python, does not have named arguments, only  positional ones.
+Constructor signatures for mixins are generally not composable, because JavaScript, unlike Python, does not have named arguments, only positional ones.
 
 Instead, mixins introduce a "cooperative initialization" pattern, similar in spirit to Python's
 [`super()` cooperative multiple inheritance](https://docs.python.org/3/library/functions.html#super).
-To opt-in to this mechanism, extend the provided `Base` class (directly or transitively, via a consumed mixin).
-This mechanism is fully optional and you don't need to use it for using this library.
+To opt in to this mechanism, extend the provided `Base` class (directly or transitively, via a consumed mixin).
+This mechanism is fully optional and you don't need it to use this library.
 
 Cooperative initialization provides a static method `new` as a constructor.
 
@@ -271,7 +271,7 @@ class Model extends Base {}
 const model = Model.new()
 ```
 
-After opting-in, calling the native constructor of the class directly with `new` will generate a type error. It is a compile-time only guard - a descriptive type error points back to the static factory:
+After opting in, calling the native constructor of the class directly with `new` will generate a type error. It is a compile-time-only guard - a descriptive type error points back to the static factory:
 
 ```ts
 // Error: Use `Model.new({ ... })` to construct - direct `new Model(...)` is disabled;
@@ -299,26 +299,26 @@ class Model extends Base {
     public name?: string = ""
 
     // not in the config
-    kind: string = ''
+    kind: string = ""
 }
 
 // the argument of the constructor has `ModelConfig` type
 const model = Model.new({ id : "42" })
 
 // class config is a regular (though phantom) type
-const cfg: ModelConfig = { id : "35", name : 'He-Man' }
+const cfg: ModelConfig = { id : "35", name : "He-Man" }
 
 // @ts-expect-error - unknown config name
-Model.new({ id : '42', nope : 'nope' })
+Model.new({ id : "42", nope : "nope" })
 
 // @ts-expect-error - missing required `id` config
-Model.new({ name : 'He-Man' })
+Model.new({ name : "He-Man" })
 ```
 
-If a property consists from getter and setter with different types - a config will contain a setter's type, since that is what
-the assignment code path actually accept.
+If a property consists of a getter and a setter with different types - the config will contain the setter's type, since that is what
+the assignment code path actually accepts.
 
-If a property is marked as `readonly` (along with `public`) - it is still included in the config, while remaining non-writeable
+If a property is marked as `readonly` (along with `public`) - it is still included in the config, while remaining non-writable
 in the rest of the code.
 
 ### Instantiation flow
@@ -331,7 +331,7 @@ It is a good performance practice to provide an initializer expression for all o
 
 ### Initialize method
 
-Override `initialize` method when a class needs derived state or validation before/after config assignment.
+Override the `initialize` method when a class needs derived state or validation before/after config assignment.
 
 ```ts
 import { Base } from "ts-mixin-class/base"
@@ -359,7 +359,7 @@ const user = User.new({
 
 ### Instantiation with generics
 
-Mixin classes and consumers with generics can also use static `new` constructor. It keeps
+Mixin classes and consumers with generics can also use the static `new` constructor. It keeps
 generic parameters from the class declaration. The type can be written explicitly or inferred from the config
 object:
 
@@ -455,7 +455,7 @@ A few things the library does not support yet.
   declaration instead.
 
 
-## Technical Notes
+## Technical notes
 
 `ts-mixin-class` is a `ts-patch` ProgramTransformer: it rewrites your source files before
 TypeScript typechecks and emits them.

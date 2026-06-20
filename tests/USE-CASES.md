@@ -10,9 +10,15 @@ Status legend:
 - ✅ covered — a test asserts this directly
 - ⚠️ partial — covered only implicitly, in one mode, or as a side effect of another test
 - ❌ gap — no test, or known-broken (see notes)
-- ❌ RED — a **deliberately-failing** test pins this gap: it asserts the spec-correct
-  behavior, fails today, and flips green when the gap is fixed. A red test here is an
-  intended, useful result of a coverage pass — not a regression. Do not delete or soften it.
+- ⏭️ deferred — a `xit`/skipped test records a spec point that is intentionally not
+  supported yet. The committed suite stays **green**: a skipped test is how the spec says
+  "this is to-do / unsupported", not a hanging failure.
+
+A note on the workflow: a **RED** (deliberately-failing) test is valid **only during the
+coverage-expansion stage**, while work is in progress and uncommitted — it pins a found gap.
+Before committing, every red test is resolved one of two ways: **fix it** (→ ✅) or **defer
+it** (→ `xit`, ⏭️). The committed suite is always green; it reflects the *current* state of
+the spec, where deferred points are skipped, not failing. Never commit a hanging red test.
 
 Path note: runtime fixtures live in `tests/fixture-suite/src/*.t.ts` (compiled by the
 transformer, then run under siesta in both `standard` and `legacy`/`experimentalDecorators`
@@ -33,6 +39,9 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 1.7 | Metadata symbols (`factory`/`requirements`/`base`) exposed | ✅ | `mixin-self-reference.t.ts`, `required-base-local.t.ts` |
 | 1.8 | Mixin contributing **accessors** (get-only → `readonly` property; get/set pair → writable), correct on the consumer at type level **and** runtime (getter computes, setter mutates, descriptor stays a real accessor) | ✅ | `mixin-accessors.t.ts` |
 | 1.9 | **Empty** mixin (no members) as a marker — zero-member interface path (`zeroWidthRange`); brands consumers (incl. transitively via an empty dependent mixin) and instantiates standalone | ✅ | `empty-mixin.t.ts` |
+| 1.10 | A mixin method with **multiple call signatures** (overloads): all overloads are copied into the consumer's interface and resolve per-call (`string→number`, `number→string`), through `super` and at the consumer call site | ✅ | `fixture-suite/src/mixin-overloaded-method.t.ts` |
+| 1.11 | A mixin's **static accessor** (get/set pair), not just a static method/field: inherited onto the consumer's constructor; getter computes, setter mutates shared static state | ✅ | `fixture-suite/src/mixin-static-accessor.t.ts` |
+| 1.12 | **Two-hop** mixin dependency (`Top⇒Mid⇒Bottom`): a consumer gets `Bottom`'s members transitively and the `super` chain threads all three in C3 order | ✅ | `fixture-suite/src/mixin-two-hop-dependency.t.ts` |
 
 ## 2. Consumers (`implements`)
 
@@ -73,6 +82,7 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 5.3 | Generic mix requires the base type arg when mixin args are explicit | ✅ | `manual-mix.t.ts` (`@ts-expect-error`) |
 | 5.4 | Manual `.mix(Base)` of a mixin that **depends** on another mixin (`Main implements Dep`): the dependency is applied transitively at runtime **and** reachable through the type (`Main`'s interface `extends Dep`) — **emit/runtime only** | ✅ | `manual-mix-dependency.t.ts` |
 | 5.4-sv | The same `extends Main.mix(Base)` (dependent mixin) type-checks in **source-view** (IDE) as it does in emit | ✅ | `tsserver-diagnostics.t.ts` → "a manual .mix of a dependent mixin is clean in source-view" (regression guard). Fixed: the dependency's framework `mix` was shadowing the mixin's own in the source-view value cast — now `Omit<ClassStatics<typeof Dep>, "mix">`. See Resolved. |
+| 5.5 | Manual `.mix(Base)` of a mixin with a **two-hop** dependency chain (`Top⇒Mid⇒Bottom`): `.mix` linearizes and applies both transitive dependencies; `super` threads all three; the instance type reaches `Bottom`'s members through two interface-extends hops; `instanceof` matches every layer | ✅ | `fixture-suite/src/manual-mix-two-hop-dependency.t.ts` |
 
 ## 6. Generics
 
@@ -102,6 +112,8 @@ plain consumer / manual construction instead). See §9.
 | 7.5a | A **get-only** accessor on a construction class is excluded from `.new` config (not assignable) yet works on the instance | ✅ | `construction-accessor-config.t.ts` |
 | 7.5c | A **settable** accessor (get/set or set-only) is **included** in `.new` config (public + assignable; `.new`'s `Object.assign` fires the setter), typed by the setter's parameter type; emit + source-view | ✅ | `construction-settable-accessor-config.t.ts`. Fixed: config-property collection now also gathers public set-accessors (`source-file-facts.ts`). A get-only accessor stays excluded. See Resolved. |
 | 7.5b | **Constrained** generic construction (`class R<T extends Entity> extends Base`): constraint preserved on `.new<T>` and `<ClassName>Config<T>`; inference respects it | ✅ | `construction-generic-constrained.t.ts` |
+| 7.5d | A **split** get/set accessor (getter type ≠ setter type, e.g. `get():number`/`set(v:number\|string)`) in `.new` config is typed by the **setter** parameter type (since `.new`'s `Object.assign` fires the setter) — `.new({ value: <setter-valid> })` compiles | ✅ | `construction-split-accessor-config.t.ts`. A settable accessor is emitted as an explicit `name?: <setterParamType>` config member (not `Pick<Class, name>`, which would read the getter type), so the setter type is honored in emit and source-view. Cross-file imported mixin accessors (whose setter type node is unavailable) still fall back to `Pick`. See Resolved. |
+| 7.5e | A **mixin-contributed** public settable accessor flows into a construction **consumer's** `.new` config (as an optional key, typed by the setter), alongside the mixin's public **data fields** — the consumer's `Object.assign` fires the inherited setter the same way | ✅ | `construction-mixin-accessor-config.t.ts` (config alias carries the mixin's `label`; `@ts-expect-error` on a number argument proves the setter typing) |
 | 7.6 | Optional (`?`), required, and definite-assignment (`!`) config fields | ✅ | `construction-public-only.t.ts` |
 | 7.6a | **readonly** data fields (immutable value-object): accepted by `.new` config **and** immutable on the constructed instance (post-construction reassignment is a type error) | ✅ | `construction-readonly-config.t.ts` |
 | 7.7 | `.new` excludes methods / rejects unknown keys | ✅ | `construction-public-only.t.ts`, `construction-public-only-generics.t.ts` |
@@ -138,6 +150,8 @@ plain consumer / manual construction instead). See §9.
 |---|----------|--------|-------|
 | 10.1 | Imported mixins (named / default / type-only) used by a consumer | ✅ | `consumer-imported-mixins.t.ts`, `default-mixin-consumer.t.ts`, `type-only-imported-mixin.t.ts` |
 | 10.1a | Imported mixin's **accessors** (get-only + get/set) resolved on a cross-file consumer, clean in emit **and** source-view | ✅ | `accessor-mixin.ts` + `consumer-imported-accessor.t.ts` |
+| 10.1b | **Aliased** mixin import (`import { Logger as Log }`): resolution follows the imported symbol (not the local binding text), so an aliased mixin is recognized and applied | ✅ | `imported-mixin-resolution.t.ts` ("resolves an aliased mixin import") |
+| 10.1c | Mixin imported through a **re-export barrel** resolves & applies, across every re-export shape: **named** (`export { Logger } from`), **aliased** (`export { Logger as Renamed } from`), **star** (`export * from`), **default passthrough** (`export { default as Logger } from` a default-exported mixin), and **nested** (barrel of a barrel) | ✅ | `imported-mixin-resolution.t.ts` (5 shapes + aliased import). Fixed via `addReExportAliasKeys` (`registry.ts`): the registry adds `registryKey(reExportingFile, exportedName) → entry` for each re-exported mixin, resolved through the type-checker's alias chain — so the consumer's structural lookup hits. See Resolved. |
 | 10.2 | Imported required-base mixin (with / without a local base) | ✅ | `consumer-imported-mixins.t.ts`, `required-base-imported-no-base.t.ts` |
 | 10.3 | Cross-file construction: ordinary class extends imported `Base` descendant | ✅ | `source-transform-cross-file-construction.t.ts` |
 | 10.4 | Cross-file construction: consumer of imported `Base`-descendant mixin | ✅ | `source-transform-cross-file-construction.t.ts` |
@@ -162,6 +176,7 @@ plain consumer / manual construction instead). See §9.
 | 11.5 | Static member collisions (field strict / method strict-only / disabled) | ✅ | `source-transform-diagnostics.t.ts`, `type-errors.ts` |
 | 11.6 | Contract violation (mixin body does not satisfy `implements`) | ✅ | `type-errors.ts`, `emit-contract-conformance.t.ts` |
 | 11.7 | **Index signature** on a mixin is now **supported** (was rejected): copied into the generated interface (emit + source-view), erased at runtime; the consumer gains the dynamic member shape | ✅ | `fixture-suite/src/mixin-index-signature.t.ts` (runtime + emit + stress corpus; source-view via the "stay clean" sweep). See Resolved. |
+| 11.8 | Index signature with a **generic value type** (`[key: string]: V`): a consumer fixing the parameter (`implements Bag<string>`) gains a string-valued dynamic shape; erased at runtime | ✅ | `fixture-suite/src/mixin-generic-index-signature.t.ts` |
 
 ## 12. IDE / source-view (position-preserving) behavior
 
@@ -253,6 +268,28 @@ plain consumer / manual construction instead). See §9.
 
 ## Resolved (kept here for history)
 
+- **Split get/set accessor typed by the setter in `.new` config (§7.5d).** A settable accessor
+  whose getter and setter types differ used to be typed by the getter, because the config was
+  built as `Pick<Class, name>` (which reads the getter type) — so a setter-valid value was
+  rejected (`TS2322`). Fixed by carrying the setter's parameter type on `ConfigProperty.valueType`
+  (`source-file-facts.ts`) and emitting settable accessors as explicit `name?: <setterType>`
+  members in `createConstructionConfig` (`construction-config.ts`) instead of folding them into
+  the `Pick`. The setter type is `getSynthesizedDeepClone`d (position-less synthetic), so it is
+  safe in both emit and source-view. A cross-file imported mixin accessor has no available type
+  node, so it still falls back to `Pick` (getter type) — a documented narrower limitation.
+  Covered by `construction-split-accessor-config.t.ts`.
+- **Re-export barrel mixin resolution (§10.1c).** A consumer importing a mixin through a
+  re-export (`export { X } from`, `export { X as Y } from`, `export * from`, `export { default
+  as X } from`, or a nested barrel) used to leave the consumer untransformed (`TS2420`/`TS2335`/
+  `TS2339`) because the registry keyed mixins only by their declaring file. Fixed with a
+  checker-based pass `addReExportAliasKeys` (`registry.ts`): for every module that re-exports,
+  it follows each export's alias chain (`getAliasedSymbol`; `export *` surfaces the original
+  symbol directly) to the declaring mixin and registers an alias key
+  `registryKey(reExportingFile, exportedName) → entry`. Run before dependency resolution, so a
+  mixin **dependency** imported via a barrel resolves too. The checker is fetched lazily and only
+  files containing `export … from` are inspected, so direct-import projects pay ~nothing. The
+  consumer-resolution path is unchanged (its structural lookup now simply hits). Covered by
+  `imported-mixin-resolution.t.ts`.
 - **Index signatures on a mixin are now supported (§11.7).** Was rejected (with a diagnostic
   that even mislabelled it a "constructor"). Now `isSupportedMixinClassMember` accepts an
   `IndexSignatureDeclaration`, and it is copied into the generated mixin interface (emit:

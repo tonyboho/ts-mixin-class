@@ -63,6 +63,13 @@ export function buildMixinRegistry(
         }
     }
 
+    // Register re-export aliases so a mixin imported through a barrel resolves: each
+    // `export ... from "<module>"` (named, aliased, `export *`, default passthrough,
+    // nested) makes the mixin reachable under `registryKey(barrelFile, exportedName)`,
+    // pointing at the same entry as its declaring file. Done before dependency resolution
+    // so a mixin DEPENDENCY imported via a barrel resolves too.
+    addReExportAliasKeys(tsInstance, program, registry)
+
     const importMaps            = new Map<string, Map<string, { resolvedFileName: string, importedName: string }>>()
     const dependencyNamesByFile = new Map<string, Set<string>>()
 
@@ -123,6 +130,72 @@ export function buildMixinRegistry(
     }
 
     return registry
+}
+
+// Walks every module's `export ... from` re-exports and, for each re-exported mixin,
+// adds a registry alias key `registryKey(reExportingFile, exportedName) -> entry`. Uses
+// the type-checker (original-program symbols) to follow alias chains — so named, aliased
+// (`as`), `export *`, default-passthrough, and nested barrels all resolve uniformly. The
+// checker is fetched lazily and only files that actually re-export are inspected, so a
+// project of direct imports pays effectively nothing.
+function addReExportAliasKeys(
+    tsInstance: TypeScript,
+    program: ts.Program,
+    registry: MixinRegistry
+): void {
+    let checker: ts.TypeChecker | undefined
+
+    for (const sourceFile of program.getSourceFiles()) {
+        const hasReExport = sourceFile.statements.some((statement) =>
+            tsInstance.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined)
+
+        if (!hasReExport) {
+            continue
+        }
+
+        // eslint-disable-next-line align-assignments/align-assignments
+        checker ??= program.getTypeChecker()
+
+        const moduleSymbol = checker.getSymbolAtLocation(sourceFile)
+
+        if (moduleSymbol === undefined) {
+            continue
+        }
+
+        for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+            // A named/aliased/default re-export is an alias symbol (follow it); a `export *`
+            // re-export surfaces the ORIGINAL symbol directly (not an alias), so resolve the
+            // alias only when there is one.
+            const target      = (exported.flags & tsInstance.SymbolFlags.Alias) === 0
+                ? exported
+                : checker.getAliasedSymbol(exported)
+            const declaration = target.declarations?.find((node) => tsInstance.isClassDeclaration(node))
+
+            if (declaration === undefined || !tsInstance.isClassDeclaration(declaration) || declaration.name === undefined) {
+                continue
+            }
+
+            const declaringFileName = declaration.getSourceFile().fileName
+
+            // Only a mixin declared in ANOTHER file is a re-export; a locally-declared
+            // export is already registered under its own key.
+            if (declaringFileName === sourceFile.fileName) {
+                continue
+            }
+
+            const entry = registry.get(registryKey(declaringFileName, declaration.name.text))
+
+            if (entry === undefined) {
+                continue
+            }
+
+            const aliasKey = registryKey(sourceFile.fileName, exported.name)
+
+            if (!registry.has(aliasKey)) {
+                registry.set(aliasKey, entry)
+            }
+        }
+    }
 }
 
 type Candidate = {

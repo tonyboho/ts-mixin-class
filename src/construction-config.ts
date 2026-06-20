@@ -496,9 +496,19 @@ function createConstructionConfig(
     )
     const requiredNames: string[] = []
     const optionalNames: string[] = []
+    // Settable accessors that carry a setter type are emitted as explicit members (typed by
+    // the setter, not the getter a `Pick` would read); everything else goes through `Pick`.
+    const explicitMembers: ts.PropertySignature[] = []
 
     for (const property of properties) {
-        if (property.optional) {
+        if (property.valueType !== undefined) {
+            explicitMembers.push(factory.createPropertySignature(
+                undefined,
+                factory.createIdentifier(property.name),
+                property.optional ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                deepCloneNode(tsInstance, property.valueType)
+            ))
+        } else if (property.optional) {
             optionalNames.push(property.name)
         } else {
             requiredNames.push(property.name)
@@ -520,8 +530,15 @@ function createConstructionConfig(
                 literalKeyUnionType(tsInstance, optionalNames)
             ])
         ])
+    const explicitType = explicitMembers.length === 0
+        ? undefined
+        : factory.createTypeLiteralNode(explicitMembers)
 
-    if (requiredType === undefined && optionalType === undefined) {
+    // Explicit accessor members are always optional, so they never force a required param.
+    const parts = ([ requiredType, optionalType, explicitType ] as Array<ts.TypeNode | undefined>).filter(
+        (part): part is ts.TypeNode => part !== undefined)
+
+    if (parts.length === 0) {
         return {
             type : factory.createTypeReferenceNode("Partial", [
                 factory.createTypeReferenceNode("Pick", [
@@ -533,26 +550,9 @@ function createConstructionConfig(
         }
     }
 
-    if (requiredType === undefined) {
-        return {
-            type              : optionalType as ts.TypeNode,
-            optionalParameter : true
-        }
-    }
-
-    if (optionalType === undefined) {
-        return {
-            type              : requiredType,
-            optionalParameter : false
-        }
-    }
-
     return {
-        type : factory.createIntersectionTypeNode([
-            requiredType,
-            optionalType
-        ]),
-        optionalParameter : false
+        type              : parts.length === 1 ? parts[0] : factory.createIntersectionTypeNode(parts),
+        optionalParameter : requiredType === undefined
     }
 }
 

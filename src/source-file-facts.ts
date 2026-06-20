@@ -216,7 +216,10 @@ function collectClassMemberFacts(
             const name = propertyNameText(tsInstance, member.name)
 
             if (name !== undefined) {
-                configProperties.push({ name, optional: true })
+                // Carry the setter's parameter type so the config field is typed by what the
+                // setter accepts (which `.new`'s `Object.assign` invokes), not the getter
+                // type a `Pick<Class, name>` would read for a split get/set accessor.
+                configProperties.push({ name, optional: true, valueType: member.parameters[0]?.type })
             }
 
             continue

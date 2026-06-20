@@ -129,8 +129,14 @@ export type StaticSource = {
 }
 
 export type ConfigProperty = {
-    name     : string,
-    optional : boolean
+    name       : string,
+    optional   : boolean,
+    // For a settable ACCESSOR, the setter's parameter type. The config field is then
+    // emitted as an explicit `name?: <valueType>` member rather than `Pick<Class, name>`,
+    // because `Pick` reads the GETTER type — wrong when get/set types differ (the setter,
+    // which `.new`'s `Object.assign` actually invokes, may accept a wider type). Absent for
+    // data fields (and accessors resolved cross-file without a type node), which use `Pick`.
+    valueType? : ts.TypeNode
 }
 
 export type MixinDeclarationDiagnostic = {
@@ -192,8 +198,10 @@ export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty
         const existing = byName.get(value.name)
 
         byName.set(value.name, {
-            name     : value.name,
-            optional : (existing?.optional ?? true) && value.optional
+            name      : value.name,
+            optional  : (existing?.optional ?? true) && value.optional,
+            // Keep a setter value type from whichever contributor carries one.
+            valueType : existing?.valueType ?? value.valueType
         })
     }
 

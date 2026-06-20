@@ -7,7 +7,6 @@ import {
 } from "../src/index.js"
 import {
     base,
-    Base as MixinBase,
     factory,
     requirements,
     type AnyConstructor,

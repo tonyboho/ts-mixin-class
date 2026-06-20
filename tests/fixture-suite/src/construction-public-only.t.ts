@@ -22,6 +22,8 @@ class Model2 extends Base {
 const model21 = Model2.new()
 const model22 = Model2.new({})
 
+void [ model21, model22 ]
+
 
 class ConstructableBase extends Base {
     public baseValue: string = "base"

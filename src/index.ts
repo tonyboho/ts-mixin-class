@@ -48,8 +48,7 @@ import {
     preserveTopLevelStatementRanges,
     printSourceFileWithMappings,
     scriptKindFromFileName,
-    setParentRecursivePreservingVersion,
-    zeroWidthRange
+    setParentRecursivePreservingVersion
 } from "./util.js"
 import type { PrintedSourceMapping, TypeScript } from "./util.js"
 
@@ -692,12 +691,114 @@ export function transformSourceFile(
         return sourceFile
     }
 
+    // Names actually referenced in the generated output (excluding import declarations
+    // themselves). Used to prune imports down to what is really used, so the transformed
+    // file never carries an unused import (a `noUnusedLocals` / TS6133 error otherwise).
+    const referencedNames = collectReferencedIdentifierNames(tsInstance, expandedStatements)
+
+    const withGeneratedImports = needsGeneratedImports
+        ? insertGeneratedImports(tsInstance, expandedStatements, context, resolvedOptions, referencedNames)
+        : expandedStatements
+
     return tsInstance.factory.updateSourceFile(
         sourceFile,
-        needsGeneratedImports
-            ? insertGeneratedImports(tsInstance, expandedStatements, context, resolvedOptions)
-            : expandedStatements
+        pruneConsumedDecoratorImports(tsInstance, withGeneratedImports, facts, resolvedOptions, referencedNames)
     )
+}
+
+// Every identifier referenced in `statements`, skipping import declarations (an imported
+// name is a binding, not a use). A superset is harmless: it only ever keeps an import we
+// could have pruned, never drops one that is needed.
+function collectReferencedIdentifierNames(
+    tsInstance: TypeScript,
+    statements: readonly ts.Statement[]
+): Set<string> {
+    const names = new Set<string>()
+
+    const visit = (node: ts.Node): void => {
+        if (tsInstance.isImportDeclaration(node)) {
+            return
+        }
+
+        if (tsInstance.isIdentifier(node)) {
+            names.add(node.text)
+        }
+
+        tsInstance.forEachChild(node, visit)
+    }
+
+    for (const statement of statements) {
+        visit(statement)
+    }
+
+    return names
+}
+
+// After `@mixin()` decorators are consumed (the class is replaced by the generated factory),
+// the user's `mixin` import is no longer referenced; leaving it triggers `noUnusedLocals`
+// (TS6133). Drop exactly the decorator specifier(s) we consumed, and only when the bound name
+// is unreferenced everywhere else (so a `mixin` the user also uses directly survives). Limited
+// to the EMIT path: in source view the original class (and its decorator) is position-preserved,
+// and rewriting the user's real import there risks stranding nodes.
+function pruneConsumedDecoratorImports(
+    tsInstance: TypeScript,
+    statements: ts.Statement[],
+    facts: SourceFileFacts,
+    options: TransformOptions,
+    referenced: Set<string>
+): ts.Statement[] {
+    const { identifiers, namespaces } = facts.mixinDecoratorImports
+
+    if (options.sourceView || (identifiers.size === 0 && namespaces.size === 0)) {
+        return statements
+    }
+
+    const factory = tsInstance.factory
+
+    return statements.flatMap((statement): ts.Statement[] => {
+        if (!tsInstance.isImportDeclaration(statement) ||
+            !tsInstance.isStringLiteral(statement.moduleSpecifier) ||
+            statement.moduleSpecifier.text !== options.packageName) {
+            return [ statement ]
+        }
+
+        const clause = statement.importClause
+
+        if (clause === undefined || clause.namedBindings === undefined) {
+            return [ statement ]
+        }
+
+        // `import * as ns`: drop the whole import when the namespace is a consumed decorator
+        // namespace that is otherwise unreferenced (and there is no default binding to keep).
+        if (tsInstance.isNamespaceImport(clause.namedBindings)) {
+            const name = clause.namedBindings.name.text
+
+            return namespaces.has(name) && !referenced.has(name) && clause.name === undefined
+                ? []
+                : [ statement ]
+        }
+
+        if (!tsInstance.isNamedImports(clause.namedBindings)) {
+            return [ statement ]
+        }
+
+        const kept = clause.namedBindings.elements.filter((element) =>
+            !(identifiers.has(element.name.text) && !referenced.has(element.name.text)))
+
+        if (kept.length === clause.namedBindings.elements.length) {
+            return [ statement ]
+        }
+
+        if (kept.length === 0 && clause.name === undefined) {
+            return []
+        }
+
+        return [ factory.createImportDeclaration(
+            statement.modifiers,
+            factory.createImportClause(clause.isTypeOnly, clause.name, factory.createNamedImports(kept)),
+            statement.moduleSpecifier
+        ) ]
+    })
 }
 
 function expandConstructionBaseClass(
@@ -828,11 +929,14 @@ function insertGeneratedImports(
     tsInstance: TypeScript,
     statements: ts.Statement[],
     context: FileMixinContext,
-    options: TransformOptions
+    options: TransformOptions,
+    referenced: Set<string>
 ): ts.Statement[] {
     const factory = tsInstance.factory
 
-    const generatedImports: ts.ImportDeclaration[] = [ createHelperTypeImport(tsInstance, context, options) ]
+    const helperImport = createHelperTypeImport(tsInstance, options, referenced)
+
+    const generatedImports: ts.ImportDeclaration[] = helperImport === undefined ? [] : [ helperImport ]
 
     const bySpecifier = new Map<string, Array<{ importedName: string, localName: string }>>()
 
@@ -883,41 +987,50 @@ function insertGeneratedImports(
 
 function createHelperTypeImport(
     tsInstance: TypeScript,
-    context: FileMixinContext,
-    options: TransformOptions
-): ts.ImportDeclaration {
-    const factory              = tsInstance.factory
-    const staticConflictImport = options.staticCollisionCheck === false
-        ? []
-        : [
-            factory.createImportSpecifier(
-                true,
-                undefined,
-                factory.createIdentifier(staticConflictKeysName(options.staticCollisionCheck))
-            )
-        ]
+    options: TransformOptions,
+    referenced: Set<string>
+): ts.ImportDeclaration | undefined {
+    const factory = tsInstance.factory
+
+    // Every helper the transform CAN generate, with its local name. The fixed superset is
+    // pruned to only the helpers actually referenced in this file's generated output, so a
+    // file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error). When
+    // nothing is referenced (no helper import needed), the whole declaration is dropped.
+    const candidates: Array<{ typeOnly: boolean, importedName: string, localName: string }> = [
+        { typeOnly: false, importedName: defineMixinClassName, localName: defineMixinClassName },
+        { typeOnly: false, importedName: mixinChainName,       localName: mixinChainName },
+        { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },
+        { typeOnly: true,  importedName: classStaticsName,     localName: classStaticsName },
+        { typeOnly: true,  importedName: mixinApplicationName, localName: mixinApplicationName },
+        { typeOnly: true,  importedName: mixinFactoryName,     localName: mixinFactoryName },
+        ...(options.staticCollisionCheck === false
+            ? []
+            : [ {
+                typeOnly     : true,
+                importedName : staticConflictKeysName(options.staticCollisionCheck),
+                localName    : staticConflictKeysName(options.staticCollisionCheck)
+            } ]),
+        { typeOnly: true, importedName: metadataBaseImportName, localName: metadataBaseLocalName },
+        { typeOnly: true, importedName: runtimeMixinClassName,  localName: runtimeMixinClassName },
+        { typeOnly: true, importedName: mixinClassValueName,    localName: mixinClassValueName }
+    ]
+
+    const used = candidates.filter((candidate) => referenced.has(candidate.localName))
+
+    if (used.length === 0) {
+        return undefined
+    }
 
     return factory.createImportDeclaration(
         undefined,
         factory.createImportClause(
             undefined,
             undefined,
-            factory.createNamedImports([
-                factory.createImportSpecifier(false, undefined, factory.createIdentifier(defineMixinClassName)),
-                factory.createImportSpecifier(false, undefined, factory.createIdentifier(mixinChainName)),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(anyConstructorName)),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(classStaticsName)),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(mixinApplicationName)),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(mixinFactoryName)),
-                ...staticConflictImport,
-                factory.createImportSpecifier(
-                    true,
-                    factory.createIdentifier(metadataBaseImportName),
-                    factory.createIdentifier(metadataBaseLocalName)
-                ),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(runtimeMixinClassName)),
-                factory.createImportSpecifier(true, undefined, factory.createIdentifier(mixinClassValueName))
-            ])
+            factory.createNamedImports(used.map((candidate) => factory.createImportSpecifier(
+                candidate.typeOnly,
+                candidate.importedName === candidate.localName ? undefined : factory.createIdentifier(candidate.importedName),
+                factory.createIdentifier(candidate.localName)
+            )))
         ),
         factory.createStringLiteral(options.packageName)
     )

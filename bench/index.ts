@@ -7,8 +7,7 @@ import {
     loadBaseline,
     renderReports,
     saveBaseline,
-    type BenchReport,
-    type TableMode
+    type BenchReport
 } from "./lib/report.js"
 import { runCompile } from "./scenarios/compile.js"
 import { runTransformPass } from "./scenarios/transform-pass.js"

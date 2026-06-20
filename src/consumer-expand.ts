@@ -443,7 +443,6 @@ function createConsumerExpansionContext(
     const extendsType              = originalExtendsClause?.types[0]
     const generatedRange           = options.sourceView ? declaration : generatedTextRange(sourceFile, declaration.pos)
     const sourceViewGeneratedRange = generatedTextRange(sourceFile, declaration.pos)
-    const firstHeritageType        = declaration.heritageClauses?.[0]?.types[0]
     // A source-view consumer with no `extends` but an `implements` clause keeps its
     // real `implements` clause (like the emit path) so its source mixin references
     // (`SourceClass1<T>, SourceClass2<A>`) stay navigable. The generated `extends

@@ -7,9 +7,7 @@ import {
     type ResolvedMixinRef
 } from "./model.js"
 import {
-    cloneNode,
     deepCloneNode,
-    generatedTextRange,
     preserveGeneratedDeclarationRange,
     preserveSubtreeTextRange,
     preserveTextRange,

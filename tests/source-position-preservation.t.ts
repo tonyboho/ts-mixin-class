@@ -53,14 +53,22 @@ const sourceText = trimIndent(`
 it("preserves source positions outside generated mixin declarations", async (t: Test) => {
     const originalSourceFile    = createSourceFile("source.ts", sourceText)
     const transformedSourceFile = transformSourceFile(ts, originalSourceFile)
-    const replacedRanges        = collectOriginalReplacedRanges(originalSourceFile, [ "SourceClass" ])
+    // The consumed `@mixin()` decorator import (`import { mixin }`) is dropped on the emit
+    // transform once the class is expanded (otherwise it would be an unused import / TS6133),
+    // so its range is excluded from the stable-node comparison alongside the replaced mixin.
+    const replacedRanges        = [
+        ...collectOriginalReplacedRanges(originalSourceFile, [ "SourceClass" ]),
+        ...originalSourceFile.statements
+            .filter(ts.isImportDeclaration)
+            .map((statement) => nodeSpan(statement, originalSourceFile))
+    ]
     const originalStable        = collectStableSignatures(originalSourceFile, originalSourceFile, replacedRanges)
     const transformedStable     = collectStableSignatures(transformedSourceFile, transformedSourceFile, replacedRanges)
     const missingOriginal       = subtractSignatureCounts(originalStable.counts, transformedStable.counts)
     const unexpectedTransformed = subtractSignatureCounts(transformedStable.counts, originalStable.counts)
 
     t.expect(topLevelStatementSignatures(transformedSourceFile)).toEqual([
-        "ImportDeclaration <import>",
+        // Only the generated helper import remains; the consumed `import { mixin }` is dropped.
         "ImportDeclaration <import>",
         "ClassDeclaration Before",
         "InterfaceDeclaration SourceClass",

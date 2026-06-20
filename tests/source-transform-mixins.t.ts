@@ -61,10 +61,9 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     t.notMatch(printed, "@mixin", "Marker decorator is removed")
     t.match(
         printed,
-        "import { defineMixinClass, mixinChain, type AnyConstructor, type ClassStatics, " +
-            "type MixinApplication, type MixinFactory, type StaticNeverConflictKeys, type base as __mixinBase, " +
-            "type RuntimeMixinClass, type MixinClassValue } from \"ts-mixin-class\"",
-        "Helper import is added"
+        "import { defineMixinClass, type AnyConstructor, type ClassStatics, " +
+            "type MixinApplication, type MixinFactory, type RuntimeMixinClass } from \"ts-mixin-class\"",
+        "Helper import is added (pruned to the helpers this file references)"
     )
     t.match(printed, "function <T>(base: AnyConstructor)",
         "Factory takes a typed base")
@@ -147,10 +146,9 @@ it("supports custom package and decorator options", async (t: Test) => {
     t.not.isStrict(findInterface(transformedFile, "SourceClass"), undefined, "Custom marker expands the class")
     t.match(
         printSourceFile(ts, transformedFile),
-        "import { defineMixinClass, mixinChain, type AnyConstructor, type ClassStatics, " +
-            "type MixinApplication, type MixinFactory, type StaticNeverConflictKeys, type base as __mixinBase, " +
+        "import { defineMixinClass, type AnyConstructor, type MixinFactory, " +
             "type RuntimeMixinClass, type MixinClassValue } from \"custom-mixin-package\"",
-        "Helper import uses the custom package name"
+        "Helper import uses the custom package name (pruned to referenced helpers)"
     )
 })
 

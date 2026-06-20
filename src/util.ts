@@ -591,7 +591,7 @@ export function hasModifier(
 
 const printerCache = new WeakMap<TypeScript, ts.Printer>()
 
-export function printSourceFile(tsInstance: TypeScript, sourceFile: ts.SourceFile): string {
+function getPrinter(tsInstance: TypeScript): ts.Printer {
     let printer = printerCache.get(tsInstance)
 
     if (printer === undefined) {
@@ -599,7 +599,11 @@ export function printSourceFile(tsInstance: TypeScript, sourceFile: ts.SourceFil
         printerCache.set(tsInstance, printer)
     }
 
-    return printer.printFile(sourceFile)
+    return printer
+}
+
+export function printSourceFile(tsInstance: TypeScript, sourceFile: ts.SourceFile): string {
+    return getPrinter(tsInstance).printFile(sourceFile)
 }
 
 // Print the (value-cast) transformed tree like `printSourceFile`, but also capture
@@ -612,13 +616,7 @@ export function printSourceFileWithMappings(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
 ): { text: string, mappings: PrintedSourceMapping[] } {
-    let printer = printerCache.get(tsInstance)
-
-    if (printer === undefined) {
-        printer = tsInstance.createPrinter({ newLine: tsInstance.NewLineKind.LineFeed })
-        printerCache.set(tsInstance, printer)
-    }
-
+    const printer            = getPrinter(tsInstance)
     const internals          = tsInstance as TypeScriptWithEmitInternals
     const writer             = internals.createTextWriter("\n")
     const sourceMapGenerator = internals.createSourceMapGenerator(

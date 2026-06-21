@@ -8,6 +8,28 @@ Future work. Each item is a known limitation or open question we treat as a futu
 
 ---
 
+## To implement
+
+### Watch-mode support (`tsc -w`)
+
+Make the transformer work under TypeScript watch mode (`tsc --watch` / `-w`), not only a
+one-shot `tsc` build. Watch mode rebuilds programs incrementally as files change: verify the
+ProgramTransformer is invoked on each rebuild, the per-program caches (registry, facts,
+import maps, source-view) invalidate correctly when a source file changes, and diagnostics
+stay correct across edits. Add a watch-mode test.
+
+### A `@mixin` class extending another mixin is a type error
+
+A mixin must not `extends` another mixin — it consumes other mixins through the transformer
+via `implements` (which builds the runtime chain). `extends` on a mixin is reserved for a
+required (non-mixin) base class. So `@mixin class B extends A`, where `A` is itself a
+registered mixin, should be reported as a **type error at compile time** (a custom
+diagnostic in both emit and source view), not left to fail at runtime. Detect that the
+`extends` target resolves to a known mixin and emit a clear "mix in via `implements`, do not
+`extends` a mixin" diagnostic.
+
+---
+
 ## Limitations (future tasks)
 
 ### 1. Mixin members cannot be `private`, `protected`, `#private`, or `abstract`
@@ -82,6 +104,15 @@ also at every consumer.
   intent/clarity, not performance: decide whether that escape hatch is intended (keep and
   document it) or not (simplify to `instance.initialize(props); return instance`). Behavior
   of `Base.new` is covered by tests, so changing it touches them.
+
+- **Precompute linearization statically to speed up (or eliminate) runtime C3.** The
+  transform already computes the C3 linearization at compile time (`linearization.ts`); the
+  runtime recomputes its own C3 merge again in `runtime.ts` on every mixin application.
+  Consider baking the precomputed order into the generated runtime so application is as fast
+  as possible — ideally the runtime just walks an already-linearized list (O(n), no merge)
+  instead of running `mergeC3Linearizations`. Look at what can be emitted (the resolved
+  dependency order per mixin/consumer) and whether the runtime can trust it and skip the C3
+  pass entirely, with a fallback for manually-applied (`.mix`) cases the transform can't see.
 
 ---
 

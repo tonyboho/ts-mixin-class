@@ -16,7 +16,15 @@ Make the transformer work under TypeScript watch mode (`tsc --watch` / `-w`), no
 one-shot `tsc` build. Watch mode rebuilds programs incrementally as files change: verify the
 ProgramTransformer is invoked on each rebuild, the per-program caches (registry, facts,
 import maps, source-view) invalidate correctly when a source file changes, and diagnostics
-stay correct across edits. Add a watch-mode test.
+stay correct across edits.
+
+**Test — end-to-end, real watch.** Model it on the current `stress-edit` test, but drive a
+*real* `tsc` launched in watch mode (`-w`) over a fixture instead of an in-process program.
+Steps: open a fixture under watch; apply random edits that introduce errors into the codebase
+and assert the watch compiler reports them on each rebuild — ideally cross-checking that the
+diagnostic matches what the IDE / language service produces for the same edit; then revert the
+edits and assert the watch build returns to a clean, successful compile. It must use a genuine
+watch-mode compiler process (real `tsc -w`), not a simulated/in-process one.
 
 ### A `@mixin` class extending another mixin is a type error
 

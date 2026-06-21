@@ -26,6 +26,15 @@ diagnostic matches what the IDE / language service produces for the same edit; t
 edits and assert the watch build returns to a clean, successful compile. It must use a genuine
 watch-mode compiler process (real `tsc -w`), not a simulated/in-process one.
 
+**Precompute linearization statically to speed up (or eliminate) runtime C3.** The
+transform already computes the C3 linearization at compile time (`linearization.ts`); the
+runtime recomputes its own C3 merge again in `runtime.ts` on every mixin application.
+Consider baking the precomputed order into the generated runtime so application is as fast
+as possible — ideally the runtime just walks an already-linearized list (O(n), no merge)
+instead of running `mergeC3Linearizations`. Look at what can be emitted (the resolved
+dependency order per mixin/consumer) and whether the runtime can trust it and skip the C3
+pass entirely, with a fallback for manually-applied (`.mix`) cases the transform can't see.
+
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer
@@ -112,15 +121,6 @@ also at every consumer.
   intent/clarity, not performance: decide whether that escape hatch is intended (keep and
   document it) or not (simplify to `instance.initialize(props); return instance`). Behavior
   of `Base.new` is covered by tests, so changing it touches them.
-
-- **Precompute linearization statically to speed up (or eliminate) runtime C3.** The
-  transform already computes the C3 linearization at compile time (`linearization.ts`); the
-  runtime recomputes its own C3 merge again in `runtime.ts` on every mixin application.
-  Consider baking the precomputed order into the generated runtime so application is as fast
-  as possible — ideally the runtime just walks an already-linearized list (O(n), no merge)
-  instead of running `mergeC3Linearizations`. Look at what can be emitted (the resolved
-  dependency order per mixin/consumer) and whether the runtime can trust it and skip the C3
-  pass entirely, with a fallback for manually-applied (`.mix`) cases the transform can't see.
 
 ---
 

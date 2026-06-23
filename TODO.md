@@ -26,6 +26,8 @@ diagnostic matches what the IDE / language service produces for the same edit; t
 edits and assert the watch build returns to a clean, successful compile. It must use a genuine
 watch-mode compiler process (real `tsc -w`), not a simulated/in-process one.
 
+### Zero run-time overhead for static case
+
 **Precompute linearization statically to speed up (or eliminate) runtime C3.** The
 transform already computes the C3 linearization at compile time (`linearization.ts`); the
 runtime recomputes its own C3 merge again in `runtime.ts` on every mixin application.
@@ -121,6 +123,10 @@ also at every consumer.
   intent/clarity, not performance: decide whether that escape hatch is intended (keep and
   document it) or not (simplify to `instance.initialize(props); return instance`). Behavior
   of `Base.new` is covered by tests, so changing it touches them.
+
+- Assign properties in the order they are declared? Can be done in the native constructor,
+  but requires an extra check for every optional property. Can also be done in the special
+  method like `configure` as an extra step (will replace `Object.assign()` in the `initialize`)
 
 ---
 

@@ -37,6 +37,14 @@ instead of running `mergeC3Linearizations`. Look at what can be emitted (the res
 dependency order per mixin/consumer) and whether the runtime can trust it and skip the C3
 pass entirely, with a fallback for manually-applied (`.mix`) cases the transform can't see.
 
+### Runtime `InstanceOf` check should use a unique prototype marker
+
+The runtime `InstanceOf` check should be based on a unique symbol marker stored on the class
+prototype, not on a runtime walk through the prototype chain. This keeps the check stable and
+cheap: each mixin/application can publish an unforgeable identity marker on its prototype,
+and `InstanceOf` can test for that marker directly instead of repeatedly traversing runtime
+inheritance links.
+
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer

@@ -1,6 +1,6 @@
 import path from "node:path"
 
-import { it, xit } from "@bryntum/siesta/nodejs.js"
+import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
@@ -113,18 +113,11 @@ it("detects a nontrivial 3-cycle linearization conflict at compile time", async 
     }
 })
 
-// KNOWN GAP (xit) — a `@mixin` whose OWN dependencies are inconsistent is NOT reported at
-// compile time when nothing consumes it: the transformer's mixin path swallows the
-// linearization error and the mixin compiles cleanly, while the runtime throws when the
-// mixin is defined (see runtime-helper.t.ts "rejects a nontrivial 3-cycle..."). The conflict
-// surfaces only once a consumer forces the linearization. A direct fix — emitting the
-// diagnostic on the mixin declaration via the alias mechanism — runs into the source-view
-// stranding trilemma: a whole-class anchor captures the `@mixin` decorator (breaks
-// language-server spans and emit↔source-view parity), while a name anchor strands the
-// identifier and crashes tsserver go-to-definition. Best closed when linearization is
-// precomputed (the compiler derives every mixin's order and can surface the conflict through
-// the consumer's stress-safe path). Flip to `it` when fixed.
-xit("detects a mixin-only linearization conflict (no consumer) at compile time", async (t: Test) => {
+// A `@mixin` whose OWN dependencies are inconsistent is reported at compile time even with
+// no consumer to force the linearization. The conflict diagnostic is emitted on the mixin
+// via a self-checking alias at a generated gap range (createMixinLinearizationErrorAlias),
+// so it surfaces in both tsc and tsserver without stranding a real token in the source view.
+it("detects a mixin-only linearization conflict (no consumer) at compile time", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [

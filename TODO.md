@@ -156,25 +156,23 @@ also at every consumer.
 
 ## Open questions / discovered gaps
 
-- **A `@mixin` whose own dependencies are inconsistent is not flagged at compile time when
-  nothing consumes it (emit↔runtime parity gap).** `@mixin class Z implements P, Q, R` where
-  `P,Q,R` form an unsatisfiable C3 order (e.g. a 3-cycle `A<B<C<A`) compiles **cleanly** — the
-  mixin path swallows the `DependencyLinearizationError` and falls back. The **runtime throws**
-  when `Z` is defined, so `Z` type-checks yet can never be validly applied. The conflict is
-  reported only once a **consumer** (a plain class) forces the linearization. Confirmed
-  single-file and **cross-package**. Recorded as **skipped (`xit`)** tests in
-  `nontrivial-diamond-linearization.t.ts` and `source-transform-cross-package-linearization.t.ts`.
-  - *Why not a quick fix.* Emitting the diagnostic on the mixin declaration via the existing
-    alias mechanism (`createMixinDeclarationDiagnosticAliases`) hits the **source-view
-    stranding trilemma**: anchoring on the whole class captures the `@mixin` decorator (breaks
-    language-server span invariants and emit↔source-view diagnostic parity — fails the stress
-    corpus on `type-errors.ts`'s `BadLinearizationMixin`); anchoring on the name **strands the
-    identifier and crashes tsserver go-to-definition**. Same trilemma family as §12.9 / the
-    `.mix` definition limitation below.
-  - *Better fix.* Close it when linearization is precomputed (approach B): the compiler derives
-    every mixin's order anyway, so the conflict can be surfaced through the consumer's
-    already-stress-safe diagnostic path rather than a fresh mixin-declaration alias. Flip the
-    `xit`s to `it` then.
+- **A `@mixin` whose own dependencies are inconsistent — FIXED in the source-view / `--noEmit`
+  type-check path.** `@mixin class Z implements P, Q, R` where `P,Q,R` form an unsatisfiable C3
+  order is now reported at compile time even with no consumer. The fix mirrors the consumer's
+  linearization diagnostic: a never-constrained validation type parameter on the generated
+  `__Z$base`, instantiated with the message in the position-preserved heritage clause
+  (`createLinearizationDiagnosticValidation` + `appendSourceViewValidationTypeParameters` in
+  `expandSourceViewMixinClass`). It rides the consumer's already-stress-safe path, so it avoids
+  the stranding trilemma the earlier alias attempt hit. Tests flipped to `it` in
+  `nontrivial-diamond-linearization.t.ts` and `source-transform-cross-package-linearization.t.ts`
+  (both use `tsc --noEmit`, which is source-view mode). Cross-package confirmed.
+  - *Remaining asymmetry.* Reported in source-view / `--noEmit` / IDE, but NOT in emit mode
+    (`tsc` producing JS): the emit mixin path generates no `__Z$base` carrier, so there is no
+    off-screen host for the validation, and a standalone alias reintroduces the trilemma +
+    `noUnusedLocals` (TS6196). The parity stress test tolerates this (source-view-only
+    diagnostics are counted, not failed). Runtime still throws when the mixin is defined.
+    Closing emit mode too would need an emit carrier (e.g. routing through the `@mixin`
+    decorator, which emit currently strips).
 
 - **Go-to-definition on a member reached through a manual `.mix(Base)` does not land on the
   member's real declaration.** `class X extends Main.mix(UserBase)` then `this.mainMethod()`:

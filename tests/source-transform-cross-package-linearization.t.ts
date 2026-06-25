@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
-import { it, xit } from "@bryntum/siesta/nodejs.js"
+import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, requiredFixtureSourceFile, runCommand } from "./util.js"
@@ -214,13 +214,11 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
     }
 })
 
-// KNOWN GAP (xit) — the same conflict as above but with NO consumer: the bad linearization
-// lives entirely in a `@mixin`'s OWN cross-package dependencies. It compiles cleanly across
-// package boundaries even though the runtime throws when the mixin is defined — the same
-// emit↔runtime parity gap as the single-file case in nontrivial-diamond-linearization.t.ts
-// (see that file for why a direct fix hits the source-view stranding trilemma). Flip to `it`
-// when fixed.
-xit("detects a mixin-only cross-package linearization conflict (no consumer)", async (t: Test) => {
+// The same conflict as above but with NO consumer: the bad linearization lives entirely in
+// a `@mixin`'s OWN cross-package dependencies. It is reported at compile time across package
+// boundaries (the conflict diagnostic is emitted on the mixin), matching the single-file
+// case in nontrivial-diamond-linearization.t.ts.
+it("detects a mixin-only cross-package linearization conflict (no consumer)", async (t: Test) => {
     const abPackage = await buildDeclarationPackage(t, "linearization-ab", [
         {
             fileName : "ab.ts",

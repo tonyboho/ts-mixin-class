@@ -26,6 +26,13 @@ diagnostic matches what the IDE / language service produces for the same edit; t
 edits and assert the watch build returns to a clean, successful compile. It must use a genuine
 watch-mode compiler process (real `tsc -w`), not a simulated/in-process one.
 
+### Source map generation support
+
+Check how the transformer behaves when TypeScript source map generation is enabled. Verify
+that emitted JavaScript source maps still point at useful user-source locations after mixin
+helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
+and document or fix any positions that become misleading.
+
 ### Zero run-time overhead for static case
 
 **Precompute linearization statically to speed up (or eliminate) runtime C3.** The
@@ -36,14 +43,6 @@ as possible — ideally the runtime just walks an already-linearized list (O(n),
 instead of running `mergeC3Linearizations`. Look at what can be emitted (the resolved
 dependency order per mixin/consumer) and whether the runtime can trust it and skip the C3
 pass entirely, with a fallback for manually-applied (`.mix`) cases the transform can't see.
-
-### Runtime `InstanceOf` check should use a unique prototype marker
-
-The runtime `InstanceOf` check should be based on a unique symbol marker stored on the class
-prototype, not on a runtime walk through the prototype chain. This keeps the check stable and
-cheap: each mixin/application can publish an unforgeable identity marker on its prototype,
-and `InstanceOf` can test for that marker directly instead of repeatedly traversing runtime
-inheritance links.
 
 ### A `@mixin` class extending another mixin is a type error
 

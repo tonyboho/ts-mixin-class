@@ -40,6 +40,27 @@ it("linearizes mixin requirements with C3 order", async (t: Test) => {
     t.isInstanceOf(instance, D, "Instance matches direct mixin D")
 })
 
+it("linearizes a nontrivial diamond with interleaved requirements", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
+    const D = createNamedMixin("D", [ B, C ])
+    const E = createNamedMixin("E", [ A ])
+    const F = createNamedMixin("F", [ D, E ])
+
+    class Consumer extends mixinChain(Base, F) {}
+
+    const instance = new Consumer()
+
+    // Two diamonds share A: D pulls in [B, C] (both over A), and F adds E (also over A).
+    // C3 delays the shared A past E, so E interleaves between C and A -- a plain DFS would
+    // not produce this order, so it pins genuine merge behaviour, not concatenation.
+    t.equal(instance.who(), "F>D>B>C>E>A>Base", "Interleaved diamond follows C3 method resolution order")
+    t.isInstanceOf(instance, A, "Instance matches the shared transitive mixin A")
+    t.isInstanceOf(instance, E, "Instance matches the interleaved mixin E")
+    t.isInstanceOf(instance, F, "Instance matches the direct mixin F")
+})
+
 it("caches mixin applications for the same base", async (t: Test) => {
     const A = createNamedMixin("A")
     const B = createNamedMixin("B", [ A ])
@@ -169,6 +190,36 @@ it("rejects inconsistent C3 requirements", async (t: Test) => {
     t.throwsOk(() => {
         createNamedMixin("Z", [ X, Y ])
     }, "Cannot linearize mixin classes", "Inconsistent order is rejected")
+})
+
+it("rejects a nontrivial 3-cycle of pairwise orders", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B")
+    const C = createNamedMixin("C")
+    const P = createNamedMixin("P", [ A, B ]) // imposes A before B
+    const Q = createNamedMixin("Q", [ B, C ]) // imposes B before C
+    const R = createNamedMixin("R", [ C, A ]) // imposes C before A
+
+    // Each pair is consistent alone; together they form a cycle A < B < C < A, which no
+    // single linearization can satisfy. The conflict is not a direct two-way reversal.
+    t.throwsOk(() => {
+        createNamedMixin("Z", [ P, Q, R ])
+    }, "Cannot linearize mixin classes", "A 3-cycle of pairwise orders is rejected")
+})
+
+it("rejects a conflict buried below intermediate mixins", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B")
+    const M = createNamedMixin("M", [ A, B ]) // imposes A before B
+    const N = createNamedMixin("N", [ B, A ]) // imposes B before A
+    const P = createNamedMixin("P", [ M ])
+    const Q = createNamedMixin("Q", [ N ])
+
+    // The conflicting A/B order is two hops down, under M and N; the merge only stalls
+    // after unwrapping P -> M and Q -> N, so a shallow check would miss it.
+    t.throwsOk(() => {
+        createNamedMixin("Z", [ P, Q ])
+    }, "Cannot linearize mixin classes", "A conflict below intermediate mixins is still rejected")
 })
 
 function createNamedMixin(

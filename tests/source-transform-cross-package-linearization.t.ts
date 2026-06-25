@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
-import { it } from "@bryntum/siesta/nodejs.js"
+import { it, xit } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, requiredFixtureSourceFile, runCommand } from "./util.js"
@@ -209,6 +209,82 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
             `tsserver reports the cross-package C3 conflict:\n${messages}`)
         t.match(messages, "LinearizationA", `tsserver names the conflicting dependency LinearizationA:\n${messages}`)
         t.match(messages, "LinearizationB", `tsserver names the conflicting dependency LinearizationB:\n${messages}`)
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// KNOWN GAP (xit) — the same conflict as above but with NO consumer: the bad linearization
+// lives entirely in a `@mixin`'s OWN cross-package dependencies. It compiles cleanly across
+// package boundaries even though the runtime throws when the mixin is defined — the same
+// emit↔runtime parity gap as the single-file case in nontrivial-diamond-linearization.t.ts
+// (see that file for why a direct fix hits the source-view stranding trilemma). Flip to `it`
+// when fixed.
+xit("detects a mixin-only cross-package linearization conflict (no consumer)", async (t: Test) => {
+    const abPackage = await buildDeclarationPackage(t, "linearization-ab", [
+        {
+            fileName : "ab.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
+
+                @mixin()
+                export class LinearizationA {}
+
+                @mixin()
+                export class LinearizationB {}
+            `
+        }
+    ])
+
+    const xPackage = await buildDeclarationPackage(t, "linearization-x", [
+        {
+            fileName : "x.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
+                import { LinearizationA, LinearizationB } from "linearization-ab/ab"
+
+                @mixin()
+                export class LinearizationX implements LinearizationA, LinearizationB {}
+            `
+        }
+    ], abPackage)
+
+    const yPackage = await buildDeclarationPackage(t, "linearization-y", [
+        {
+            fileName : "y.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
+                import { LinearizationA, LinearizationB } from "linearization-ab/ab"
+
+                @mixin()
+                export class LinearizationY implements LinearizationB, LinearizationA {}
+            `
+        }
+    ], abPackage)
+
+    const consumerText = `
+        import { mixin } from "ts-mixin-class"
+        import { LinearizationX } from "linearization-x/x"
+        import { LinearizationY } from "linearization-y/y"
+
+        // mixin-only: no consumer class forces the linearization.
+        @mixin()
+        export class BadLinearizationMixin implements LinearizationX, LinearizationY {}
+    `
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : [ ...abPackage, ...xPackage, ...yPackage ],
+        sourceFiles            : [ { fileName: "consumer.ts", text: consumerText } ]
+    })
+
+    try {
+        const build  = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+        const output = commandOutput(build)
+
+        t.ne(build.exitCode, 0, `A mixin-only cross-package conflict must fail to compile:\n${output}`)
+        t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
+            `... with the C3 conflict diagnostic:\n${output}`)
     } finally {
         await fixture.dispose()
     }

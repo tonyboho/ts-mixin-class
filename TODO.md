@@ -153,6 +153,26 @@ also at every consumer.
 
 ## Open questions / discovered gaps
 
+- **A `@mixin` whose own dependencies are inconsistent is not flagged at compile time when
+  nothing consumes it (emit↔runtime parity gap).** `@mixin class Z implements P, Q, R` where
+  `P,Q,R` form an unsatisfiable C3 order (e.g. a 3-cycle `A<B<C<A`) compiles **cleanly** — the
+  mixin path swallows the `DependencyLinearizationError` and falls back. The **runtime throws**
+  when `Z` is defined, so `Z` type-checks yet can never be validly applied. The conflict is
+  reported only once a **consumer** (a plain class) forces the linearization. Confirmed
+  single-file and **cross-package**. Recorded as **skipped (`xit`)** tests in
+  `nontrivial-diamond-linearization.t.ts` and `source-transform-cross-package-linearization.t.ts`.
+  - *Why not a quick fix.* Emitting the diagnostic on the mixin declaration via the existing
+    alias mechanism (`createMixinDeclarationDiagnosticAliases`) hits the **source-view
+    stranding trilemma**: anchoring on the whole class captures the `@mixin` decorator (breaks
+    language-server span invariants and emit↔source-view diagnostic parity — fails the stress
+    corpus on `type-errors.ts`'s `BadLinearizationMixin`); anchoring on the name **strands the
+    identifier and crashes tsserver go-to-definition**. Same trilemma family as §12.9 / the
+    `.mix` definition limitation below.
+  - *Better fix.* Close it when linearization is precomputed (approach B): the compiler derives
+    every mixin's order anyway, so the conflict can be surfaced through the consumer's
+    already-stress-safe diagnostic path rather than a fresh mixin-declaration alias. Flip the
+    `xit`s to `it` then.
+
 - **Go-to-definition on a member reached through a manual `.mix(Base)` does not land on the
   member's real declaration.** `class X extends Main.mix(UserBase)` then `this.mainMethod()`:
   the diagnostic is clean and the type resolves, but definition jumps to a collapsed span

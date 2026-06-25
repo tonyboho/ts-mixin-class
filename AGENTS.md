@@ -29,6 +29,34 @@ not perfectly cover the source. A change that touches only one path silently bre
 Debugging scripts and reproduction tricks are at the end — reach for them before writing a
 throwaway script.
 
+## Precomputed C3 linearization (merge-plan replay)
+
+A mixin's/consumer's method-resolution order is its **C3 linearization** of the dependency
+DAG (`mergeC3Linearizations` in `c3-linearization.ts`). The runtime used to re-run that merge
+on every `defineMixinClass(...)` (a mixin's own deps) and every `mixinChain(base, …)` (a
+consumer's chain). **Approach B** moves the merge to compile time: the transformer runs C3 and
+emits a **merge plan** — a list of `[source, offset, length]` slices over the merge inputs
+(`deriveLinearizationPlan` in `linearization.ts`) — and the runtime **replays** it
+(`defineMixinClass`'s trailing plan arg, `mixinChainLinearized`) by copying those slices out of
+the dependencies' already-materialized linearizations, with **no** good-head search.
+
+- **The inputs ride in scope.** For deps `[d1..dk]` the merge inputs are
+  `[ L[d1], …, L[dk], [d1..dk] ]`; all are already values in the file, so the plan is pure
+  integers — **no transitive imports**, so it is cross-package safe (`runtime.ts`
+  `requirementMergeSources`).
+- **Load-bearing invariant.** Plan offsets index into `L[d_i]`, whose order is deterministic
+  from the DAG via the same C3. The compiler reconstructs that order in key space; the runtime
+  array (built by the dep's own plan) is identical — so integer offsets line up **without any
+  value identity crossing the package boundary**. Validated single-module / cross-file /
+  cross-package by the `*-diamond-linearization.t.ts` compile-and-run tests.
+- **C3 stays the fallback** for cases with no plan: dependency-free mixins, manual `.mix` /
+  `mixinChain`, a conflicting set (no plan exists), and the runtime opt-out below.
+- **Two runtime env opt-outs** (read lazily): `TS_MIXIN_VERIFY_LINEARIZATION` — replay/C3
+  cross-check, **on by default** (every replay also runs C3 and throws on mismatch; the whole
+  suite + corpus exercise replay==C3 for free; flip the default off later to claim the speed-up);
+  `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` — ignore every plan and run C3 (user escape hatch).
+- Bench: `bench/c3/` (`pnpm bench:c3`) — ~26× at 1024 nodes; theory in `bench/c3/README.md`.
+
 ## Source-view invariants
 
 Violating any of these produces confusing tsserver errors or crashes.

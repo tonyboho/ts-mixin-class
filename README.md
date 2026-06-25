@@ -129,8 +129,7 @@ new Combined().print()
 
 The order is computed once at compile time and emitted as a compact plan, so at runtime the
 chain can be assembled by replaying that plan rather than running the full C3 algorithm. Two
-environment variables, read by the compiler at build time and baked into the emitted code,
-control this:
+compile-time flags (implemented as environment variables) control this:
 
 - `TS_MIXIN_VERIFY_LINEARIZATION` (on by default) — emits an extra-safety mode that re-checks
   every replayed order against C3 at runtime and throws on a mismatch. Recommended during
@@ -138,9 +137,6 @@ control this:
 - `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` — set it to `1` to emit code that ignores the plan and
   runs C3 at runtime instead. An escape hatch: if you ever hit a mismatch between the replayed
   order and C3 (please report it as a bug), rebuild with this set to fall back to C3.
-
-Because they are read at build time, the shipped runtime never reads any environment and works
-the same on any platform (Node, browser, …); changing a flag means rebuilding.
 
 ## Required bases
 

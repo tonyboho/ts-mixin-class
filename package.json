@@ -36,6 +36,7 @@
         "bench:tsserver": "pnpm --silent run build && node dist/bench/index.js tsserver",
         "bench:edit": "pnpm --silent run build && node dist/bench/index.js edit",
         "bench:ts-repro": "pnpm --silent run build && node dist/bench/diagnostics/typescript-interface-repro.js",
+        "bench:c3": "pnpm --silent run build && node dist/bench/c3/index.js",
         "build": "tsc -p tsconfig.json",
         "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
         "pretest": "pnpm run build",

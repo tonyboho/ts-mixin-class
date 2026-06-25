@@ -11,6 +11,7 @@ import {
     classStaticsName,
     consumerBaseSuffix,
     defineMixinClassName,
+    DependencyLinearizationError,
     extendsClause,
     generatedName,
     implementsTypes,
@@ -26,6 +27,7 @@ import {
 import {
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
+    createLinearizationPlanLiteral,
     createMixinDeclarationDiagnosticAliases,
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
@@ -47,7 +49,7 @@ import {
     localMixinRefs
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
-import { linearizeDependencies } from "./linearization.js"
+import { deriveLinearizationPlan, linearizeDependencies, type LinearizationPlanSlice } from "./linearization.js"
 import {
     createConstructionMembers,
     createMixinConstructionNewType,
@@ -115,6 +117,12 @@ export function expandMixinClass(
     const typeParameters = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
     const requiredBase   = requiredBaseType(tsInstance, declaration)
     const dependencyRefs = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
+    // Approach (B): precompute this mixin's requirement linearization as a merge plan the
+    // runtime replays instead of running C3. Absent for a dependency-free mixin (no merge)
+    // and for a conflicting requirement set (no plan exists) -- the runtime falls back to
+    // C3, preserving today's behaviour (a conflict still throws at definition; the
+    // compile-time mixin-only conflict gap is unchanged here, addressed in phase 4).
+    const linearizationPlan = optionalLinearizationPlan(context, dependencyRefs)
 
     // A mixin that extends the package `Base` is construction-enabled. Generic
     // mixins keep the inline value form and are handled separately, so the
@@ -188,18 +196,13 @@ export function expandMixinClass(
                         factory.createCallExpression(
                             factory.createIdentifier(defineMixinClassName),
                             undefined,
-                            [
-                                factory.createStringLiteral(ref.className),
-                                asMixinFactory(tsInstance, factory.createIdentifier(ref.localFactoryName)),
-                                factory.createArrayLiteralExpression(
-                                    dependencyRefs.map((dependencyRef) => {
-                                        return mixinValueIdentifier(tsInstance, dependencyRef)
-                                    })
-                                ),
-                                ...(requiredBase === undefined
-                                    ? []
-                                    : [ cloneNode(tsInstance, requiredBase.expression) ])
-                            ]
+                            defineMixinClassArguments(
+                                tsInstance,
+                                ref,
+                                dependencyRefs,
+                                requiredBase,
+                                linearizationPlan
+                            )
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
@@ -234,6 +237,59 @@ export function expandMixinClass(
         ...defaultExportStatement,
         ...configAliasStatement
     ]
+}
+
+// The `defineMixinClass(name, factory, [deps], requiredBase?, plan?)` arguments. The plan
+// is trailing, so when a mixin has a plan but no required base the `requiredBase` slot is
+// filled with an explicit `undefined` (which re-selects the runtime default `Object`).
+function defineMixinClassArguments(
+    tsInstance: TypeScript,
+    ref: ResolvedMixinRef,
+    dependencyRefs: ResolvedMixinRef[],
+    requiredBase: ts.ExpressionWithTypeArguments | undefined,
+    linearizationPlan: LinearizationPlanSlice[] | undefined
+): ts.Expression[] {
+    const factory = tsInstance.factory
+    const args    = [
+        factory.createStringLiteral(ref.className),
+        asMixinFactory(tsInstance, factory.createIdentifier(ref.localFactoryName)),
+        factory.createArrayLiteralExpression(
+            dependencyRefs.map((dependencyRef) => mixinValueIdentifier(tsInstance, dependencyRef))
+        )
+    ]
+
+    if (linearizationPlan !== undefined) {
+        args.push(requiredBase === undefined
+            ? factory.createIdentifier("undefined")
+            : cloneNode(tsInstance, requiredBase.expression))
+        args.push(createLinearizationPlanLiteral(tsInstance, linearizationPlan))
+    } else if (requiredBase !== undefined) {
+        args.push(cloneNode(tsInstance, requiredBase.expression))
+    }
+
+    return args
+}
+
+// Derive the merge plan for a requirement list, or undefined when there is nothing to
+// precompute: no dependencies (no merge), or an inconsistent set (no plan exists -- the
+// conflict is reported elsewhere / thrown at runtime).
+function optionalLinearizationPlan(
+    context: FileMixinContext,
+    dependencyRefs: ResolvedMixinRef[]
+): LinearizationPlanSlice[] | undefined {
+    if (dependencyRefs.length === 0) {
+        return undefined
+    }
+
+    try {
+        return deriveLinearizationPlan(dependencyRefs.map((dependencyRef) => dependencyRef.key), context)
+    } catch (error) {
+        if (error instanceof DependencyLinearizationError) {
+            return undefined
+        }
+
+        throw error
+    }
 }
 
 // The construction config must reflect the mixin's whole applied chain: a mixin

@@ -6,6 +6,7 @@ import {
     type MixinDeclarationDiagnostic,
     type ResolvedMixinRef
 } from "./model.js"
+import type { LinearizationPlanSlice } from "./linearization.js"
 import {
     deepCloneNode,
     preserveGeneratedDeclarationRange,
@@ -175,6 +176,22 @@ export function mixinValueIdentifier(tsInstance: TypeScript, ref: ResolvedMixinR
     }
 
     return tsInstance.factory.createIdentifier(ref.localValueName)
+}
+
+// Emit a precomputed merge plan as an array-of-triples literal `[[s, o, l], ...]`, the
+// runtime `LinearizationPlan` (approach B). The integers ride alone -- the mixin VALUES
+// they slice are reached through the dependency arrays already passed alongside the plan.
+export function createLinearizationPlanLiteral(
+    tsInstance: TypeScript,
+    plan: LinearizationPlanSlice[]
+): ts.ArrayLiteralExpression {
+    const factory = tsInstance.factory
+
+    return factory.createArrayLiteralExpression(
+        plan.map((slice) => factory.createArrayLiteralExpression(
+            slice.map((value) => factory.createNumericLiteral(value))
+        ))
+    )
 }
 
 export function createSourceViewConsumerBaseHeadType(

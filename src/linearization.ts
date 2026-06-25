@@ -17,6 +17,53 @@ export function linearizeDependencies(
     })
 }
 
+// A compile-time merge plan (approach B): the C3 result of `dependencyKeys` expressed as
+// contiguous slices `[source, offset, length]` over the merge inputs
+// `[ L[d1], ..., L[dk], [d1..dk] ]`. The runtime reconstructs the linearization by copying
+// these slices out of the dependencies' already-materialized linearizations
+// (RuntimeMixinClass.requirementMergeSources) instead of re-running C3. Offsets are
+// positional, so a plan derived here over keys replays identically over runtime values --
+// the inputs are built in the same order in both places. Throws DependencyLinearizationError
+// on a conflict (no plan exists), exactly like `linearizeDependencies`.
+export type LinearizationPlanSlice = readonly [ source: number, offset: number, length: number ]
+
+export function deriveLinearizationPlan(
+    dependencyKeys: string[],
+    context: FileMixinContext
+): LinearizationPlanSlice[] {
+    if (dependencyKeys.length === 0) {
+        return []
+    }
+
+    const cache                              = context.linearizationCache
+    const sources                            = [
+        ...dependencyKeys.map((key) => linearizeDependencyKey(key, context, cache)),
+        [ ...dependencyKeys ]
+    ]
+    const merged                             = mergeDependencyLinearizations(sources)
+    const cursors                            = sources.map(() => 0)
+    const plan: [ number, number, number ][] = []
+
+    for (const element of merged) {
+        const pick = sources.findIndex((source, index) => source[cursors[index]!] === element)
+        const last = plan[plan.length - 1]
+
+        if (last !== undefined && last[0] === pick && last[1] + last[2] === cursors[pick]!) {
+            last[2]++
+        } else {
+            plan.push([ pick, cursors[pick]!, 1 ])
+        }
+
+        for (let index = 0; index < sources.length; index++) {
+            if (sources[index]![cursors[index]!] === element) {
+                cursors[index]!++
+            }
+        }
+    }
+
+    return plan
+}
+
 function linearizeDependencyKeys(
     dependencyKeys: string[],
     context: FileMixinContext,

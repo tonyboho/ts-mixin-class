@@ -25,6 +25,7 @@ import {
     metadataBaseLocalName,
     mixinApplicationName,
     mixinChainName,
+    mixinChainLinearizedName,
     mixinClassValueName,
     mixinFactoryName,
     runtimeMixinClassName,
@@ -1008,8 +1009,9 @@ function createHelperTypeImport(
     // file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error). When
     // nothing is referenced (no helper import needed), the whole declaration is dropped.
     const candidates: NamedImportElement[] = [
-        { typeOnly: false, importedName: defineMixinClassName, localName: defineMixinClassName },
-        { typeOnly: false, importedName: mixinChainName,       localName: mixinChainName },
+        { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassName },
+        { typeOnly: false, importedName: mixinChainName,           localName: mixinChainName },
+        { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedName },
         { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },
         { typeOnly: true,  importedName: classStaticsName,     localName: classStaticsName },
         { typeOnly: true,  importedName: mixinApplicationName, localName: mixinApplicationName },

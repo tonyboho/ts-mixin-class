@@ -2,6 +2,7 @@ import type * as ts from "typescript"
 import {
     constructionHeadType,
     cloneExpressionWithTypeArguments,
+    createLinearizationPlanLiteral,
     createSourceViewConsumerBaseHeadType,
     expressionToEntityName,
     heritageTypeToTypeReference,
@@ -13,9 +14,11 @@ import {
     anyConstructorName,
     classStaticsName,
     mixinChainName,
+    mixinChainLinearizedName,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import type { LinearizationPlanSlice } from "./linearization.js"
 import {
     cloneNode,
     preserveTextRange
@@ -50,9 +53,26 @@ function mixinStaticsTypes(
 function createMixinChainExpression(
     tsInstance: TypeScript,
     mixinRefs: ResolvedMixinRef[],
-    baseExpression: ts.Expression
+    baseExpression: ts.Expression,
+    linearizationPlan: LinearizationPlanSlice[] | undefined
 ): ts.Expression {
     const factory = tsInstance.factory
+
+    // Approach (B): when the compiler precomputed the consumer's chain order, apply the
+    // mixins through `mixinChainLinearized(base, [m1, m2], plan)` (the mixins ride in an
+    // array, the plan trails) so the runtime replays the plan instead of running C3. With
+    // no plan (a conflict -- reported elsewhere) keep the variadic `mixinChain`.
+    if (linearizationPlan !== undefined) {
+        return factory.createCallExpression(
+            factory.createIdentifier(mixinChainLinearizedName),
+            undefined,
+            [
+                baseExpression,
+                factory.createArrayLiteralExpression(mixinRefs.map((ref) => mixinValueIdentifier(tsInstance, ref))),
+                createLinearizationPlanLiteral(tsInstance, linearizationPlan)
+            ]
+        )
+    }
 
     return factory.createCallExpression(
         factory.createIdentifier(mixinChainName),
@@ -87,7 +107,8 @@ export function unsupportedBaseConsumerHeritage(
                         createMixinChainExpression(
                             tsInstance,
                             directMixinRefs,
-                            cloneNode(tsInstance, extendsType.expression)
+                            cloneNode(tsInstance, extendsType.expression),
+                            undefined
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
@@ -111,7 +132,10 @@ export function consumerBaseClassHeritage(
     // base): the cast's construct signature is branded (so a direct `new Consumer(...)`
     // is a type error) or permissive (for a manual-constructor consumer). See
     // constructionHeadType / ConstructionBrand.
-    construction?: ConstructionBrand
+    construction?: ConstructionBrand,
+    // Approach (B): the precomputed chain order for the runtime `mixinChainLinearized`
+    // call. Emit only -- source view emits no runtime chain.
+    linearizationPlan?: LinearizationPlanSlice[]
 ): ts.HeritageClause {
     const factory = tsInstance.factory
 
@@ -155,7 +179,8 @@ export function consumerBaseClassHeritage(
                                 tsInstance,
                                 consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
                                     .expression
-                            )
+                            ),
+                            linearizationPlan
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),

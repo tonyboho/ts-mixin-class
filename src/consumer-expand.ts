@@ -30,7 +30,7 @@ import {
     consumerHeritageClauses,
     MixinTransformError
 } from "./expand-util.js"
-import { linearizeDependencies } from "./linearization.js"
+import { deriveLinearizationPlan, linearizeDependencies } from "./linearization.js"
 import {
     localMixinHeritageTypes,
     localMixinRefs
@@ -110,6 +110,12 @@ export function expandConsumerClass(
 
         throw error
     }
+
+    // Approach (B): the merge above succeeded, so the chain order can be precomputed as a
+    // plan the runtime `mixinChainLinearized` replays instead of running C3 per consumer.
+    const linearizationPlan = expansion.directMixinRefs.length === 0
+        ? undefined
+        : deriveLinearizationPlan(expansion.directMixinRefs.map((ref) => ref.key), context)
 
     if (expansion.extendsType !== undefined && !isSupportedBaseExpression(tsInstance, expansion.extendsType.expression)) {
         return expandConsumerClassWithUnsupportedBaseDiagnostic(
@@ -257,7 +263,8 @@ export function expandConsumerClass(
             options,
             isConstructionConsumer
                 ? { consumerName: expansion.name, branded: brandsConstruction }
-                : undefined
+                : undefined,
+            linearizationPlan
         ) ],
         []
     )

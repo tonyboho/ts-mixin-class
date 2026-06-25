@@ -133,9 +133,10 @@ environment variables control this:
 
 - `TS_MIXIN_VERIFY_LINEARIZATION` (on by default) — extra safety that re-checks every replayed
   order against C3 and throws on a mismatch. Recommended during development; set it to `0` in
-  production to skip the check.
+  production to skip the check and remove the C3 overhead.
 - `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` — set it to `1` to ignore the precomputed plan and
-  run C3 at runtime instead.
+  run C3 at runtime instead. An escape hatch: if you ever hit a mismatch between the replayed
+  order and C3 (a bug), you can turn the replay off and fall back to C3 without recompiling.
 
 ## Required bases
 

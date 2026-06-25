@@ -33,6 +33,23 @@ that emitted JavaScript source maps still point at useful user-source locations 
 helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
 and document or fix any positions that become misleading.
 
+### Real-fixture declaration-time benchmark (mixins vs plain classes)
+
+Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a
+realistically large program. Generate a fixture of N mixin classes (N = 100, 500, 1000) where
+each mixin has exactly ONE ancestor (a single-parent chain — the simplest, most common shape,
+isolating per-class registration cost from C3 merge cost). Compile it through the transformer,
+then measure the **initialization time**: how long it takes for ALL classes to be declared when
+the emitted module is first loaded (every `defineMixinClass(...)` / chain assembly runs at
+module-eval time).
+
+Generate an **identical structure with ordinary TypeScript classes** (plain `extends` chains,
+no `@mixin`) and measure the same initialization time. Report the delta across the three sizes
+so the per-class overhead and how it scales are both visible. Run it in the `replay` mode
+(production: `TS_MIXIN_VERIFY_LINEARIZATION=0`) so the number reflects the shipped fast path,
+not the dev-time cross-check. (Complements `bench/c3`, which times the linearization step on
+abstract integer graphs; this times real emitted classes end to end.)
+
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer

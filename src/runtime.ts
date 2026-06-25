@@ -51,8 +51,22 @@ export type MixinClassValue<
             MixinApplication<Base, Instance, ReturnType<Factory>>
     }
 
+// Internal per-mixin metadata is stored directly on the mixin constructor under this
+// symbol, alongside the factory/requirements/base markers — so there is no external map to
+// consult, and the metadata is collected together with the constructor.
+const mixinMetadata = Symbol("mixinMetadata")
+
+// Public value type (the transformer emits values structurally matching this, and the
+// exported `defineMixinClass` / `mixinChain` take it). It must NOT mention the internal
+// metadata symbol, or emitted values would stop being assignable to it.
 type RuntimeMixinClassValue = AnyConstructor<any> & RuntimeMixinClass & {
     readonly mix : <Base extends AnyConstructor<any>>(base: Base) => AnyConstructor<any>
+}
+
+// Internal view of a registered mixin: the public value plus the metadata attached to its
+// constructor. Used only where the runtime reads its own metadata back.
+type RegisteredMixinClass = RuntimeMixinClassValue & {
+    readonly [mixinMetadata] : RuntimeMixinMetadata
 }
 
 type RuntimeMixinMetadata = {
@@ -60,11 +74,9 @@ type RuntimeMixinMetadata = {
     requirements  : RuntimeMixinClassValue[],
     requiredBase  : AnyConstructor<any>,
     linearization : RuntimeMixinClassValue[] | undefined,
-    applications  : WeakMap<AnyConstructor<any>, AnyConstructor<any>>
+    applications  : WeakMap<AnyConstructor<any>, AnyConstructor<any>>,
+    marker        : symbol
 }
-
-const runtimeMixinMetadata = new WeakMap<RuntimeMixinClassValue, RuntimeMixinMetadata>()
-const appliedMixinClasses  = new WeakMap<AnyConstructor<any>, Set<RuntimeMixinClassValue>>()
 
 export function mixin(..._args: unknown[]): (..._decoratorArgs: unknown[]) => void {
     return () => {}
@@ -76,22 +88,25 @@ export function defineMixinClass(
     mixinRequirements: readonly RuntimeMixinClassValue[] = [],
     requiredBase: AnyConstructor<any> = Object
 ): RuntimeMixinClassValue {
-    const requirementList          = [ ...mixinRequirements ]
-    const requirementLinearization = linearizeRuntimeRequirements(requirementList)
-    const canonicalBase            = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
-    const mixinClass               = mixinFactory(canonicalBase) as RuntimeMixinClassValue
-    const applications             = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
-
-    applications.set(canonicalBase, mixinClass)
-
-    runtimeMixinMetadata.set(mixinClass, {
+    const requirementList                = [ ...mixinRequirements ]
+    const requirementLinearization       = linearizeRuntimeRequirements(requirementList)
+    const canonicalBase                  = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
+    const mixinClass                     = mixinFactory(canonicalBase) as RuntimeMixinClassValue
+    const applications                   = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
+    const marker                         = Symbol(name)
+    const metadata: RuntimeMixinMetadata = {
         factory       : mixinFactory,
         requirements  : requirementList,
         requiredBase,
         linearization : [ mixinClass, ...requirementLinearization ],
-        applications
-    })
+        applications,
+        marker
+    }
 
+    applications.set(canonicalBase, mixinClass)
+    markRuntimeMixin(mixinClass, marker)
+
+    Object.defineProperty(mixinClass, mixinMetadata, { value: metadata })
     Object.defineProperty(mixinClass, factory, { value: mixinFactory })
     Object.defineProperty(mixinClass, requirements, { value: requirementList })
     Object.defineProperty(mixinClass, base, { value: requiredBase })
@@ -101,13 +116,16 @@ export function defineMixinClass(
         }
     })
     Object.defineProperty(mixinClass, Symbol.hasInstance, {
-        value(instance: unknown) {
-            return hasRuntimeMixinInstance(instance, mixinClass)
+        // The mixin's own unique marker is captured directly here and published on the
+        // prototype of every class it is applied to (see markRuntimeMixin); an instance
+        // reaches the markers of its whole linearized chain through its prototype chain,
+        // so this is a native lookup with no metadata indirection.
+        value(instance: unknown): boolean {
+            return Boolean(instance && (instance as Record<symbol, unknown>)[marker])
         }
     })
 
     setClassName(mixinClass, name)
-    registerAppliedMixins(mixinClass, [ mixinClass, ...requirementLinearization ])
 
     return mixinClass
 }
@@ -136,7 +154,7 @@ function applyRuntimeMixin(
     base: AnyConstructor<any>,
     mixinClass: RuntimeMixinClassValue
 ): AnyConstructor<any> {
-    const metadata = runtimeMetadataOf(mixinClass)
+    const metadata = (mixinClass as RegisteredMixinClass)[mixinMetadata]
     const cached   = metadata.applications.get(base)
 
     if (!classExtends(base, metadata.requiredBase)) {
@@ -153,14 +171,14 @@ function applyRuntimeMixin(
     const appliedClass = metadata.factory(base)
 
     metadata.applications.set(base, appliedClass)
+    markRuntimeMixin(appliedClass, metadata.marker)
     setClassName(appliedClass, mixinClass.name)
-    registerAppliedMixins(appliedClass, [ mixinClass, ...linearizeRuntimeMixin(mixinClass).slice(1) ])
 
     return appliedClass
 }
 
 function linearizeRuntimeMixin(mixinClass: RuntimeMixinClassValue): RuntimeMixinClassValue[] {
-    const metadata = runtimeMetadataOf(mixinClass)
+    const metadata = (mixinClass as RegisteredMixinClass)[mixinMetadata]
 
     if (metadata.linearization !== undefined) {
         return metadata.linearization
@@ -200,52 +218,17 @@ function mergeRuntimeLinearizations(sequences: RuntimeMixinClassValue[][]): Runt
     }
 }
 
-function runtimeMetadataOf(mixinClass: RuntimeMixinClassValue): RuntimeMixinMetadata {
-    const metadata = runtimeMixinMetadata.get(mixinClass)
-
-    if (metadata === undefined) {
-        throw new Error(`Class ${mixinClass.name || "<anonymous>"} is not a registered mixin class`)
-    }
-
-    return metadata
-}
-
 function classExtends(base: AnyConstructor<any>, requiredBase: AnyConstructor<any>): boolean {
     return requiredBase === Object ||
         base === requiredBase ||
         requiredBase.prototype.isPrototypeOf(base.prototype)
 }
 
-function registerAppliedMixins(
-    appliedClass: AnyConstructor<any>,
-    mixins: readonly RuntimeMixinClassValue[]
-): void {
-    const inherited = appliedMixinClasses.get(Object.getPrototypeOf(appliedClass)) ?? new Set<RuntimeMixinClassValue>()
-    const applied   = new Set<RuntimeMixinClassValue>(inherited)
-
-    for (const mixinClass of mixins) {
-        applied.add(mixinClass)
-    }
-
-    appliedMixinClasses.set(appliedClass, applied)
-}
-
-function hasRuntimeMixinInstance(instance: unknown, mixinClass: RuntimeMixinClassValue): boolean {
-    if (instance === null || typeof instance !== "object" && typeof instance !== "function") {
-        return false
-    }
-
-    let constructor = (instance as { constructor?: unknown }).constructor
-
-    while (typeof constructor === "function") {
-        if (appliedMixinClasses.get(constructor as AnyConstructor<any>)?.has(mixinClass)) {
-            return true
-        }
-
-        constructor = Object.getPrototypeOf(constructor)
-    }
-
-    return false
+// Publish a mixin's unique identity marker on an applied class's prototype, so any
+// instance of that class (or a subclass) answers `instance[marker] === true` through the
+// prototype chain.
+function markRuntimeMixin(appliedClass: AnyConstructor<any>, marker: symbol): void {
+    ;(appliedClass.prototype as Record<symbol, unknown>)[marker] = true
 }
 
 function setClassName(classConstructor: AnyConstructor<any>, name: string): void {

@@ -634,7 +634,7 @@ it("fixture type-errors keeps expect-error suppressions for expected diagnostics
     t.match(expectErrorText, "ContractSourceClass1", "Fixture suppresses the first contract diagnostic")
     t.match(expectErrorText, "ContractSourceClass2", "Fixture suppresses the second contract diagnostic")
     t.match(expectErrorText, "RequiredMixin", "Fixture suppresses the required-base diagnostic")
-    t.match(expectErrorText, "BadLinearizationMixin", "Fixture suppresses the linearization diagnostic")
+    t.match(expectErrorText, "LinearizationX", "Fixture suppresses the linearization diagnostic")
     t.match(expectErrorText, "StaticCollisionLeftMixin", "Fixture suppresses the static collision diagnostic")
 })
 

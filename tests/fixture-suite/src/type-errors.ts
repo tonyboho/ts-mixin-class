@@ -44,6 +44,12 @@ class LinearizationA {
 class LinearizationB {
 }
 
+// LinearizationX and LinearizationY are each individually consistent (so neither mixin
+// errors); only a consumer that applies BOTH forces LinearizationA and LinearizationB into
+// opposite orders, which has no C3 linearization. (A mixin whose OWN dependencies conflict is
+// covered by nontrivial-diamond-linearization.t.ts and source-transform-cross-package-*; it
+// can't live in this build-must-pass corpus because its emit-mode error cannot be suppressed
+// at the declaration -- the mixin decorator is stripped and the file reprinted.)
 @mixin()
 class LinearizationX implements LinearizationA, LinearizationB {
 }
@@ -52,12 +58,8 @@ class LinearizationX implements LinearizationA, LinearizationB {
 class LinearizationY implements LinearizationB, LinearizationA {
 }
 
-@mixin()
-class BadLinearizationMixin implements LinearizationX, LinearizationY {
-}
-
-// @ts-expect-error BadLinearizationMixin has inconsistent C3 requirements.
-class BadLinearizationConsumer implements BadLinearizationMixin {
+// @ts-expect-error LinearizationX and LinearizationY have inconsistent C3 requirements together.
+class BadLinearizationConsumer implements LinearizationX, LinearizationY {
 }
 
 @mixin()

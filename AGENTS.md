@@ -502,6 +502,25 @@ inherited interface. Full breakdown: `stress-diagnostic-parity.t.ts` header (dif
   builds succeed; `.mix(Unrelated)` onto an unsatisfied base is still rejected with TS2345 in both
   paths — the erasure did not loosen enforcement).
 
+- **A `@mixin` whose OWN dependencies cannot be C3-linearized** (a conflict with no consumer to
+  force the merge, e.g. a 3-cycle) used to compile cleanly — only the runtime threw when the mixin
+  was defined. Now reported at compile time in **both** paths, via **two carriers** because emit has
+  no `__X$base`: source view puts a never-constrained validation type parameter on the generated
+  `__X$base` and instantiates it with the message in the position-preserved heritage clause
+  (`createLinearizationDiagnosticValidation` + `appendSourceViewValidationTypeParameters` — the same
+  stress-safe mechanism a *consumer's* linearization conflict uses, so it does NOT strand); emit
+  intersects `MixinLinearizationConflict<"<message>">` into the value cast
+  (`withMixinLinearizationConflictType`), the `"<message>"` literal pinned to the first `implements`
+  type so the remap lands on the heritage line. **Invariant:** a standalone diagnostic alias for
+  this (anchored on any real token, or even a generated gap range) strands in the source view; route
+  it through the off-screen `__X$base` instead. **Corpus consequence:** a conflicting `@mixin` cannot
+  live in the build-must-pass `tests/fixture-suite/src` — its emit-mode error cannot be suppressed
+  with `@ts-expect-error` (the `@mixin` decorator is stripped and the file reprinted, displacing the
+  directive relative to the generated value statement). A consumer-only conflict (a plain class
+  implementing two individually-consistent mixins) suppresses cleanly because consumers have no
+  decorator. Guards: `nontrivial-diamond-linearization.t.ts` (both `--noEmit` and emit),
+  `source-transform-cross-package-linearization.t.ts`.
+
 ## Debugging
 
 ### Scripts (`scripts/`)

@@ -27,6 +27,7 @@ import {
     mixinChainName,
     mixinChainLinearizedName,
     mixinClassValueName,
+    mixinLinearizationConflictName,
     mixinFactoryName,
     runtimeMixinClassName,
     shouldSkipFileName,
@@ -1023,9 +1024,10 @@ function createHelperTypeImport(
                 importedName : staticConflictKeysName(options.staticCollisionCheck),
                 localName    : staticConflictKeysName(options.staticCollisionCheck)
             } ]),
-        { typeOnly: true, importedName: metadataBaseImportName, localName: metadataBaseLocalName },
-        { typeOnly: true, importedName: runtimeMixinClassName,  localName: runtimeMixinClassName },
-        { typeOnly: true, importedName: mixinClassValueName,    localName: mixinClassValueName }
+        { typeOnly: true, importedName: metadataBaseImportName,        localName: metadataBaseLocalName },
+        { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassName },
+        { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueName },
+        { typeOnly: true, importedName: mixinLinearizationConflictName, localName: mixinLinearizationConflictName }
     ]
 
     const used = candidates.filter((candidate) => referenced.has(candidate.localName))

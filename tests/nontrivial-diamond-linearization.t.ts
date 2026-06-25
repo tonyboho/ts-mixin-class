@@ -114,9 +114,9 @@ it("detects a nontrivial 3-cycle linearization conflict at compile time", async 
 })
 
 // A `@mixin` whose OWN dependencies are inconsistent is reported at compile time even with
-// no consumer to force the linearization. The conflict diagnostic is emitted on the mixin
-// via a self-checking alias at a generated gap range (createMixinLinearizationErrorAlias),
-// so it surfaces in both tsc and tsserver without stranding a real token in the source view.
+// no consumer to force the linearization. The source-view / `--noEmit` path reports it on the
+// generated `__Z$base` (a never-constrained validation type parameter, like a consumer's
+// conflict), so it surfaces in tsserver without stranding a real token in the source view.
 it("detects a mixin-only linearization conflict (no consumer) at compile time", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
@@ -148,6 +148,46 @@ it("detects a mixin-only linearization conflict (no consumer) at compile time", 
         t.ne(build.exitCode, 0, `A mixin-only 3-cycle must fail to compile:\n${output}`)
         t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
             `... with the C3 conflict diagnostic:\n${output}`)
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// The same mixin-only conflict must ALSO fail an emit build (`tsc`, not `--noEmit`), not just
+// the source-view / type-check path. Emit has no `__Z$base` carrier, so the transformer
+// intersects `MixinLinearizationConflict<"<message>">` into the mixin value's cast; `tsc`
+// reports the C3 message there.
+it("detects a mixin-only linearization conflict in emit mode (tsc, not --noEmit)", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { mixin } from "ts-mixin-class"
+
+                    @mixin() class A {}
+                    @mixin() class B {}
+                    @mixin() class C {}
+
+                    @mixin() class P implements A, B {}
+                    @mixin() class Q implements B, C {}
+                    @mixin() class R implements C, A {}
+
+                    // No consumer class -- the conflict lives entirely in this mixin's deps.
+                    @mixin() class Z implements P, Q, R {}
+                `
+            }
+        ]
+    })
+
+    try {
+        const build  = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+        const output = commandOutput(build)
+
+        t.ne(build.exitCode, 0, `A mixin-only 3-cycle must fail an emit build too:\n${output}`)
+        t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
+            `... with the C3 conflict diagnostic in emit mode:\n${output}`)
     } finally {
         await fixture.dispose()
     }

@@ -166,13 +166,13 @@ also at every consumer.
   the stranding trilemma the earlier alias attempt hit. Tests flipped to `it` in
   `nontrivial-diamond-linearization.t.ts` and `source-transform-cross-package-linearization.t.ts`
   (both use `tsc --noEmit`, which is source-view mode). Cross-package confirmed.
-  - *Remaining asymmetry.* Reported in source-view / `--noEmit` / IDE, but NOT in emit mode
-    (`tsc` producing JS): the emit mixin path generates no `__Z$base` carrier, so there is no
-    off-screen host for the validation, and a standalone alias reintroduces the trilemma +
-    `noUnusedLocals` (TS6196). The parity stress test tolerates this (source-view-only
-    diagnostics are counted, not failed). Runtime still throws when the mixin is defined.
-    Closing emit mode too would need an emit carrier (e.g. routing through the `@mixin`
-    decorator, which emit currently strips).
+  - *Emit mode too.* Also reported by `tsc` (emit), via a second carrier since emit has no
+    `__Z$base`: the value cast intersects `MixinLinearizationConflict<"<message>">`
+    (`withMixinLinearizationConflictType`), the message literal pinned to the first `implements`
+    type so it remaps onto the heritage line. Guarded by an emit-mode test in
+    `nontrivial-diamond-linearization.t.ts`. A conflicting `@mixin` cannot live in the
+    build-must-pass fixture corpus (emit `@ts-expect-error` can't suppress it — decorator stripped
+    + reprinted); the corpus uses a consumer-only conflict instead. See AGENTS.md "Resolved".
 
 - **Go-to-definition on a member reached through a manual `.mix(Base)` does not land on the
   member's real declaration.** `class X extends Main.mix(UserBase)` then `this.mainMethod()`:

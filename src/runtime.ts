@@ -32,6 +32,14 @@ export type RuntimeMixinClass<RequiredBase extends object = object> = {
     readonly [base]         : AnyConstructor<RequiredBase>
 }
 
+// Emit-mode marker for a mixin whose OWN dependencies cannot be C3-linearized. The
+// transformer intersects `MixinLinearizationConflict<"<message>">` into the mixin value's
+// cast ONLY for a conflicting set; instantiating it with the message string violates the
+// `extends never` constraint, so `tsc` reports the message there. `unknown` keeps the
+// intersection a no-op on the value's real type. The source-view / `--noEmit` path reports
+// the same conflict on the generated `$base` instead.
+export type MixinLinearizationConflict<__mixinLinearizationError extends never> = unknown
+
 // Factored static type of a non-generic mixin class value. The transformer emits
 // `... as unknown as MixinClassValue<X, typeof __X$mixin> & RuntimeMixinClass`
 // instead of inlining the constructor + ClassStatics + `mix` intersection at

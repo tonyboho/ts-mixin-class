@@ -18,6 +18,7 @@ import {
     isNamedClassElement,
     mixinClassValueName,
     mixinFactoryName,
+    mixinLinearizationConflictName,
     requiredBaseType,
     runtimeMixinClassName,
     type FileMixinContext,
@@ -109,11 +110,11 @@ export function expandMixinClass(
         declaration
     )
     // A mixin whose OWN dependencies cannot be C3-linearized (a conflict with no consumer to
-    // force it) is reported on the mixin in the source-view / `--noEmit` type-check path the
-    // same way a consumer is: a never-constrained validation type parameter on the generated
-    // `__X$base`, instantiated with the message in the position-preserved heritage clause (see
-    // expandSourceViewMixinClass). Emit mode mirrors the runtime, which throws when the mixin
-    // is defined, so no merge plan is emitted for a conflicting set.
+    // force it) is reported on the mixin in BOTH paths, via two carriers since emit has no
+    // `__X$base`: source view puts a never-constrained validation type parameter on the
+    // generated `__X$base` (consumer-style, see expandSourceViewMixinClass); emit intersects
+    // `MixinLinearizationConflict<message>` into the value cast (see
+    // withMixinLinearizationConflictType). No merge plan is emitted for a conflicting set.
     const dependencyRefs        = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
     const linearizationConflict = mixinLinearizationConflict(context, dependencyRefs)
     const linearizationMessage  = linearizationConflict === undefined
@@ -221,7 +222,12 @@ export function expandMixinClass(
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
-                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType)
+                    withMixinLinearizationConflictType(
+                        tsInstance,
+                        declaration,
+                        createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType),
+                        linearizationMessage
+                    )
                 )
             )
         ], tsInstance.NodeFlags.Const)
@@ -283,6 +289,35 @@ function defineMixinClassArguments(
     }
 
     return args
+}
+
+// Emit-mode reporting for a mixin whose own dependencies cannot be C3-linearized: intersect
+// `MixinLinearizationConflict<"<message>">` into the value cast so `tsc` reports the message.
+// Only for a conflicting set (message present); the normal cast is returned untouched
+// otherwise. The message string literal is pinned to the mixin's first `implements` type so
+// the emitted diagnostic remaps onto the heritage line, matching where the source-view path
+// reports it. (The source-view path reports on `$base` instead, so this is emit-only.)
+function withMixinLinearizationConflictType(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    castType: ts.TypeNode,
+    linearizationMessage: string | undefined
+): ts.TypeNode {
+    if (linearizationMessage === undefined) {
+        return castType
+    }
+
+    const factory      = tsInstance.factory
+    const heritageType = implementsTypes(tsInstance, declaration)[0] ?? declaration
+    const conflictType = factory.createTypeReferenceNode(mixinLinearizationConflictName, [
+        preserveTextRange(
+            tsInstance,
+            factory.createLiteralTypeNode(factory.createStringLiteral(linearizationMessage)),
+            heritageType
+        )
+    ])
+
+    return factory.createIntersectionTypeNode([ castType, conflictType ])
 }
 
 // The mixin's own requirement set cannot be C3-linearized: returns the error (so the caller

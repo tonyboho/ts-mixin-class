@@ -32,7 +32,7 @@ it("expands a consumer class into a merged intermediate base", async (t: Test) =
         "Merged interface repeats the implements list verbatim")
     t.match(
         printed,
-        "class __Consumer$base<A> extends (mixinChainLinearized(Base, [SourceClass1, SourceClass2], [[0, 0, 1], [1, 0, 1]]) as unknown as " +
+        "class __Consumer$base<A> extends (mixinChainLinearized(Base, [SourceClass1, SourceClass2], [[0, 0, 1], [1, 0, 1]], \"verify\") as unknown as " +
             "typeof Base & Omit<typeof SourceClass1, \"prototype\" | \"new\"> & Omit<typeof SourceClass2, \"prototype\" | \"new\">)",
         "Intermediate base delegates the runtime chain to the helper with the statics cast"
     )
@@ -58,7 +58,7 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
         "An explicit empty base class is generated")
     t.match(
         printed,
-        "class __Consumer$base<T> extends (mixinChainLinearized(__Consumer$empty, [SourceClass1], [[0, 0, 1]]) as unknown as " +
+        "class __Consumer$base<T> extends (mixinChainLinearized(__Consumer$empty, [SourceClass1], [[0, 0, 1]], \"verify\") as unknown as " +
             "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\">)",
         "Helper chain starts at the generated empty base and keeps mixin statics"
     )
@@ -141,7 +141,7 @@ it("consumer transitively applies mixin dependencies", async (t: Test) => {
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed, "mixinChainLinearized(__Consumer$empty, [ChildMixin], [[0, 0, 2]])",
+    t.match(printed, "mixinChainLinearized(__Consumer$empty, [ChildMixin], [[0, 0, 2]], \"verify\")",
         "Consumer delegates transitive dependency application to the runtime helper")
     t.match(printed, "interface __Consumer$base<T> extends ChildMixin<T>",
         "Merged interface lists only the direct implements entries")

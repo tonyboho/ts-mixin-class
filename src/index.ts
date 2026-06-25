@@ -359,8 +359,20 @@ function resolveTransformOptions(config: MixinClassTransformerConfig): Transform
         staticCollisionCheck : normalizeStaticCollisionCheck(config.staticCollisionCheck),
         allowUndefinedForRequiredProperties :
             config.allowUndefinedForRequiredProperties ??
-            defaultTransformOptions.allowUndefinedForRequiredProperties
+            defaultTransformOptions.allowUndefinedForRequiredProperties,
+        // Read at build time (the transformer runs under tsc in Node) and baked into the emit
+        // as a trailing mode argument, so the shipped runtime never reads the environment.
+        // Verification is on by default (set TS_MIXIN_VERIFY_LINEARIZATION=0 to drop it in
+        // production); the precompute is on unless TS_MIXIN_DISABLE_LINEARIZATION_PLAN=1.
+        verifyLinearization : envFlag("TS_MIXIN_VERIFY_LINEARIZATION") !== "0" &&
+            envFlag("TS_MIXIN_VERIFY_LINEARIZATION") !== "false",
+        disableLinearizationPlan : envFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN") === "1" ||
+            envFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN") === "true"
     }
+}
+
+function envFlag(name: string): string | undefined {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name]
 }
 
 function normalizeStaticCollisionCheck(
@@ -1149,6 +1161,8 @@ function preserveSourceCacheKey(
         options.decoratorName,
         options.staticCollisionCheck,
         String(options.allowUndefinedForRequiredProperties),
+        String(options.verifyLinearization),
+        String(options.disableLinearizationPlan),
         crossFile?.cacheKey ?? "",
         languageVersionKey
     ].join("|")

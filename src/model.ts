@@ -18,7 +18,9 @@ export type TransformOptions = {
     decoratorName                       : string,
     sourceView                          : boolean,
     staticCollisionCheck                : StaticCollisionCheckMode,
-    allowUndefinedForRequiredProperties : boolean
+    allowUndefinedForRequiredProperties : boolean,
+    verifyLinearization                 : boolean,
+    disableLinearizationPlan            : boolean
 }
 
 export type MixinDecoratorImports = {
@@ -155,7 +157,9 @@ export const defaultTransformOptions: TransformOptions = {
     decoratorName                       : "mixin",
     sourceView                          : false,
     staticCollisionCheck                : "never",
-    allowUndefinedForRequiredProperties : false
+    allowUndefinedForRequiredProperties : false,
+    verifyLinearization                 : true,
+    disableLinearizationPlan            : false
 }
 
 export const anyConstructorName = "AnyConstructor"

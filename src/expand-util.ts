@@ -4,9 +4,23 @@ import {
     classStaticsName,
     generatedName,
     type MixinDeclarationDiagnostic,
-    type ResolvedMixinRef
+    type ResolvedMixinRef,
+    type TransformOptions
 } from "./model.js"
 import type { LinearizationPlanSlice } from "./linearization.js"
+
+// The runtime `LinearizationMode` (a magic string) the compiler bakes into the emit, derived
+// from the build environment (read in resolveTransformOptions). The plan is ALWAYS emitted;
+// the mode only changes what the runtime does with it. Always one of the three explicit
+// modes — "verify" (default), "replay" (production), "c3" (escape hatch) — kept here so the
+// mixin and consumer emit paths agree.
+export function linearizationMode(options: TransformOptions): "verify" | "replay" | "c3" {
+    return options.disableLinearizationPlan
+        ? "c3"
+        : options.verifyLinearization
+            ? "verify"
+            : "replay"
+}
 import {
     deepCloneNode,
     preserveGeneratedDeclarationRange,

@@ -5,6 +5,7 @@ import {
     defineMixinClass,
     mixinChain,
     mixinChainLinearized,
+    type LinearizationMode,
     type LinearizationPlan,
     type LinearizationSlice
 } from "../src/index.js"
@@ -284,68 +285,62 @@ it("an empty plan reproduces the dependency-free linearization", async (t: Test)
     t.expect(derivePlan([])).toEqual([])
 })
 
-it("cross-check throws on a wrong plan (verification is on by default)", async (t: Test) => {
+it("the \"verify\" mode cross-checks a wrong plan against C3 and throws", async (t: Test) => {
     const A = createNamedMixin("A")
     const B = createNamedMixin("B", [ A ])
     const C = createNamedMixin("C", [ A ])
 
     // The correct plan for [B, C] yields B>C>A; this truncated plan drops A, so the replay
-    // disagrees with C3 and the default-on cross-check must reject it (no env var set).
+    // disagrees with C3 and the "verify" mode must reject it.
     const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
 
     t.throwsOk(
-        () => createMixinWithPlan("D", [ B, C ], wrongPlan),
+        () => createMixinWithPlan("D", [ B, C ], wrongPlan, "verify"),
         "differs from the C3 result",
-        "Verification rejects a plan whose replay disagrees with C3"
+        "verify mode rejects a plan whose replay disagrees with C3"
     )
 })
 
-it("a wrong plan is trusted verbatim when verification is turned off", async (t: Test) => {
-    withEnvFlag("TS_MIXIN_VERIFY_LINEARIZATION", "0", () => {
-        const A = createNamedMixin("A")
-        const B = createNamedMixin("B", [ A ])
-        const C = createNamedMixin("C", [ A ])
+it("the \"replay\" mode trusts a wrong plan verbatim (no cross-check)", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
 
-        // With the cross-check off (the prod opt-out) the runtime trusts the plan: it builds
-        // a (wrong) chain without throwing. This pins that verification, not replay, is what
-        // turning off the flag removes.
-        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
-        const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
+    // Same truncated plan, but "replay" mode (production) trusts it: it builds a (wrong) chain
+    // without throwing. This pins that verification, not replay, is what "verify" adds.
+    const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+    const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan, "replay")
 
-        class Consumer extends mixinChain(Base, D) {}
+    class Consumer extends mixinChain(Base, D) {}
 
-        t.equal(new Consumer().who(), "D>B>C>Base", "With verification off the unchecked plan is trusted verbatim")
-    })
+    t.equal(new Consumer().who(), "D>B>C>Base", "replay mode trusts the unchecked plan verbatim")
 })
 
-it("disabling the plan opt-out ignores a wrong plan and falls back to C3", async (t: Test) => {
-    withEnvFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN", "1", () => {
-        const A = createNamedMixin("A")
-        const B = createNamedMixin("B", [ A ])
-        const C = createNamedMixin("C", [ A ])
+it("the \"c3\" mode ignores the plan and falls back to C3", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
 
-        // Even a deliberately wrong plan is ignored when the precompute is disabled: the
-        // runtime runs C3 and produces the correct order, and verification (still on) does
-        // not fire because no plan was replayed. This is the user's escape hatch.
-        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
-        const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
+    // Even a deliberately wrong plan is ignored in "c3" mode: the runtime runs C3 and produces
+    // the correct order. The plan is still passed (always emitted), just not used. The escape hatch.
+    const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+    const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan, "c3")
 
-        class Consumer extends mixinChain(Base, D) {}
+    class Consumer extends mixinChain(Base, D) {}
 
-        t.equal(new Consumer().who(), "D>B>C>A>Base", "Disabled precompute falls back to the correct C3 order")
-    })
+    t.equal(new Consumer().who(), "D>B>C>A>Base", "c3 mode falls back to the correct C3 order")
 })
 
-it("a plan referencing a missing source throws regardless of verification", async (t: Test) => {
+it("a plan referencing a missing source throws in replay/verify modes", async (t: Test) => {
     const A = createNamedMixin("A")
     const B = createNamedMixin("B", [ A ])
 
     // Source index 5 does not exist among [L[A], L[B], [A, B]]; this is a malformed plan
-    // (a compiler bug), so it fails loudly instead of silently producing garbage.
+    // (a compiler bug), so replaying it fails loudly instead of producing garbage.
     const badPlan: LinearizationPlan = [ [ 5, 0, 1 ] ]
 
     t.throwsOk(
-        () => createMixinWithPlan("Bad", [ A, B ], badPlan),
+        () => createMixinWithPlan("Bad", [ A, B ], badPlan, "replay"),
         "missing source",
         "A plan pointing at a nonexistent source is rejected"
     )
@@ -372,13 +367,14 @@ function createPlannedMixin(
     name: string,
     requirements: ReturnType<typeof defineMixinClass>[] = []
 ): ReturnType<typeof defineMixinClass> {
-    return createMixinWithPlan(name, requirements, derivePlan(requirements))
+    return createMixinWithPlan(name, requirements, derivePlan(requirements), "verify")
 }
 
 function createMixinWithPlan(
     name: string,
     requirements: ReturnType<typeof defineMixinClass>[],
-    plan: LinearizationPlan
+    plan: LinearizationPlan,
+    mode: LinearizationMode
 ): ReturnType<typeof defineMixinClass> {
     const factory = ((base: AnyConstructor<NamedInstance>) => {
         return class extends base {
@@ -388,7 +384,7 @@ function createMixinWithPlan(
         }
     }) as unknown as MixinFactory
 
-    return defineMixinClass(name, factory, requirements, Object, plan)
+    return defineMixinClass(name, factory, requirements, Object, plan, mode)
 }
 
 // Compile-time plan derivation, mirrored from bench/c3 (`derivePlans`): run C3 over a
@@ -451,27 +447,6 @@ function linearizeMixin(mixin: AnyMixin, cache: Map<AnyMixin, AnyMixin[]> = new 
     cache.set(mixin, result)
 
     return result
-}
-
-function withEnvFlag(name: string, value: string | undefined, run: () => void): void {
-    const env      = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env
-    const previous = env[name]
-
-    if (value === undefined) {
-        delete env[name]
-    } else {
-        env[name] = value
-    }
-
-    try {
-        run()
-    } finally {
-        if (previous === undefined) {
-            delete env[name]
-        } else {
-            env[name] = previous
-        }
-    }
 }
 
 function createTrackedMixin(

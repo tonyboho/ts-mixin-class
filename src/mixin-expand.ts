@@ -32,6 +32,7 @@ import {
     createMixinDeclarationDiagnosticAliases,
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
+    linearizationMode,
     mixinValueIdentifier,
     MixinTransformError,
     rewriteTypeReferences
@@ -217,7 +218,8 @@ export function expandMixinClass(
                                 ref,
                                 dependencyRefs,
                                 requiredBase,
-                                linearizationPlan
+                                linearizationPlan,
+                                linearizationMode(options)
                             )
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
@@ -260,15 +262,17 @@ export function expandMixinClass(
     ]
 }
 
-// The `defineMixinClass(name, factory, [deps], requiredBase?, plan?)` arguments. The plan
-// is trailing, so when a mixin has a plan but no required base the `requiredBase` slot is
-// filled with an explicit `undefined` (which re-selects the runtime default `Object`).
+// The `defineMixinClass(name, factory, [deps], requiredBase?, plan?, mode?)` arguments. The
+// plan is trailing, so when a mixin has a plan but no required base the `requiredBase` slot is
+// filled with an explicit `undefined` (which re-selects the runtime default `Object`); the
+// mode follows the plan.
 function defineMixinClassArguments(
     tsInstance: TypeScript,
     ref: ResolvedMixinRef,
     dependencyRefs: ResolvedMixinRef[],
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
-    linearizationPlan: LinearizationPlanSlice[] | undefined
+    linearizationPlan: LinearizationPlanSlice[] | undefined,
+    mode: "verify" | "replay" | "c3"
 ): ts.Expression[] {
     const factory = tsInstance.factory
     const args    = [
@@ -284,6 +288,7 @@ function defineMixinClassArguments(
             ? factory.createIdentifier("undefined")
             : cloneNode(tsInstance, requiredBase.expression))
         args.push(createLinearizationPlanLiteral(tsInstance, linearizationPlan))
+        args.push(factory.createStringLiteral(mode))
     } else if (requiredBase !== undefined) {
         args.push(cloneNode(tsInstance, requiredBase.expression))
     }

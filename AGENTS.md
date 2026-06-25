@@ -50,11 +50,17 @@ the dependencies' already-materialized linearizations, with **no** good-head sea
   value identity crossing the package boundary**. Validated single-module / cross-file /
   cross-package by the `*-diamond-linearization.t.ts` compile-and-run tests.
 - **C3 stays the fallback** for cases with no plan: dependency-free mixins, manual `.mix` /
-  `mixinChain`, a conflicting set (no plan exists), and the runtime opt-out below.
-- **Two runtime env opt-outs** (read lazily): `TS_MIXIN_VERIFY_LINEARIZATION` — replay/C3
-  cross-check, **on by default** (every replay also runs C3 and throws on mismatch; the whole
-  suite + corpus exercise replay==C3 for free; flip the default off later to claim the speed-up);
-  `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` — ignore every plan and run C3 (user escape hatch).
+  `mixinChain`, a conflicting set (no plan exists), and the `"c3"` mode below.
+- **Mode is compile-time, baked into the emit.** The plan is ALWAYS emitted; a trailing magic
+  string — `LinearizationMode` = `"verify" | "replay" | "c3"` (`runtime.ts`) — on
+  `defineMixinClass` / `mixinChainLinearized` tells the runtime what to do. The COMPILER picks it
+  in `resolveTransformOptions` by reading `TS_MIXIN_VERIFY_LINEARIZATION` (default on → `"verify"`,
+  set `0` → `"replay"`) and `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` (set `1` → `"c3"`) from the build
+  environment (the transformer runs under `tsc` in Node). **The shipped runtime never reads any
+  environment — it stays cross-platform.** `"verify"` replays then cross-checks against C3 and
+  throws on mismatch; because it's the default, the whole suite + corpus exercise replay==C3 for
+  free. Helper: `linearizationMode(options)` in `expand-util.ts`. Both options are in the
+  transform cache key.
 - Bench: `bench/c3/` (`pnpm bench:c3`) — ~26× at 1024 nodes; theory in `bench/c3/README.md`.
 
 ## Source-view invariants

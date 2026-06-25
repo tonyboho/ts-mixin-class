@@ -98,12 +98,16 @@ export function defineMixinClass(
     // Approach (B): a compile-time merge plan that reconstructs this mixin's requirement
     // linearization by slicing its dependencies' already-materialized linearizations,
     // skipping the runtime C3 merge. Optional: dependency-free mixins need no plan, and a
-    // conflicting requirement set has none -- both fall back to the C3 path below, as does
-    // a runtime opt-out (TS_MIXIN_DISABLE_LINEARIZATION_PLAN).
-    linearizationPlan?: LinearizationPlan
+    // conflicting requirement set has none -- both fall back to the C3 path below.
+    linearizationPlan?: LinearizationPlan,
+    // What to do with the plan, chosen by the compiler from the build environment (see
+    // LinearizationMode). Default (undefined) replays it.
+    linearizationMode?: LinearizationMode
 ): RuntimeMixinClassValue {
     const requirementList                = [ ...mixinRequirements ]
-    const requirementLinearization       = resolveRequirementLinearization(name, requirementList, linearizationPlan)
+    const requirementLinearization       = resolveRequirementLinearization(
+        name, requirementList, linearizationPlan, linearizationMode
+    )
     const canonicalBase                  = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
     const mixinClass                     = mixinFactory(canonicalBase) as RuntimeMixinClassValue
     const applications                   = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
@@ -158,9 +162,12 @@ export function mixinChain<Base extends AnyConstructor<any>>(
 export function mixinChainLinearized<Base extends AnyConstructor<any>>(
     base: Base,
     mixins: readonly RuntimeMixinClassValue[],
-    linearizationPlan: LinearizationPlan
+    linearizationPlan: LinearizationPlan,
+    linearizationMode?: LinearizationMode
 ): AnyConstructor<any> {
-    const linearization = resolveRequirementLinearization("mixinChain", [ ...mixins ], linearizationPlan)
+    const linearization = resolveRequirementLinearization(
+        "mixinChain", [ ...mixins ], linearizationPlan, linearizationMode
+    )
 
     return applyRuntimeMixins(base, linearization.slice().reverse())
 }
@@ -173,45 +180,28 @@ export function mixinChainLinearized<Base extends AnyConstructor<any>>(
 export type LinearizationSlice = readonly [ source: number, offset: number, length: number ]
 export type LinearizationPlan = readonly LinearizationSlice[]
 
-function readEnvFlag(name: string): string | undefined {
-    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name]
-}
-
-// Two independent runtime opt-outs (read lazily so tests can toggle them in-process):
-//
-//   TS_MIXIN_VERIFY_LINEARIZATION  -- the replay/C3 cross-check. ON BY DEFAULT: every plan
-//     replay also runs the reference C3 and throws on any mismatch, so a precompute bug
-//     surfaces loudly instead of silently building a wrong hierarchy. Set to "0"/"false" to
-//     turn it off (and reclaim the precompute's speed-up). It is on by default deliberately
-//     during rollout; the default can be flipped to off once it has proven correct in the wild.
-//
-//   TS_MIXIN_DISABLE_LINEARIZATION_PLAN -- the precompute itself. Set to "1"/"true" to ignore
-//     every emitted plan and fall back to the runtime C3 merge entirely. The escape hatch for
-//     a user who hits a replay bug: disable the feature without recompiling.
-function linearizationVerificationEnabled(): boolean {
-    const value = readEnvFlag("TS_MIXIN_VERIFY_LINEARIZATION")
-
-    return value !== "0" && value !== "false"
-}
-
-function linearizationPlanDisabled(): boolean {
-    const value = readEnvFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN")
-
-    return value === "1" || value === "true"
-}
+// What the runtime does with an emitted plan. The compiler picks one from the build
+// environment and emits it as a trailing argument; the runtime never reads any environment
+// itself, so it stays cross-platform. Three modes:
+//   "verify"  -- replay, then cross-check against C3 and throw on a mismatch (the default; dev safety).
+//   "replay"  -- replay the plan as-is, no cross-check (production).
+//   "c3"      -- ignore the plan and run C3 (escape hatch; the plan is still emitted).
+// A missing mode (manual callers) is treated as "replay".
+export type LinearizationMode = "verify" | "replay" | "c3"
 
 function resolveRequirementLinearization(
     name: string,
     requirements: readonly RuntimeMixinClassValue[],
-    linearizationPlan: LinearizationPlan | undefined
+    linearizationPlan: LinearizationPlan | undefined,
+    linearizationMode: LinearizationMode | undefined
 ): RuntimeMixinClassValue[] {
-    if (linearizationPlan === undefined || linearizationPlanDisabled()) {
+    if (linearizationPlan === undefined || linearizationMode === "c3") {
         return linearizeRuntimeRequirements([ ...requirements ])
     }
 
     const replayed = replayLinearizationPlan(linearizationPlan, requirementMergeSources(requirements))
 
-    if (linearizationVerificationEnabled()) {
+    if (linearizationMode === "verify") {
         assertLinearizationMatches(name, replayed, linearizeRuntimeRequirements([ ...requirements ]))
     }
 

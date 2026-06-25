@@ -7,6 +7,7 @@ import {
     expressionToEntityName,
     heritageTypeToTypeReference,
     intersectionOrSingle,
+    linearizationMode,
     mixinValueIdentifier,
     type ConstructionBrand
 } from "./expand-util.js"
@@ -54,14 +55,15 @@ function createMixinChainExpression(
     tsInstance: TypeScript,
     mixinRefs: ResolvedMixinRef[],
     baseExpression: ts.Expression,
-    linearizationPlan: LinearizationPlanSlice[] | undefined
+    linearizationPlan: LinearizationPlanSlice[] | undefined,
+    mode: "verify" | "replay" | "c3"
 ): ts.Expression {
     const factory = tsInstance.factory
 
     // Approach (B): when the compiler precomputed the consumer's chain order, apply the
-    // mixins through `mixinChainLinearized(base, [m1, m2], plan)` (the mixins ride in an
-    // array, the plan trails) so the runtime replays the plan instead of running C3. With
-    // no plan (a conflict -- reported elsewhere) keep the variadic `mixinChain`.
+    // mixins through `mixinChainLinearized(base, [m1, m2], plan, mode)` (the mixins ride in an
+    // array, the plan and mode trail) so the runtime replays the plan instead of running C3.
+    // With no plan (a conflict -- reported elsewhere) keep the variadic `mixinChain`.
     if (linearizationPlan !== undefined) {
         return factory.createCallExpression(
             factory.createIdentifier(mixinChainLinearizedName),
@@ -69,7 +71,8 @@ function createMixinChainExpression(
             [
                 baseExpression,
                 factory.createArrayLiteralExpression(mixinRefs.map((ref) => mixinValueIdentifier(tsInstance, ref))),
-                createLinearizationPlanLiteral(tsInstance, linearizationPlan)
+                createLinearizationPlanLiteral(tsInstance, linearizationPlan),
+                factory.createStringLiteral(mode)
             ]
         )
     }
@@ -108,7 +111,8 @@ export function unsupportedBaseConsumerHeritage(
                             tsInstance,
                             directMixinRefs,
                             cloneNode(tsInstance, extendsType.expression),
-                            undefined
+                            undefined,
+                            linearizationMode(options)
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
@@ -180,7 +184,8 @@ export function consumerBaseClassHeritage(
                                 consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
                                     .expression
                             ),
-                            linearizationPlan
+                            linearizationPlan,
+                            linearizationMode(options)
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),

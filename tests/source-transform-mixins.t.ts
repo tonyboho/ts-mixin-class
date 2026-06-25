@@ -172,7 +172,7 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
         "Dependent mixin base parameter is typed with the dependency")
     t.match(printed, "return class extends base",
         "Dependent mixin factory returns an anonymous class expression")
-    t.match(printed, "defineMixinClass(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]])",
+    t.match(printed, "defineMixinClass(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
         "Value const registers the direct dependency with the runtime helper")
     t.match(printed, "interface ChildMixin<T> extends SourceClass1<T>",
         "Generated interface extends the dependency")
@@ -204,7 +204,7 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
         "Generated mixin interface keeps only the non-transitive type heritage")
     t.notMatch(printed, "interface LeafMixin extends ChildMixin, BaseMixin",
         "Generated mixin interface drops transitive type heritage")
-    t.match(printed, "defineMixinClass(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]])",
+    t.match(printed, "defineMixinClass(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
         "Runtime dependency metadata keeps the direct dependency list")
     t.expect(typecheckText(printed)).toEqual([])
 })
@@ -265,7 +265,7 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
         "Value const registers the required runtime base")
     t.match(printed, "class __Consumer$base<__mixinRequiredBase0 extends never>",
         "Consumer base carries a required-base constraint for diagnostics")
-    t.match(printed, "extends (mixinChainLinearized(RealBase, [RequiredMixin], [[0, 0, 1]])",
+    t.match(printed, "extends (mixinChainLinearized(RealBase, [RequiredMixin], [[0, 0, 1]], \"verify\")",
         "Consumer still supplies its concrete descendant base to the runtime chain")
     t.match(printed, "class Consumer extends __Consumer$base<RealBase extends RequiredBase ? never :",
         "Consumer maps required-base diagnostics to the original extends heritage")

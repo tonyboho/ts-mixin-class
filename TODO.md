@@ -33,20 +33,6 @@ that emitted JavaScript source maps still point at useful user-source locations 
 helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
 and document or fix any positions that become misleading.
 
-### Zero run-time overhead for static case — DONE (approach B)
-
-The compiler emits each mixin's/consumer's C3 order as a **merge plan** (contiguous slices
-over the dependencies' linearizations, `deriveLinearizationPlan` in `linearization.ts`); the
-runtime replays it (`defineMixinClass` 5th arg, `mixinChainLinearized`) instead of running
-`mergeC3Linearizations`. C3 stays as the fallback for manual `.mix` / no-plan / conflict
-cases. Validated single-module, cross-file, and cross-package (compile-and-run diamonds).
-Bench (`pnpm bench:c3`, 1024 nodes): C3 ~18.6ms vs replay ~0.71ms (~26×).
-
-Two runtime opt-outs: `TS_MIXIN_VERIFY_LINEARIZATION` cross-checks replay==C3 and throws on
-mismatch — **on by default** (so the speed-up is not yet realized; flip the default off once
-proven in the wild); `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` falls back to C3 entirely (user
-escape hatch). See `bench/c3/README.md` for the theory.
-
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer

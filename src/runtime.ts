@@ -86,10 +86,15 @@ export function defineMixinClass(
     name: string,
     mixinFactory: MixinFactory,
     mixinRequirements: readonly RuntimeMixinClassValue[] = [],
-    requiredBase: AnyConstructor<any> = Object
+    requiredBase: AnyConstructor<any> = Object,
+    // Approach (B): a compile-time merge plan that reconstructs this mixin's requirement
+    // linearization by slicing its dependencies' already-materialized linearizations,
+    // skipping the runtime C3 merge. Optional: dependency-free mixins need no plan, and a
+    // conflicting requirement set has none -- both fall back to the C3 path below.
+    linearizationPlan?: LinearizationPlan
 ): RuntimeMixinClassValue {
     const requirementList                = [ ...mixinRequirements ]
-    const requirementLinearization       = linearizeRuntimeRequirements(requirementList)
+    const requirementLinearization       = resolveRequirementLinearization(name, requirementList, linearizationPlan)
     const canonicalBase                  = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
     const mixinClass                     = mixinFactory(canonicalBase) as RuntimeMixinClassValue
     const applications                   = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
@@ -135,6 +140,109 @@ export function mixinChain<Base extends AnyConstructor<any>>(
     ...mixins: RuntimeMixinClassValue[]
 ): AnyConstructor<any> {
     return applyRuntimeMixins(base, linearizeRuntimeRequirements(mixins).slice().reverse())
+}
+
+// Approach (B) for the consumer site: apply `mixins` to `base` using a compile-time
+// merge plan instead of the runtime C3 merge `mixinChain` runs. `mixins` is an array
+// (not variadic) so the trailing plan stays unambiguous; `mixinChain` keeps the
+// variadic, plan-free signature for manual use and older emitted consumers.
+export function mixinChainLinearized<Base extends AnyConstructor<any>>(
+    base: Base,
+    mixins: readonly RuntimeMixinClassValue[],
+    linearizationPlan: LinearizationPlan
+): AnyConstructor<any> {
+    const linearization = resolveRequirementLinearization("mixinChain", [ ...mixins ], linearizationPlan)
+
+    return applyRuntimeMixins(base, linearization.slice().reverse())
+}
+
+// A compile-time merge plan: a list of contiguous slices over the merge inputs. Each
+// slice `[source, offset, length]` copies `length` elements from input sequence `source`
+// starting at `offset`. The inputs are a requirement list's merge sources (see
+// `requirementMergeSources`), so replaying the plan reproduces `mergeC3Linearizations`
+// over those sources without the good-head search.
+export type LinearizationSlice = readonly [ source: number, offset: number, length: number ]
+export type LinearizationPlan = readonly LinearizationSlice[]
+
+// When set, every plan replay is cross-checked against the reference C3 result and a
+// mismatch throws. Off by default (no production cost: read only when a plan is actually
+// replayed); enabled in the stress suite (TS_MIXIN_VERIFY_LINEARIZATION=1) to exhaustively
+// assert plan==C3 over the whole corpus. Read lazily so the flag also takes effect when a
+// test sets it in-process, not just in spawned fixture processes.
+function shouldVerifyLinearization(): boolean {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+        ?.env?.TS_MIXIN_VERIFY_LINEARIZATION === "1"
+}
+
+function resolveRequirementLinearization(
+    name: string,
+    requirements: readonly RuntimeMixinClassValue[],
+    linearizationPlan: LinearizationPlan | undefined
+): RuntimeMixinClassValue[] {
+    if (linearizationPlan === undefined) {
+        return linearizeRuntimeRequirements([ ...requirements ])
+    }
+
+    const replayed = replayLinearizationPlan(linearizationPlan, requirementMergeSources(requirements))
+
+    if (shouldVerifyLinearization()) {
+        assertLinearizationMatches(name, replayed, linearizeRuntimeRequirements([ ...requirements ]))
+    }
+
+    return replayed
+}
+
+// The C3 merge inputs for a requirement list: each requirement's full linearization,
+// then the direct requirement list itself -- identical to what
+// `linearizeRuntimeRequirements` feeds `mergeC3Linearizations`, so a plan derived against
+// these inputs at compile time replays correctly at run time.
+function requirementMergeSources(
+    requirements: readonly RuntimeMixinClassValue[]
+): RuntimeMixinClassValue[][] {
+    return [
+        ...requirements.map((mixinClass) => linearizeRuntimeMixin(mixinClass)),
+        [ ...requirements ]
+    ]
+}
+
+function replayLinearizationPlan(
+    plan: LinearizationPlan,
+    sources: readonly (readonly RuntimeMixinClassValue[])[]
+): RuntimeMixinClassValue[] {
+    const result: RuntimeMixinClassValue[] = []
+
+    for (const [ source, offset, length ] of plan) {
+        const sequence = sources[source]
+
+        if (sequence === undefined) {
+            throw new Error(`Linearization plan references missing source ${source}`)
+        }
+
+        for (let index = offset; index < offset + length; index++) {
+            result.push(sequence[index]!)
+        }
+    }
+
+    return result
+}
+
+function assertLinearizationMatches(
+    name: string,
+    replayed: readonly RuntimeMixinClassValue[],
+    reference: readonly RuntimeMixinClassValue[]
+): void {
+    const matches = replayed.length === reference.length &&
+        replayed.every((value, index) => value === reference[index])
+
+    if (!matches) {
+        const show = (sequence: readonly RuntimeMixinClassValue[]) =>
+            sequence.map((mixinClass) => mixinClass.name || "<anonymous>").join(", ")
+
+        throw new Error(
+            `Precomputed linearization for ${name} differs from the C3 result: ` +
+            `replay [${show(replayed)}] vs C3 [${show(reference)}]`
+        )
+    }
 }
 
 function applyRuntimeMixins(

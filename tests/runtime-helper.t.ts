@@ -3,7 +3,10 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import {
     defineMixinClass,
-    mixinChain
+    mixinChain,
+    mixinChainLinearized,
+    type LinearizationPlan,
+    type LinearizationSlice
 } from "../src/index.js"
 import {
     base,
@@ -12,6 +15,7 @@ import {
     type AnyConstructor,
     type MixinFactory
 } from "../src/base.js"
+import { mergeC3Linearizations } from "../src/c3-linearization.js"
 
 type NamedInstance = {
     who(): string
@@ -222,6 +226,112 @@ it("rejects a conflict buried below intermediate mixins", async (t: Test) => {
     }, "Cannot linearize mixin classes", "A conflict below intermediate mixins is still rejected")
 })
 
+// --- approach (B): precomputed merge-plan replay ---------------------------
+
+it("replays a precomputed merge plan to the same chain as runtime C3 at definition", async (t: Test) => {
+    // D and E are built the normal (C3) way; F is built from a precomputed plan over
+    // [D, E] instead of a runtime merge. The interleaved-diamond order must be identical.
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
+    const D = createNamedMixin("D", [ B, C ])
+    const E = createNamedMixin("E", [ A ])
+    const F = createPlannedMixin("F", [ D, E ])
+
+    class Consumer extends mixinChain(Base, F) {}
+
+    const instance = new Consumer()
+
+    t.equal(instance.who(), "F>D>B>C>E>A>Base", "Plan-built mixin reproduces the C3 interleaved order")
+    t.isInstanceOf(instance, A, "Plan-built mixin still matches the shared transitive mixin A")
+    t.isInstanceOf(instance, E, "Plan-built mixin still matches the interleaved mixin E")
+    t.isInstanceOf(instance, F, "Instance matches the plan-built mixin F")
+})
+
+it("applies a consumer chain through mixinChainLinearized", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
+    const D = createNamedMixin("D", [ B, C ])
+    const E = createNamedMixin("E", [ A ])
+
+    class Consumer extends mixinChainLinearized(Base, [ D, E ], derivePlan([ D, E ])) {}
+
+    t.equal(new Consumer().who(), "D>B>C>E>A>Base", "Plan-applied consumer chain follows C3 order")
+})
+
+it("replays nested plans (plan-built mixins depending on plan-built mixins)", async (t: Test) => {
+    // Every mixin is plan-built, so each plan replay slices arrays that were THEMSELVES
+    // produced by replay -- the inductive case the cross-package optimization relies on.
+    const A = createPlannedMixin("A")
+    const B = createPlannedMixin("B", [ A ])
+    const C = createPlannedMixin("C", [ A ])
+    const D = createPlannedMixin("D", [ B, C ])
+    const E = createPlannedMixin("E", [ A ])
+    const F = createPlannedMixin("F", [ D, E ])
+
+    class Consumer extends mixinChain(Base, F) {}
+
+    t.equal(new Consumer().who(), "F>D>B>C>E>A>Base", "Fully plan-built graph reproduces the C3 order")
+})
+
+it("an empty plan reproduces the dependency-free linearization", async (t: Test) => {
+    const A = createPlannedMixin("A")
+
+    class Consumer extends mixinChain(Base, A) {}
+
+    t.equal(new Consumer().who(), "A>Base", "A dependency-free mixin needs no merge")
+    t.expect(derivePlan([])).toEqual([])
+})
+
+it("cross-check throws on a wrong plan when verification is enabled", async (t: Test) => {
+    withLinearizationVerification(() => {
+        const A = createNamedMixin("A")
+        const B = createNamedMixin("B", [ A ])
+        const C = createNamedMixin("C", [ A ])
+
+        // The correct plan for [B, C] yields B>C>A; this truncated plan drops A, so the
+        // replay disagrees with C3 and the cross-check must reject it.
+        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+
+        t.throwsOk(
+            () => createMixinWithPlan("D", [ B, C ], wrongPlan),
+            "differs from the C3 result",
+            "Verification rejects a plan whose replay disagrees with C3"
+        )
+    })
+})
+
+it("a wrong plan is NOT cross-checked when verification is disabled", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+    const C = createNamedMixin("C", [ A ])
+
+    // Same truncated plan, but with verification off the runtime trusts it: it builds a
+    // (wrong) chain without throwing. This pins that the check is strictly opt-in.
+    const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+    const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
+
+    class Consumer extends mixinChain(Base, D) {}
+
+    t.equal(new Consumer().who(), "D>B>C>Base", "Without verification the unchecked plan is trusted verbatim")
+})
+
+it("a plan referencing a missing source throws regardless of verification", async (t: Test) => {
+    const A = createNamedMixin("A")
+    const B = createNamedMixin("B", [ A ])
+
+    // Source index 5 does not exist among [L[A], L[B], [A, B]]; this is a malformed plan
+    // (a compiler bug), so it fails loudly instead of silently producing garbage.
+    const badPlan: LinearizationPlan = [ [ 5, 0, 1 ] ]
+
+    t.throwsOk(
+        () => createMixinWithPlan("Bad", [ A, B ], badPlan),
+        "missing source",
+        "A plan pointing at a nonexistent source is rejected"
+    )
+})
+
 function createNamedMixin(
     name: string,
     requirements: ReturnType<typeof defineMixinClass>[] = []
@@ -235,6 +345,110 @@ function createNamedMixin(
     }) as unknown as MixinFactory
 
     return defineMixinClass(name, factory, requirements)
+}
+
+// Like createNamedMixin, but registers the mixin with a precomputed merge plan (the
+// compile-time artifact) instead of letting the runtime merge its requirements.
+function createPlannedMixin(
+    name: string,
+    requirements: ReturnType<typeof defineMixinClass>[] = []
+): ReturnType<typeof defineMixinClass> {
+    return createMixinWithPlan(name, requirements, derivePlan(requirements))
+}
+
+function createMixinWithPlan(
+    name: string,
+    requirements: ReturnType<typeof defineMixinClass>[],
+    plan: LinearizationPlan
+): ReturnType<typeof defineMixinClass> {
+    const factory = ((base: AnyConstructor<NamedInstance>) => {
+        return class extends base {
+            who(): string {
+                return `${name}>${super.who()}`
+            }
+        }
+    }) as unknown as MixinFactory
+
+    return defineMixinClass(name, factory, requirements, Object, plan)
+}
+
+// Compile-time plan derivation, mirrored from bench/c3 (`derivePlans`): run C3 over a
+// requirement list's merge sources and attribute every output element to a source cursor,
+// coalescing contiguous same-source runs into slices. The merge sources are each
+// requirement's full linearization, then the direct requirement list -- the same inputs
+// the runtime replays against (RuntimeMixinClass.requirementMergeSources).
+type AnyMixin = ReturnType<typeof defineMixinClass>
+
+function derivePlan(deps: readonly AnyMixin[]): LinearizationPlan {
+    if (deps.length === 0) {
+        return []
+    }
+
+    const sources                            = mergeSources(deps)
+    const merged                             = mergeC3Linearizations(sources)
+    const cursors                            = sources.map(() => 0)
+    const plan: [ number, number, number ][] = []
+
+    for (const element of merged) {
+        const pick = sources.findIndex((source, index) => source[cursors[index]!] === element)
+        const last = plan[plan.length - 1]
+
+        if (last !== undefined && last[0] === pick && last[1] + last[2] === cursors[pick]!) {
+            last[2]++
+        } else {
+            plan.push([ pick, cursors[pick]!, 1 ])
+        }
+
+        for (let index = 0; index < sources.length; index++) {
+            if (sources[index]![cursors[index]!] === element) {
+                cursors[index]!++
+            }
+        }
+    }
+
+    return plan as LinearizationSlice[]
+}
+
+function mergeSources(deps: readonly AnyMixin[]): AnyMixin[][] {
+    return [ ...deps.map((dep) => linearizeMixin(dep)), [ ...deps ] ]
+}
+
+// L[m] = [m, ...C3-merge(L[deps], deps)], recomputed from the public `requirements` symbol
+// independently of how m was registered -- so a plan derived here is correct whether the
+// mixin was built by C3 or by replay.
+function linearizeMixin(mixin: AnyMixin, cache: Map<AnyMixin, AnyMixin[]> = new Map()): AnyMixin[] {
+    const cached = cache.get(mixin)
+
+    if (cached !== undefined) {
+        return cached
+    }
+
+    const deps   = [ ...(mixin[requirements] as readonly AnyMixin[]) ]
+    const merged = deps.length === 0
+        ? []
+        : mergeC3Linearizations([ ...deps.map((dep) => linearizeMixin(dep, cache)), deps ])
+    const result = [ mixin, ...merged ]
+
+    cache.set(mixin, result)
+
+    return result
+}
+
+function withLinearizationVerification(run: () => void): void {
+    const env      = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env
+    const previous = env.TS_MIXIN_VERIFY_LINEARIZATION
+
+    env.TS_MIXIN_VERIFY_LINEARIZATION = "1"
+
+    try {
+        run()
+    } finally {
+        if (previous === undefined) {
+            delete env.TS_MIXIN_VERIFY_LINEARIZATION
+        } else {
+            env.TS_MIXIN_VERIFY_LINEARIZATION = previous
+        }
+    }
 }
 
 function createTrackedMixin(

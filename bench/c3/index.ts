@@ -61,6 +61,8 @@ type Measurement = {
     avgSlices    : number,
     c3Median     : number,
     replayMedian : number,
+    cArrayMedian : number,
+    cUuidMedian  : number,
     deriveMedian : number
 }
 
@@ -71,7 +73,26 @@ function measure(size: number): Measurement {
     const { dependencies, reference } = buildConsistentGraph(size)
     const plans                       = derivePlans(dependencies, reference)
 
+    // Variant C resolves each node's PRECOMPUTED flat id list (the literal the compiler
+    // would emit) to values through a registry -- no per-node assembly, no bottom-up.
+    //   C-array: dense integer registry, `registry[id]` (single-package, non-persistent ids)
+    //   C-uuid : Map keyed by a 36-char uuid string (the only cross-package-persistent id)
+    // The id lists and registries are the emitted/loaded artifacts, built once and untimed.
+    const arrayRegistry: number[] = []
+    const uuidOf: string[]        = []
+
+    for (let node = 0; node < size; node++) {
+        arrayRegistry[node] = node
+        uuidOf[node]        = makeUuid(node)
+    }
+
+    const uuidRegistry = new Map<string, number>(uuidOf.map((uuid, node): [ string, number ] => [ uuid, node ]))
+    const uuidLists    = reference.map((lin) => lin.map((id) => uuidOf[id]!))
+
+    // Every strategy must reproduce the C3 result exactly.
     assertEqual(reference, buildWithReplay(dependencies, plans))
+    assertEqual(reference, resolveWithArrayRegistry(reference, arrayRegistry))
+    assertEqual(reference, resolveWithUuidRegistry(uuidLists, uuidRegistry))
 
     return {
         avgLinLength : reference.reduce((sum, lin) => sum + lin.length, 0) / size,
@@ -79,6 +100,8 @@ function measure(size: number): Measurement {
         avgSlices    : plans.reduce((sum, plan) => sum + plan.length, 0) / size,
         c3Median     : timed(() => buildWithC3(dependencies)),
         replayMedian : timed(() => buildWithReplay(dependencies, plans)),
+        cArrayMedian : timed(() => resolveWithArrayRegistry(reference, arrayRegistry)),
+        cUuidMedian  : timed(() => resolveWithUuidRegistry(uuidLists, uuidRegistry)),
         deriveMedian : timed(() => derivePlans(dependencies, reference))
     }
 }
@@ -125,6 +148,56 @@ function buildWithReplay(dependencies: number[][], plans: Slice[][]): number[][]
     }
 
     return linearizations
+}
+
+// --- variant C: resolve a precomputed flat id list -------------------------
+
+// C-array: the emitted flat list IS the node's id sequence; resolve each id with a
+// dense-array index. Fast, but the ids are sequential per-compilation -> not persistent
+// and not portable across packages (see the README persistence discussion).
+function resolveWithArrayRegistry(idLists: number[][], registry: number[]): number[][] {
+    const resolved: number[][] = []
+
+    for (let node = 0; node < idLists.length; node++) {
+        const ids    = idLists[node]!
+        const result = []
+
+        for (let index = 0; index < ids.length; index++) {
+            result.push(registry[ids[index]!]!)
+        }
+
+        resolved[node] = result
+    }
+
+    return resolved
+}
+
+// C-uuid: the emitted flat list is uuid STRINGS (the only cross-package-persistent id);
+// resolve each through a Map keyed by the string. The realistic cross-package C.
+function resolveWithUuidRegistry(uuidLists: string[][], registry: Map<string, number>): number[][] {
+    const resolved: number[][] = []
+
+    for (let node = 0; node < uuidLists.length; node++) {
+        const uuids  = uuidLists[node]!
+        const result = []
+
+        for (let index = 0; index < uuids.length; index++) {
+            result.push(registry.get(uuids[index]!)!)
+        }
+
+        resolved[node] = result
+    }
+
+    return resolved
+}
+
+// A deterministic 36-char uuid-shaped string per node, to model the cross-package id's
+// string-key Map lookups (hash cost scales with the ~36-char length).
+function makeUuid(value: number): string {
+    const a = (Math.imul(value, 2654435761) >>> 0).toString(16).padStart(8, "0")
+    const b = ((value ^ 0x9e3779b9) >>> 0).toString(16).padStart(8, "0")
+
+    return `${a}-${b.slice(0, 4)}-4${b.slice(4, 7)}-8${a.slice(0, 3)}-${a}${b.slice(0, 4)}`
 }
 
 // --- compile-time plan derivation ------------------------------------------
@@ -266,18 +339,18 @@ function median(values: number[]): number {
 }
 
 function header(): string {
-    return columns([ "nodes", "avg|L|", "totalΣ", "avg slices", "C3", "replay", "speedup", "derive" ])
+    return columns([ "nodes", "avg|L|", "avg slices", "C3", "B replay", "C-array", "C-uuid", "derive" ])
 }
 
 function row(size: number, measurement: Measurement): string {
     return columns([
         String(size),
         measurement.avgLinLength.toFixed(1),
-        String(measurement.totalElems),
         measurement.avgSlices.toFixed(1),
         ms(measurement.c3Median),
         ms(measurement.replayMedian),
-        `${(measurement.c3Median / measurement.replayMedian).toFixed(2)}x`,
+        ms(measurement.cArrayMedian),
+        ms(measurement.cUuidMedian),
         ms(measurement.deriveMedian)
     ])
 }

@@ -10,8 +10,7 @@ The inheritance order is resolved with C3 linearization, the same method-resolut
 order algorithm used by Python. That gives predictable `super` calls, deduplicates
 diamond-shaped dependencies, and rejects incompatible ordering requirements.
 
-The C3 linearization is precomputed at compile time, so the runtime replays the result
-instead of running the algorithm.
+The C3 linearization is precomputed at compile time, so zero runtime overhead is added.
 
 ```ts
 import { mixin } from "ts-mixin-class"
@@ -132,8 +131,9 @@ The order is computed once at compile time and emitted as a compact plan, so at 
 the chain is assembled by replaying that plan rather than running the algorithm. Two
 environment variables control this:
 
-- `TS_MIXIN_VERIFY_LINEARIZATION` (on by default) — re-checks every replayed order against
-  C3 and throws on a mismatch. Set it to `0` in production to skip the check.
+- `TS_MIXIN_VERIFY_LINEARIZATION` (on by default) — extra safety that re-checks every replayed
+  order against C3 and throws on a mismatch. Recommended during development; set it to `0` in
+  production to skip the check.
 - `TS_MIXIN_DISABLE_LINEARIZATION_PLAN` — set it to `1` to ignore the precomputed plan and
   run C3 at runtime instead.
 

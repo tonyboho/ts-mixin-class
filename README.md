@@ -10,6 +10,9 @@ The inheritance order is resolved with C3 linearization, the same method-resolut
 order algorithm used by Python. That gives predictable `super` calls, deduplicates
 diamond-shaped dependencies, and rejects incompatible ordering requirements.
 
+The C3 linearization is pre-computed during the complilation time, so zero runtime
+overhead is added.
+
 ```ts
 import { mixin } from "ts-mixin-class"
 

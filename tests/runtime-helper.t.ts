@@ -284,37 +284,56 @@ it("an empty plan reproduces the dependency-free linearization", async (t: Test)
     t.expect(derivePlan([])).toEqual([])
 })
 
-it("cross-check throws on a wrong plan when verification is enabled", async (t: Test) => {
-    withLinearizationVerification(() => {
-        const A = createNamedMixin("A")
-        const B = createNamedMixin("B", [ A ])
-        const C = createNamedMixin("C", [ A ])
-
-        // The correct plan for [B, C] yields B>C>A; this truncated plan drops A, so the
-        // replay disagrees with C3 and the cross-check must reject it.
-        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
-
-        t.throwsOk(
-            () => createMixinWithPlan("D", [ B, C ], wrongPlan),
-            "differs from the C3 result",
-            "Verification rejects a plan whose replay disagrees with C3"
-        )
-    })
-})
-
-it("a wrong plan is NOT cross-checked when verification is disabled", async (t: Test) => {
+it("cross-check throws on a wrong plan (verification is on by default)", async (t: Test) => {
     const A = createNamedMixin("A")
     const B = createNamedMixin("B", [ A ])
     const C = createNamedMixin("C", [ A ])
 
-    // Same truncated plan, but with verification off the runtime trusts it: it builds a
-    // (wrong) chain without throwing. This pins that the check is strictly opt-in.
+    // The correct plan for [B, C] yields B>C>A; this truncated plan drops A, so the replay
+    // disagrees with C3 and the default-on cross-check must reject it (no env var set).
     const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
-    const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
 
-    class Consumer extends mixinChain(Base, D) {}
+    t.throwsOk(
+        () => createMixinWithPlan("D", [ B, C ], wrongPlan),
+        "differs from the C3 result",
+        "Verification rejects a plan whose replay disagrees with C3"
+    )
+})
 
-    t.equal(new Consumer().who(), "D>B>C>Base", "Without verification the unchecked plan is trusted verbatim")
+it("a wrong plan is trusted verbatim when verification is turned off", async (t: Test) => {
+    withEnvFlag("TS_MIXIN_VERIFY_LINEARIZATION", "0", () => {
+        const A = createNamedMixin("A")
+        const B = createNamedMixin("B", [ A ])
+        const C = createNamedMixin("C", [ A ])
+
+        // With the cross-check off (the prod opt-out) the runtime trusts the plan: it builds
+        // a (wrong) chain without throwing. This pins that verification, not replay, is what
+        // turning off the flag removes.
+        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+        const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
+
+        class Consumer extends mixinChain(Base, D) {}
+
+        t.equal(new Consumer().who(), "D>B>C>Base", "With verification off the unchecked plan is trusted verbatim")
+    })
+})
+
+it("disabling the plan opt-out ignores a wrong plan and falls back to C3", async (t: Test) => {
+    withEnvFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN", "1", () => {
+        const A = createNamedMixin("A")
+        const B = createNamedMixin("B", [ A ])
+        const C = createNamedMixin("C", [ A ])
+
+        // Even a deliberately wrong plan is ignored when the precompute is disabled: the
+        // runtime runs C3 and produces the correct order, and verification (still on) does
+        // not fire because no plan was replayed. This is the user's escape hatch.
+        const wrongPlan: LinearizationPlan = [ [ 0, 0, 1 ], [ 1, 0, 1 ] ]
+        const D                            = createMixinWithPlan("D", [ B, C ], wrongPlan)
+
+        class Consumer extends mixinChain(Base, D) {}
+
+        t.equal(new Consumer().who(), "D>B>C>A>Base", "Disabled precompute falls back to the correct C3 order")
+    })
 })
 
 it("a plan referencing a missing source throws regardless of verification", async (t: Test) => {
@@ -434,19 +453,23 @@ function linearizeMixin(mixin: AnyMixin, cache: Map<AnyMixin, AnyMixin[]> = new 
     return result
 }
 
-function withLinearizationVerification(run: () => void): void {
+function withEnvFlag(name: string, value: string | undefined, run: () => void): void {
     const env      = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env
-    const previous = env.TS_MIXIN_VERIFY_LINEARIZATION
+    const previous = env[name]
 
-    env.TS_MIXIN_VERIFY_LINEARIZATION = "1"
+    if (value === undefined) {
+        delete env[name]
+    } else {
+        env[name] = value
+    }
 
     try {
         run()
     } finally {
         if (previous === undefined) {
-            delete env.TS_MIXIN_VERIFY_LINEARIZATION
+            delete env[name]
         } else {
-            env.TS_MIXIN_VERIFY_LINEARIZATION = previous
+            env[name] = previous
         }
     }
 }

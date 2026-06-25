@@ -90,7 +90,8 @@ export function defineMixinClass(
     // Approach (B): a compile-time merge plan that reconstructs this mixin's requirement
     // linearization by slicing its dependencies' already-materialized linearizations,
     // skipping the runtime C3 merge. Optional: dependency-free mixins need no plan, and a
-    // conflicting requirement set has none -- both fall back to the C3 path below.
+    // conflicting requirement set has none -- both fall back to the C3 path below, as does
+    // a runtime opt-out (TS_MIXIN_DISABLE_LINEARIZATION_PLAN).
     linearizationPlan?: LinearizationPlan
 ): RuntimeMixinClassValue {
     const requirementList                = [ ...mixinRequirements ]
@@ -164,14 +165,31 @@ export function mixinChainLinearized<Base extends AnyConstructor<any>>(
 export type LinearizationSlice = readonly [ source: number, offset: number, length: number ]
 export type LinearizationPlan = readonly LinearizationSlice[]
 
-// When set, every plan replay is cross-checked against the reference C3 result and a
-// mismatch throws. Off by default (no production cost: read only when a plan is actually
-// replayed); enabled in the stress suite (TS_MIXIN_VERIFY_LINEARIZATION=1) to exhaustively
-// assert plan==C3 over the whole corpus. Read lazily so the flag also takes effect when a
-// test sets it in-process, not just in spawned fixture processes.
-function shouldVerifyLinearization(): boolean {
-    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-        ?.env?.TS_MIXIN_VERIFY_LINEARIZATION === "1"
+function readEnvFlag(name: string): string | undefined {
+    return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name]
+}
+
+// Two independent runtime opt-outs (read lazily so tests can toggle them in-process):
+//
+//   TS_MIXIN_VERIFY_LINEARIZATION  -- the replay/C3 cross-check. ON BY DEFAULT: every plan
+//     replay also runs the reference C3 and throws on any mismatch, so a precompute bug
+//     surfaces loudly instead of silently building a wrong hierarchy. Set to "0"/"false" to
+//     turn it off (and reclaim the precompute's speed-up). It is on by default deliberately
+//     during rollout; the default can be flipped to off once it has proven correct in the wild.
+//
+//   TS_MIXIN_DISABLE_LINEARIZATION_PLAN -- the precompute itself. Set to "1"/"true" to ignore
+//     every emitted plan and fall back to the runtime C3 merge entirely. The escape hatch for
+//     a user who hits a replay bug: disable the feature without recompiling.
+function linearizationVerificationEnabled(): boolean {
+    const value = readEnvFlag("TS_MIXIN_VERIFY_LINEARIZATION")
+
+    return value !== "0" && value !== "false"
+}
+
+function linearizationPlanDisabled(): boolean {
+    const value = readEnvFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN")
+
+    return value === "1" || value === "true"
 }
 
 function resolveRequirementLinearization(
@@ -179,13 +197,13 @@ function resolveRequirementLinearization(
     requirements: readonly RuntimeMixinClassValue[],
     linearizationPlan: LinearizationPlan | undefined
 ): RuntimeMixinClassValue[] {
-    if (linearizationPlan === undefined) {
+    if (linearizationPlan === undefined || linearizationPlanDisabled()) {
         return linearizeRuntimeRequirements([ ...requirements ])
     }
 
     const replayed = replayLinearizationPlan(linearizationPlan, requirementMergeSources(requirements))
 
-    if (shouldVerifyLinearization()) {
+    if (linearizationVerificationEnabled()) {
         assertLinearizationMatches(name, replayed, linearizeRuntimeRequirements([ ...requirements ]))
     }
 

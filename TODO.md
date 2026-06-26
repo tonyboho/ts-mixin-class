@@ -50,6 +50,93 @@ so the per-class overhead and how it scales are both visible. Run it in the `rep
 not the dev-time cross-check. (Complements `bench/c3`, which times the linearization step on
 abstract integer graphs; this times real emitted classes end to end.)
 
+### Optional config field should not widen the property type with `undefined`
+
+Today an optional config key is expressed by marking the field optional: `public name?: string`.
+That makes the key optional in the generated `<Class>Config` (good), but it *also* widens the
+property type on the class itself to `string | undefined` — which is **not** what the contract
+means. The `?` is meant to say "optional *in the config*"; it should not change the type of the
+property once the instance exists. After construction the field is always set, so reading
+`this.name` should be `string`, not `string | undefined`.
+
+Proposal: when a field is `public` and optional (`public name?: T`), strip the `?` from the
+emitted property declaration (so the property type stays `T`, not `T | undefined`) while still
+emitting the key as **optional in `<Class>Config`**. So `?` on a public config field becomes
+purely a config-level optionality marker, decoupled from the instance property type.
+
+The rule: when a config field is optional (`public name?: T`), the `?` makes the key optional
+**in the config**, and:
+
+1. the `?` is stripped from the emitted property declaration — the property type stays `T`, it
+   is **not** widened to `T | undefined`; and
+2. an **initializer becomes mandatory**. Since the key may be omitted at construction, the field
+   must have a value to fall back to, and that value comes from the initializer. So
+   `public name?: T` **with no initializer is a compile error** — report a clear diagnostic
+   asking for an initializer of type `T` (e.g. `public name?: string = "default"`).
+
+If you actually want the field to be `null`/`undefined` when the key is omitted, that is not
+implied by `?` — you must say so **explicitly in the type and in the initializer**: e.g.
+`public name?: string | undefined = undefined` (or `string | null = null`). The transformer
+never adds nullability on its own.
+
+Pin both cases (valid: `?` + initializer; error: `?` + no initializer) with tests before
+implementing. Relates to the construction config alias (`<Class>Config` / `static new`).
+
+### Consider: mark required config keys with `!` instead of "required by default"
+
+Today the convention is **required-in-config by default**, with `?` opting a field *out* (making
+its key optional). Consider inverting the marker: a field's key is **required in the config only
+when it carries `!`** after its name (`public name!: T`), the TypeScript definite-assignment
+assertion.
+
+Why `!` fits the semantics: TS reads `name!: T` as "this field is assigned somewhere TS can't
+see, so don't require an initializer and don't raise `strictPropertyInitialization`". That is
+*exactly* the truth for a required config key — the value is supplied by the config at
+construction, not by an initializer. TS even **forbids** an initializer on a `!` field, which
+matches "the value comes from the config." The transformer then strips the `!` from the emitted
+property (just as it strips `?` in the rule above), leaving a clean `name: T`.
+
+This is an alternative to the `?`-based convention above, so the two need to be reconciled:
+
+- Decide what an **unmarked** field then means (a plain non-config property? an optional config
+  key? — the default has to flip coherently), and how `?` (optional config key, mandatory
+  initializer) coexists with `!` (required config key, no initializer).
+- Weigh discoverability/ergonomics: "required is the default" vs "required is explicit via `!`",
+  and which produces fewer surprises with `strictPropertyInitialization` on.
+
+Pin the chosen convention with tests. Relates to the construction config alias (`<Class>Config`
+/ `static new`) and the optional-config-field rule above.
+
+### Always emit field initializers for stable object shape (opt-in)
+
+In the generated code, every declared field of the classes the transformer produces (the
+classes derived from the mixin base / consumers) should get an **explicit initializer**. If a
+field has no initializer in the source, emit one (defaulting to `undefined` or `null`) so the
+field is always assigned.
+
+**Applies to every field, uniformly.** This does *not* depend on whether the field is a config
+field or an ordinary property — both kinds are treated the same. Every declared field that has
+no source initializer gets the fill value; there is no special-casing by field role.
+
+**Why.** In JS engines (V8 et al.) it is a performance best practice to always initialize every
+field. A field that is sometimes assigned and sometimes left unset makes instances of the same
+class take on different hidden classes / object *shapes*; property access against a mix of shapes
+degrades from monomorphic to **megamorphic**, defeating inline caches. Assigning every field
+(in a consistent order) keeps one stable shape per class, so access stays monomorphic.
+
+**Hidden behind a transformer option `fillMissedInitializersWith`.** This changes the emitted JS
+(adds assignments), so the behavior is controlled by the `fillMissedInitializersWith` transformer
+config option, which selects the fill value for missing initializers — three choices:
+
+1. `"undefined"` — emit `field = undefined` for any field with no source initializer.
+2. `"null"` — emit `field = null` instead.
+3. off / none (the default) — do nothing; leave fields as written.
+
+Note the interaction with the optional-config-field rule above: that rule governs the *type
+contract* (when a `?` field is allowed and what its type is); this is purely an *emit*-level
+guarantee that whatever the resolved field set is, each one is physically assigned in the output.
+Pin the emitted shape with a test for each of the three option values.
+
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer

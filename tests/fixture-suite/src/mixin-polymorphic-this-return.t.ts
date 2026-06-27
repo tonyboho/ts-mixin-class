@@ -12,8 +12,6 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 class Fluent {
     log: string[] = []
 
-    a : string
-
     record(tag: string): this {
         this.log.push(tag)
 

@@ -140,6 +140,24 @@ also at every consumer.
 - Assign properties in the order they are declared? Can be done in the native constructor,
   but requires an extra check for every optional property. Can also be done in the special
   method like `configure` as an extra step (will replace `Object.assign()` in the `initialize`)
+  - **Direct per-property assignment in the native constructor.** Instead of
+    `Object.assign(this, config)` in `initialize`, generate the assignments explicitly, in
+    declaration order: `this.a = config.a; this.b = config.b; …` straight in the native
+    constructor. The compiler already inserts each field's *initializer* assignment first
+    (initializers run before any config is applied), so the generated config assignments simply
+    follow them in the same constructor body — possibly worth merging the two, but at minimum
+    they coexist fine. Reuses the existing machinery (the same property-collection / fill
+    functions). Optional keys still need the per-property guard noted above: a bare
+    `this.x = config.x` would clobber an initialized default with `undefined` when the key is
+    absent from the config.
+    - *Trade-off — fragile but maximally performant.* Assignment now happens piecemeal, so the
+      instance is observably half-initialized between steps: a property with a side effect (a
+      settable accessor / setter) fires while later properties are still unset. The upside is
+      that one explicit, statically-known assignment list is the fastest possible shape — no
+      config-object iteration, monomorphic writes — at the cost of that fragility.
+    - *Maybe a separate opt-in base.* This could live behind an alternative base (e.g. `Base2`)
+      tuned specifically for this instantiation shape — fast but knowingly fragile — rather than
+      changing the default `Base` contract.
 
 ---
 

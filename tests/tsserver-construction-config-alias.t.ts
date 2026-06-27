@@ -485,3 +485,55 @@ it("tsserver reports no static-side errors in the editor when a class extends a 
         await fixture.dispose()
     }
 })
+
+// A `.new(...)` call missing a required config key, viewed in the EDITOR. The generated
+// `<Name>Config` alias name cannot render in source view - the synthetic alias name node has
+// no real source text, so TypeScript's alias display reads the alias's anchor position (the
+// class' closing brace) and prints a meaningless `}` (`parameter of type '}'`). The generated
+// `static new` therefore inlines the structural config in source view, so the editor shows the
+// expanded `Pick<...>` shape instead. This pins that the diagnostic stays informative (the
+// emit plane keeps the named alias - see source-transform-construction-config-alias).
+const missingRequiredConfigText = trimIndent(`
+    import { Base } from "ts-mixin-class/base"
+
+    class Point extends Base {
+        public readonly x!: number
+        public readonly y!: number
+        public label!: string = ""
+    }
+
+    // Missing the required \`x\` config key: the editor must report this readably, not as \`}\`.
+    const p = Point.new({ y : 2, label : "origin-ish" })
+    void p
+`)
+
+it("tsserver shows a readable config type, not a meaningless `}`, for a failing .new(...) in the editor", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text: missingRequiredConfigText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                missingRequiredConfigText,
+                "semanticDiagnosticsSync",
+                { file: sourceFile }
+            )
+        )
+
+        const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
+            .map((diagnostic) => diagnostic.text ?? "").join("\n")
+
+        t.match(argError, "parameter of type 'Pick<Point",
+            "The editor names the expanded structural config (readable), not the unrenderable alias")
+        t.notMatch(argError, "parameter of type '}'",
+            "The editor never shows the meaningless `}` config type the synthetic alias name would print")
+    } finally {
+        await fixture.dispose()
+    }
+})

@@ -307,9 +307,15 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
     `), { sourceView: true }))
 
     t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
-        "Source-view construction-base mixin emits a named config alias")
-    t.match(printed, "static new(props?: SerializableConfig): Serializable;",
-        "Source-view mixin class regenerates its own static new referencing the named config alias")
+        "Source-view construction-base mixin emits a named config alias for user `initialize` references")
+    // Source view INLINES the structural config into the generated `static new` param rather
+    // than referencing `SerializableConfig`: the synthetic alias name renders as a meaningless
+    // `}` in a failing `.new(...)` diagnostic (its name node has no real source text to read),
+    // so the inline `Pick<...>` keeps the editor diagnostic readable. Emit keeps the alias name.
+    t.match(printed, "static new(props?: Partial<Pick<Serializable, \"format\">>): Serializable;",
+        "Source-view mixin's static new inlines the structural config so the editor diagnostic stays readable")
+    t.notMatch(printed, "static new(props?: SerializableConfig)",
+        "Source-view static new does NOT reference the alias by name (it would display as `}`)")
     t.match(printed, "class Serializable extends __Serializable$base",
         "Source view keeps the mixin as a real class so the static new can attach")
 })

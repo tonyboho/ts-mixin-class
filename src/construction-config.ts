@@ -90,13 +90,14 @@ export function createConstructionMembers(
     const consumerType   = createConsumerInstanceType(tsInstance, declaration)
 
     // Expose the config as an exported, named `<ClassName>Config` alias (carrying the
-    // class's own type parameters) rather than inlining the `Pick<...>` at the `new`
-    // param: `.new(...)` type errors then read the clean alias name, and the alias is
-    // reusable as a factory-parameter / annotation type. (It is NOT a valid `initialize`
-    // override type - the base `initialize` is all-optional; see the README note.)
+    // class's own type parameters). In EMIT the `new` param references it, so `.new(...)`
+    // type errors read the clean alias name; in SOURCE VIEW the param inlines the structural
+    // config (the synthetic alias name cannot render — see `constructionConfigParamType`).
+    // Either way the alias is reusable as a factory-parameter / annotation type. (It is NOT a
+    // valid `initialize` override type - the base `initialize` is all-optional; see the README.)
     const aliasName       = constructionConfigAliasName(tsInstance, sourceFile, declaration)
-    const configAlias     = createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
-    const configReference = createConfigAliasReference(tsInstance, declaration, aliasName)
+    const configAlias     = createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type, options)
+    const configReference = constructionConfigParamType(tsInstance, declaration, aliasName, config.type, options)
 
     // The checker validates overload adjacency by position (subsequent.pos ===
     // node.end), so source-view overloads get consecutive non-zero-width ranges:
@@ -312,12 +313,12 @@ export function createMixinConstructionNewType(
                     undefined,
                     "props",
                     config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                    createConfigAliasReference(tsInstance, declaration, aliasName)
+                    constructionConfigParamType(tsInstance, declaration, aliasName, config.type, options)
                 ) ],
                 createConsumerInstanceType(tsInstance, declaration)
             )
         ]),
-        configAlias : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+        configAlias : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type, options)
     }
 }
 
@@ -830,19 +831,57 @@ function collectImportNames(
     }
 }
 
+// The typed `static new` overload's `props` parameter type. EMIT references the named
+// alias (`<Name>Config`): emit reprints the file, so a failing `.new(...)` diagnostic reads
+// the real "<Name>Config" source text. SOURCE VIEW cannot — the alias is synthetic, so
+// TypeScript's alias display (`declarationNameToString` -> reads the name node's SOURCE
+// TEXT) lands on the alias's anchor position (the class' `}`) and prints a meaningless `}`.
+// So source view inlines the structural config type instead (no alias symbol -> the
+// diagnostic EXPANDS to `Pick<Point, ...>` / `{ x: number; ... }`, whose member names come
+// from symbols and so render position-independently). The clone's subtree is collapsed to a
+// synthetic range: a settable-accessor config carries explicit member type nodes with real
+// source positions (cloned from the setter), which would otherwise strand an identifier in
+// the synthetic overload's trivia (invariant #5). The named alias is still emitted in both
+// modes for user `initialize(config?: <Name>Config)` references.
+function constructionConfigParamType(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    aliasName: string,
+    configType: ts.TypeNode,
+    options: TransformOptions
+): ts.TypeNode {
+    if (!options.sourceView) {
+        return createConfigAliasReference(tsInstance, declaration, aliasName)
+    }
+
+    const inlined = deepCloneNode(tsInstance, configType)
+
+    collapseSubtreeTextRange(tsInstance, inlined, { pos: -1, end: -1 })
+
+    return inlined
+}
+
 function createConstructionConfigAlias(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration,
     aliasName: string,
-    configType: ts.TypeNode
+    configType: ts.TypeNode,
+    options: TransformOptions
 ): ts.TypeAliasDeclaration {
     const factory = tsInstance.factory
 
     // The alias's `export` tracks the class's own (same as the mixin factory's
     // `exportModifiersOf`): an exported class exposes `<Name>Config`; a module-local or
     // `export default` class keeps it local so an internal class does not leak the name.
-    const exported = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
+    // In SOURCE VIEW the alias is always exported, though: the generated `static new` no
+    // longer references it (it inlines the config — see `constructionConfigParamType`), so a
+    // module-local alias the user has not yet referenced would otherwise redden as an unused
+    // local (TS6196) in the editor. The source-view tree is never emitted, so the extra
+    // `export` only suppresses that false positive; it never reaches `.js` / `.d.ts`.
+    const exported = options.sourceView || (
+        hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
         && !hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+    )
 
     return factory.createTypeAliasDeclaration(
         exported ? [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ] : undefined,

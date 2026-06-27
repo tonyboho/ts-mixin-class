@@ -1,7 +1,7 @@
 {
     "name": "ts-mixin-class",
     "version": "0.0.6",
-    "description": "TypeScript program transformer skeleton for class-level mixin decorators.",
+    "description": "TypeScript mixin transformer with full generics support, native syntax and zero runtime overhead",
     "type": "module",
     "packageManager": "pnpm@11.7.0",
     "repository": {
@@ -47,8 +47,12 @@
     "keywords": [
         "typescript",
         "transformer",
-        "ts-patch",
-        "mixin"
+        "mixin",
+        "class",
+        "generics",
+        "c3 linearization",
+        "multiple inheritance",
+        "macros"
     ],
     "license": "MIT",
     "peerDependencies": {

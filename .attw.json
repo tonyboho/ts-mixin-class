@@ -1,0 +1,3 @@
+{
+  "excludeEntrypoints": ["./language-service-plugin"]
+}

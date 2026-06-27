@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
+import { fillMissedInitializers } from "./construction-initializers.js"
 import {
     buildInterfaceMembers,
     constructionProtocolInitializeSignature,
@@ -425,7 +425,7 @@ function expandSourceViewMixinClass(
                 factory.createNodeArray([ metadataExtendsClause, ...(declaration.heritageClauses ?? []) ]),
                 declaration.heritageClauses ?? generatedHeritageRange
             ),
-            rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+            fillMissedInitializers(tsInstance, declaration.members, options)
         ) ]
     }
 
@@ -512,7 +512,7 @@ function expandSourceViewMixinClass(
             baseImportMap
         )
     const constructionMembers = construction.members
-    const updatedMembers      = rewritePublicOnlyUndefinedInitializers(tsInstance, declaration.members, options)
+    const updatedMembers      = fillMissedInitializers(tsInstance, declaration.members, options)
     const mixinMembers        = constructionMembers.length === 0
         ? updatedMembers
         : preserveTextRange(tsInstance, factory.createNodeArray([ ...updatedMembers, ...constructionMembers ]), updatedMembers)
@@ -698,7 +698,7 @@ function mixinRuntimeMembers(
         return isSupportedMixinClassMember(tsInstance, member)
     }))
 
-    return rewritePublicOnlyUndefinedInitializers(tsInstance, members, options)
+    return fillMissedInitializers(tsInstance, members, options)
 }
 
 function asMixinFactory(tsInstance: TypeScript, expression: ts.Expression): ts.Expression {

@@ -309,7 +309,7 @@ it("manual mix property application typechecks", async (t: Test) => {
     t.expect(diagnostics).toEqual([])
 })
 
-it("public-only construction config rejects undefined initializers by default", async (t: Test) => {
+it("public-only construction config fills undefined initializers by default", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
@@ -330,9 +330,36 @@ it("public-only construction config rejects undefined initializers by default", 
     `))
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
+
+    t.expect(diagnostics).toEqual([])
+})
+
+it("fillMissedInitializersWith \"nothing\" leaves the strict undefined-initializer diagnostics", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        class ShapeBase extends Base {
+            public baseValue: number = undefined
+        }
+
+        @mixin()
+        class ShapeMixin {
+            public mixinValue: string = undefined
+        }
+
+        class ShapeConsumer extends ShapeBase implements ShapeMixin {
+            public ownValue: boolean = undefined
+        }
+
+        void ShapeConsumer
+    `), {
+        fillMissedInitializersWith : "nothing"
+    })
+
+    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
     const messages    = diagnostics.join("\n")
 
-    t.match(messages, "TS2322", "Plain undefined initializer is still rejected without opt-in")
+    t.match(messages, "TS2322", "Plain undefined initializer is rejected when fill is disabled")
     t.match(messages, "Type 'undefined' is not assignable to type 'number'",
         "Base public-only config field keeps the original strict initializer diagnostic")
     t.match(messages, "Type 'undefined' is not assignable to type 'string'",
@@ -379,7 +406,7 @@ it("can allow undefined initializers for public-only construction config fields"
 
         void [ baseValue, mixinValue, ownValue, stillStrict ]
     `), {
-        allowUndefinedForRequiredProperties : true
+        fillMissedInitializersWith : "undefined"
     })
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
@@ -401,12 +428,12 @@ it("can allow undefined initializers for plain Base descendants", async (t: Test
         const constructed = PlainShape.new({ value : 1 })
         const value: number = constructed.value
 
-        // @ts-expect-error allowUndefinedForRequiredProperties does not widen the property type.
+        // @ts-expect-error fillMissedInitializersWith does not widen the property type.
         const stillStrict: undefined = constructed.value
 
         void [ value, stillStrict ]
     `), {
-        allowUndefinedForRequiredProperties : true
+        fillMissedInitializersWith : "undefined"
     })
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))

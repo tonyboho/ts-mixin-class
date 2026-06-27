@@ -3,24 +3,30 @@ import type { PluginConfig } from "ts-patch"
 import type { TypeScript } from "./util.js"
 
 export type MixinClassTransformerConfig = PluginConfig & {
-    packageName?                         : string,
-    decoratorName?                       : string,
-    mode?                                : MixinClassTransformerMode,
-    staticCollisionCheck?                : StaticCollisionCheckMode | boolean,
-    allowUndefinedForRequiredProperties? : boolean
+    packageName?                : string,
+    decoratorName?              : string,
+    mode?                       : MixinClassTransformerMode,
+    staticCollisionCheck?       : StaticCollisionCheckMode | boolean,
+    fillMissedInitializersWith? : FillMissedInitializersWith
 }
 
 export type MixinClassTransformerMode = "emit" | "ide"
 export type StaticCollisionCheckMode = false | "never" | "strict"
 
+// What a construction class's fields that have no source initializer are filled with in the
+// emitted code, to give every instance a stable object shape (monomorphic property access).
+// `"nothing"` leaves fields untouched. Filled with a non-null assertion (`undefined!`/`null!`)
+// so the property type is never widened.
+export type FillMissedInitializersWith = "undefined" | "null" | "nothing"
+
 export type TransformOptions = {
-    packageName                         : string,
-    decoratorName                       : string,
-    sourceView                          : boolean,
-    staticCollisionCheck                : StaticCollisionCheckMode,
-    allowUndefinedForRequiredProperties : boolean,
-    verifyLinearization                 : boolean,
-    disableLinearizationPlan            : boolean
+    packageName                : string,
+    decoratorName              : string,
+    sourceView                 : boolean,
+    staticCollisionCheck       : StaticCollisionCheckMode,
+    fillMissedInitializersWith : FillMissedInitializersWith,
+    verifyLinearization        : boolean,
+    disableLinearizationPlan   : boolean
 }
 
 export type MixinDecoratorImports = {
@@ -153,13 +159,13 @@ export class DependencyLinearizationError extends Error {
 }
 
 export const defaultTransformOptions: TransformOptions = {
-    packageName                         : "ts-mixin-class",
-    decoratorName                       : "mixin",
-    sourceView                          : false,
-    staticCollisionCheck                : "never",
-    allowUndefinedForRequiredProperties : false,
-    verifyLinearization                 : true,
-    disableLinearizationPlan            : false
+    packageName                : "ts-mixin-class",
+    decoratorName              : "mixin",
+    sourceView                 : false,
+    staticCollisionCheck       : "never",
+    fillMissedInitializersWith : "undefined",
+    verifyLinearization        : true,
+    disableLinearizationPlan   : false
 }
 
 export const anyConstructorName = "AnyConstructor"

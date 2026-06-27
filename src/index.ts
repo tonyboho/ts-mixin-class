@@ -2,7 +2,7 @@ import type * as ts from "typescript"
 import type { ProgramTransformerExtras } from "ts-patch"
 import { expandConsumerClass } from "./consumer-expand.js"
 import { brandedConstructionBaseHeritage } from "./consumer-base-heritage.js"
-import { rewritePublicOnlyUndefinedInitializerClass } from "./construction-initializers.js"
+import { fillMissedInitializersClass } from "./construction-initializers.js"
 import {
     createConstructionMembers,
     generatedStaticNewMarker,
@@ -34,6 +34,7 @@ import {
     staticConflictKeysName,
     type CrossFileContext,
     type FileMixinContext,
+    type FillMissedInitializersWith,
     type ImportedNameBinding,
     type MixinClassTransformerConfig,
     type StaticCollisionCheckMode,
@@ -353,18 +354,16 @@ function stripGeneratedStaticNew(tsInstance: TypeScript): ts.TransformerFactory<
 
 function resolveTransformOptions(config: MixinClassTransformerConfig): TransformOptions {
     return {
-        packageName          : config.packageName ?? defaultTransformOptions.packageName,
-        decoratorName        : config.decoratorName ?? defaultTransformOptions.decoratorName,
-        sourceView           : false,
-        staticCollisionCheck : normalizeStaticCollisionCheck(config.staticCollisionCheck),
-        allowUndefinedForRequiredProperties :
-            config.allowUndefinedForRequiredProperties ??
-            defaultTransformOptions.allowUndefinedForRequiredProperties,
+        packageName                : config.packageName ?? defaultTransformOptions.packageName,
+        decoratorName              : config.decoratorName ?? defaultTransformOptions.decoratorName,
+        sourceView                 : false,
+        staticCollisionCheck       : normalizeStaticCollisionCheck(config.staticCollisionCheck),
+        fillMissedInitializersWith : normalizeFillMissedInitializers(config.fillMissedInitializersWith),
         // Read at build time (the transformer runs under tsc in Node) and baked into the emit
         // as a trailing mode argument, so the shipped runtime never reads the environment.
         // Verification is on by default (set TS_MIXIN_VERIFY_LINEARIZATION=0 to drop it in
         // production); the precompute is on unless TS_MIXIN_DISABLE_LINEARIZATION_PLAN=1.
-        verifyLinearization : envFlag("TS_MIXIN_VERIFY_LINEARIZATION") !== "0" &&
+        verifyLinearization        : envFlag("TS_MIXIN_VERIFY_LINEARIZATION") !== "0" &&
             envFlag("TS_MIXIN_VERIFY_LINEARIZATION") !== "false",
         disableLinearizationPlan : envFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN") === "1" ||
             envFlag("TS_MIXIN_DISABLE_LINEARIZATION_PLAN") === "true"
@@ -384,6 +383,23 @@ function normalizeStaticCollisionCheck(
 
     if (value === true) {
         return "strict"
+    }
+
+    return value
+}
+
+function normalizeFillMissedInitializers(
+    value: MixinClassTransformerConfig["fillMissedInitializersWith"]
+): FillMissedInitializersWith {
+    if (value === undefined) {
+        return defaultTransformOptions.fillMissedInitializersWith
+    }
+
+    if (value !== "undefined" && value !== "null" && value !== "nothing") {
+        throw new Error(
+            `ts-mixin-class: unknown "fillMissedInitializersWith" option ${JSON.stringify(value)}, ` +
+            `expected "undefined", "null", or "nothing".`
+        )
     }
 
     return value
@@ -827,7 +843,7 @@ function expandConstructionBaseClass(
     const extendsType  = declaration.heritageClauses?.find((clause) => {
         return clause.token === tsInstance.SyntaxKind.ExtendsKeyword
     })?.types[0]
-    const rewritten    = rewritePublicOnlyUndefinedInitializerClass(tsInstance, declaration, options)
+    const rewritten    = fillMissedInitializersClass(tsInstance, declaration, options)
     const construction = createConstructionMembers(
         tsInstance,
         sourceFile,
@@ -1160,7 +1176,7 @@ function preserveSourceCacheKey(
         options.packageName,
         options.decoratorName,
         options.staticCollisionCheck,
-        String(options.allowUndefinedForRequiredProperties),
+        options.fillMissedInitializersWith,
         String(options.verifyLinearization),
         String(options.disableLinearizationPlan),
         crossFile?.cacheKey ?? "",

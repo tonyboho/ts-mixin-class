@@ -289,7 +289,7 @@ it("can emit undefined non-null initializers for public-only construction config
             skippedValue: number = undefined
         }
     `), {
-        allowUndefinedForRequiredProperties : true
+        fillMissedInitializersWith : "undefined"
     })
     const printed         = printSourceFile(ts, transformedFile)
 
@@ -313,7 +313,7 @@ it("can emit undefined non-null initializers for plain Base descendants without 
             public value: number = undefined
         }
     `), {
-        allowUndefinedForRequiredProperties : true
+        fillMissedInitializersWith : "undefined"
     })
     const printed         = printSourceFile(ts, transformedFile)
 

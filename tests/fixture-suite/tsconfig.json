@@ -17,8 +17,7 @@
         "plugins": [
             {
                 "transform": "ts-mixin-class",
-                "transformProgram": true,
-                "allowUndefinedForRequiredProperties": true
+                "transformProgram": true
             }
         ],
         "experimentalDecorators": false

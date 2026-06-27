@@ -18,7 +18,7 @@ import {
 } from "./consumer-diagnostics.js"
 import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
 import { constructionProtocolInitializeSignature } from "./interface-members.js"
-import { rewritePublicOnlyUndefinedInitializers } from "./construction-initializers.js"
+import { fillMissedInitializers } from "./construction-initializers.js"
 import {
     createConstructionMembers,
     isConstructionBaseOptIn,
@@ -293,7 +293,7 @@ export function expandConsumerClass(
         expansion.originalExtendsClause === undefined
     )
     const consumerMembers          = isConstructionConsumer
-        ? rewritePublicOnlyUndefinedInitializers(tsInstance, consumerMembersWithSuper, options)
+        ? fillMissedInitializers(tsInstance, consumerMembersWithSuper, options)
         : consumerMembersWithSuper
     const updatedConsumerMembers   = constructionMembers.length === 0
         ? consumerMembers

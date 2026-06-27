@@ -152,7 +152,7 @@ function buildProgram(rootNames: string[], mode: "emit" | "ide", perturbation: P
     return transformProgram(
         baseProgram,
         host,
-        { allowUndefinedForRequiredProperties: true, mode },
+        { fillMissedInitializersWith: "undefined", mode },
         { ts } as never
     )
 }

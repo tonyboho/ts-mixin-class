@@ -50,37 +50,6 @@ so the per-class overhead and how it scales are both visible. Run it in the `rep
 not the dev-time cross-check. (Complements `bench/c3`, which times the linearization step on
 abstract integer graphs; this times real emitted classes end to end.)
 
-### Optional config field should not widen the property type with `undefined`
-
-Today an optional config key is expressed by marking the field optional: `public name?: string`.
-That makes the key optional in the generated `<Class>Config` (good), but it *also* widens the
-property type on the class itself to `string | undefined` — which is **not** what the contract
-means. The `?` is meant to say "optional *in the config*"; it should not change the type of the
-property once the instance exists. After construction the field is always set, so reading
-`this.name` should be `string`, not `string | undefined`.
-
-Proposal: when a field is `public` and optional (`public name?: T`), strip the `?` from the
-emitted property declaration (so the property type stays `T`, not `T | undefined`) while still
-emitting the key as **optional in `<Class>Config`**. So `?` on a public config field becomes
-purely a config-level optionality marker, decoupled from the instance property type.
-
-The rule: when a config field is optional (`public name?: T`), the `?` makes the key optional
-**in the config**, and:
-
-1. the `?` is stripped from the emitted property declaration — the property type stays `T`, it
-   is **not** widened to `T | undefined`; and
-2. an **initializer becomes mandatory**. Since the key may be omitted at construction, the field
-   must have a value to fall back to, and that value comes from the initializer. So
-   `public name?: T` **with no initializer is a compile error** — report a clear diagnostic
-   asking for an initializer of type `T` (e.g. `public name?: string = "default"`).
-
-If you actually want the field to be `null`/`undefined` when the key is omitted, that is not
-implied by `?` — you must say so **explicitly in the type and in the initializer**: e.g.
-`public name?: string | undefined = undefined` (or `string | null = null`). The transformer
-never adds nullability on its own.
-
-Pin both cases (valid: `?` + initializer; error: `?` + no initializer) with tests before
-implementing. Relates to the construction config alias (`<Class>Config` / `static new`).
 
 ### Consider: mark required config keys with `!` instead of "required by default"
 

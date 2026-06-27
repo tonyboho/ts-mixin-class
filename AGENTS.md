@@ -271,9 +271,28 @@ instance type) has its own rules:
    `Omit<typeof Mixin, "prototype" | "new">` (`createMixinStaticsType`), not `ClassStatics<typeof
    Mixin>`. The consumer's own `new` wins.
 
-4. **Config-field optionality comes from the `?` token, not the initializer.** `public x: T = v`
-   is a **required** config field; only `public x?: T` is optional. An initializer alone does not
-   make it optional. Only `public` members enter the config.
+4. **Config-key required-ness comes from the definite-assignment `!`, not the initializer or `?`.**
+   `public id!: T` is a **required** config key; every other public field is **optional** (the `?`
+   token is irrelevant to the config — it is ordinary TS optionality). Only `public` members enter
+   the config. Required-ness is read from `member.exclamationToken` in `source-file-facts.ts`,
+   *before* any field rewriting — so stripping the `!` later (next bullet) does not change the role.
+   - **`!` + initializer is normalized away.** TS forbids an initializer on a `!` field (TS1263),
+     yet a required key may want a default. So `construction-initializers.ts` strips the `!`
+     whenever the field ends up with an initializer (user-written, or one `fillMissedInitializersWith`
+     added), emitting a clean `id: T = ...`. The strip runs in **both** paths and even when filling
+     is `"nothing"`, so `id!: T = v` always compiles. A `!` field left with no initializer keeps its
+     `!` (it satisfies `strictPropertyInitialization`).
+   - **`fillMissedInitializersWith` (default `"undefined"`).** A public construction field with no
+     source initializer is given one, so every instance has the slot (stable V8 object shape →
+     monomorphic access). The value is a **non-null assertion** (`undefined!` / `null!`, type
+     `never`) so the property type is never widened, printing to `.js` as `field = undefined`/`null`.
+     `"null"` / `"nothing"` are the other modes. **Invariant: this rewrite is emit-safe even on
+     non-construction fields** — strip-`!`-plus-fill produces output identical to leaving the field
+     alone when it already has a real initializer — which is why a blanket "add `!` to every required
+     field" test migration is safe. **Invariant: adding a synthetic initializer / stripping a `!` in
+     the source-view path does NOT strand** (unlike a synthetic *named reference*, invariant #5):
+     an initializer expression and a punctuation token carry no symbol to resolve. The whole stress
+     + tsserver suite is the arbiter (it stays green).
 
 5. **Direct `new` on a construction class is disabled by a *branded construct signature*, not a
    `protected` constructor.** A construction class's heritage cast head replaces the public construct

@@ -50,62 +50,6 @@ so the per-class overhead and how it scales are both visible. Run it in the `rep
 not the dev-time cross-check. (Complements `bench/c3`, which times the linearization step on
 abstract integer graphs; this times real emitted classes end to end.)
 
-
-### Consider: mark required config keys with `!` instead of "required by default"
-
-Today the convention is **required-in-config by default**, with `?` opting a field *out* (making
-its key optional). Consider inverting the marker: a field's key is **required in the config only
-when it carries `!`** after its name (`public name!: T`), the TypeScript definite-assignment
-assertion.
-
-Why `!` fits the semantics: TS reads `name!: T` as "this field is assigned somewhere TS can't
-see, so don't require an initializer and don't raise `strictPropertyInitialization`". That is
-*exactly* the truth for a required config key — the value is supplied by the config at
-construction, not by an initializer. TS even **forbids** an initializer on a `!` field, which
-matches "the value comes from the config." The transformer then strips the `!` from the emitted
-property (just as it strips `?` in the rule above), leaving a clean `name: T`.
-
-This is an alternative to the `?`-based convention above, so the two need to be reconciled:
-
-- Decide what an **unmarked** field then means (a plain non-config property? an optional config
-  key? — the default has to flip coherently), and how `?` (optional config key, mandatory
-  initializer) coexists with `!` (required config key, no initializer).
-- Weigh discoverability/ergonomics: "required is the default" vs "required is explicit via `!`",
-  and which produces fewer surprises with `strictPropertyInitialization` on.
-
-Pin the chosen convention with tests. Relates to the construction config alias (`<Class>Config`
-/ `static new`) and the optional-config-field rule above.
-
-### Always emit field initializers for stable object shape (opt-in)
-
-In the generated code, every declared field of the classes the transformer produces (the
-classes derived from the mixin base / consumers) should get an **explicit initializer**. If a
-field has no initializer in the source, emit one (defaulting to `undefined` or `null`) so the
-field is always assigned.
-
-**Applies to every field, uniformly.** This does *not* depend on whether the field is a config
-field or an ordinary property — both kinds are treated the same. Every declared field that has
-no source initializer gets the fill value; there is no special-casing by field role.
-
-**Why.** In JS engines (V8 et al.) it is a performance best practice to always initialize every
-field. A field that is sometimes assigned and sometimes left unset makes instances of the same
-class take on different hidden classes / object *shapes*; property access against a mix of shapes
-degrades from monomorphic to **megamorphic**, defeating inline caches. Assigning every field
-(in a consistent order) keeps one stable shape per class, so access stays monomorphic.
-
-**Hidden behind a transformer option `fillMissedInitializersWith`.** This changes the emitted JS
-(adds assignments), so the behavior is controlled by the `fillMissedInitializersWith` transformer
-config option, which selects the fill value for missing initializers — three choices:
-
-1. `"undefined"` — emit `field = undefined` for any field with no source initializer.
-2. `"null"` — emit `field = null` instead.
-3. off / none (the default) — do nothing; leave fields as written.
-
-Note the interaction with the optional-config-field rule above: that rule governs the *type
-contract* (when a `?` field is allowed and what its type is); this is purely an *emit*-level
-guarantee that whatever the resolved field set is, each one is physically assigned in the output.
-Pin the emitted shape with a test for each of the three option values.
-
 ### A `@mixin` class extending another mixin is a type error
 
 A mixin must not `extends` another mixin — it consumes other mixins through the transformer

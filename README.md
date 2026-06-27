@@ -284,7 +284,7 @@ class Model extends Base {}
 const model = Model.new()
 ```
 
-After opting in, calling the native constructor of the class directly with `new` will generate a type error. It is a compile-time-only guard - a descriptive type error points back to the static factory:
+After opting in, calling the native constructor of the class directly with `new` will generate a type error. It is a compile-time-only guard — a descriptive type error points back to the static factory:
 
 ```ts
 // Error: Use `Model.new({ ... })` to construct - direct `new Model(...)` is disabled;
@@ -296,7 +296,7 @@ new Model()
 
 The static `new` constructor accepts a single object argument - a config for the instance.
 
-A type for this argument is derived as a combination of all properties of the class with the `public` modifier. Properties without the `public` modifier are not included in the config type and cannot be provided for instantiation. Properties with `?` are marked as optional in the config type; all other properties are required.
+A type for this argument is derived as a combination of all properties of the class with the `public` modifier. Properties without the `public` modifier are not included in the config type and cannot be provided for instantiation. A property marked with `!` is required in the config type; every other public property is optional. Unlike the standard TypeScript rule, a `!` property may still carry an initializer — it is applied during the native constructor call and lets the JS engine settle on a stable "shape" for the property.
 
 The config type is created as a phantom declaration using your class name plus a `Config` suffix. It is exported if your class itself is
 exported. You can use this type normally in the code.
@@ -305,11 +305,15 @@ exported. You can use this type normally in the code.
 import { Base } from "ts-mixin-class/base"
 
 class Model extends Base {
-    // required in the config
-    public id: string = ""
+    // required in the config, initializer is ok
+    public id!: string = ""
 
     // optional in the config
-    public name?: string = ""
+    public name: string = ""
+
+    // optional in the config - does not have "!"
+    // "?" does not have any special meaning for configs
+    public type?: string = ""
 
     // not in the config
     kind: string = ""
@@ -328,17 +332,16 @@ Model.new({ id : "42", nope : "nope" })
 Model.new({ name : "He-Man" })
 ```
 
-If a property consists of a getter and a setter with different types - the config will contain the setter's type, since that is what
+If a property consists of a getter and a setter with different types, the config will contain the setter's type, since that is what
 the assignment code path actually accepts.
 
-If a property is marked as `readonly` (along with `public`) - it is still included in the config, while remaining non-writable
+If a property is marked as `readonly` (along with `public`), it is still included in the config, while remaining non-writable
 in the rest of the code.
 
 ### Instantiation flow
 
 - Instantiation starts as: `MixinClass.new({ ... })`
-- A native JS constructor is called without arguments. It will assign the property initializer expressions to all properties.
-It is a good performance practice to provide an initializer expression for all of your properties, to keep the shape of your class constant.
+- A native JS constructor is called without arguments. It assigns the property initializer expressions to all properties. It is good practice to provide an initializer for every property — see [Stable object shapes](#stable-object-shapes-filling-missing-initializers) for details.
 - An `initialize` method is called with the configuration object given to the initial static `new` constructor.
 `initialize` just performs `Object.assign(this, config)`, so all configs are applied to the instance at once, in no particular order.
 
@@ -400,14 +403,16 @@ const stringValue: string = inferred.value
 ```
 
 
-### Initializing required properties
+### Stable object shapes (filling missing initializers)
 
-Required `public` properties sometimes need their own runtime slot before a real value
-is known. For example, a class may want to keep object shapes stable but cannot use a
-neutral value like `0` or `""`.
+In V8, property access on an object can be JIT-optimized only if the object's "shape" stays
+constant (no properties are added or removed). It is therefore important to provide an
+initializer for every property in the class.
 
-The `allowUndefinedForRequiredProperties` transformer option in `tsconfig.json` (disabled by default) allows this pattern for
-required public configuration properties:
+To avoid the boilerplate, this transformer can do it automatically for classes that extend
+`Base`, directly or transitively. The behavior is controlled by the `fillMissedInitializersWith`
+option, which can be set to `"undefined"` (the default), `"null"`, or `"nothing"` to disable
+filling.
 
 ```json
 {
@@ -416,28 +421,12 @@ required public configuration properties:
             {
                 "transform": "ts-mixin-class",
                 "transformProgram": true,
-                "allowUndefinedForRequiredProperties": true
+                "fillMissedInitializersWith": "undefined"
             }
         ]
     }
 }
 ```
-
-With that option enabled, the transformer accepts the following code as valid:
-
-```ts
-class User extends Base {
-    public id: string = undefined
-}
-
-const user = User.new({ id : "42" })
-
-const id: string = user.id
-```
-
-The property type is still `string`; it is not widened to `string | undefined`. Internally
-the initializer is treated like `undefined!`, so the runtime value is `undefined` while
-the declared property type remains strict.
 
 
 ## Limitations

@@ -23,10 +23,16 @@
         "./base": {
             "types": "./dist/src/base.d.ts",
             "default": "./dist/src/base.js"
+        },
+        "./language-service-plugin": {
+            "require": "./language-service-plugin/index.js",
+            "default": "./language-service-plugin/index.js"
         }
     },
     "files": [
         "dist/src",
+        "language-service-plugin/index.js",
+        "language-service-plugin/package.json",
         "README.md"
     ],
     "scripts": {
@@ -37,7 +43,7 @@
         "bench:edit": "pnpm --silent run build && node dist/bench/index.js edit",
         "bench:ts-repro": "pnpm --silent run build && node dist/bench/diagnostics/typescript-interface-repro.js",
         "bench:c3": "pnpm --silent run build && node dist/bench/c3/index.js",
-        "build": "tsc -p tsconfig.json",
+        "build": "tsc -p tsconfig.json && tsc -p tsconfig.lsplugin.json",
         "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
         "pretest": "pnpm run build",
         "test": "siesta dist/tests",

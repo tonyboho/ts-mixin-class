@@ -486,13 +486,14 @@ it("tsserver reports no static-side errors in the editor when a class extends a 
     }
 })
 
-// A `.new(...)` call missing a required config key, viewed in the EDITOR. The generated
-// `<Name>Config` alias name cannot render in source view - the synthetic alias name node has
-// no real source text, so TypeScript's alias display reads the alias's anchor position (the
-// class' closing brace) and prints a meaningless `}` (`parameter of type '}'`). The generated
-// `static new` therefore inlines the structural config in source view, so the editor shows the
-// expanded `Pick<...>` shape instead. This pins that the diagnostic stays informative (the
-// emit plane keeps the named alias - see source-transform-construction-config-alias).
+// A `.new(...)` call missing a required config key, viewed in the EDITOR. A synthetic
+// `<Name>Config` alias node has no real source text, so TypeScript's alias display
+// (`declarationNameToString` -> reads the name node's SOURCE TEXT) would render it as a
+// meaningless `}` (the class' closing brace it is anchored to). The transform fixes this
+// NATIVELY: in source view it appends each generated alias as REAL text past the document
+// end, so the checker reads the real `<Name>Config` name (the companion language-service
+// plugin then filters / remaps the phantom navigation that appended text would create). This
+// pins that the editor names the alias - the same `PointConfig` the emit plane reports.
 const missingRequiredConfigText = trimIndent(`
     import { Base } from "ts-mixin-class/base"
 
@@ -502,12 +503,12 @@ const missingRequiredConfigText = trimIndent(`
         public label!: string = ""
     }
 
-    // Missing the required \`x\` config key: the editor must report this readably, not as \`}\`.
+    // Missing the required \`x\` config key: the editor must name the config readably.
     const p = Point.new({ y : 2, label : "origin-ish" })
     void p
 `)
 
-it("tsserver shows a readable config type, not a meaningless `}`, for a failing .new(...) in the editor", async (t: Test) => {
+it("tsserver names the config alias (PointConfig), not a meaningless `}`, for a failing .new(...) in the editor", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [ { fileName: "source.ts", text: missingRequiredConfigText } ]
@@ -529,10 +530,12 @@ it("tsserver shows a readable config type, not a meaningless `}`, for a failing 
         const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
             .map((diagnostic) => diagnostic.text ?? "").join("\n")
 
-        t.match(argError, "parameter of type 'Pick<Point",
-            "The editor names the expanded structural config (readable), not the unrenderable alias")
+        t.match(argError, "parameter of type 'PointConfig'",
+            "The editor names the generated config alias (read from the appended real text)")
         t.notMatch(argError, "parameter of type '}'",
-            "The editor never shows the meaningless `}` config type the synthetic alias name would print")
+            "The editor never shows the meaningless `}` a synthetic alias name would print")
+        t.notMatch(argError, "Pick<Point",
+            "The alias name is shown, not the expanded structural Pick")
     } finally {
         await fixture.dispose()
     }

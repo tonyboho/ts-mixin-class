@@ -128,6 +128,12 @@ function createTsconfig(
                     transform        : "ts-mixin-class",
                     transformProgram : true
                 },
+                // The editor-only companion plugin: the transform appends each generated
+                // `<Name>Config` alias as real text past the document end so its name renders
+                // natively; this plugin filters / remaps the resulting phantom navigation.
+                {
+                    name : "ts-mixin-class/language-service-plugin"
+                },
                 ...(compilerPlugins ?? []),
                 ...extraCompilerOptionPlugins
             ],

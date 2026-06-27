@@ -221,6 +221,17 @@ Violating any of these produces confusing tsserver errors or crashes.
    type name"). *Navigating the base name itself in a rewritten heritage clause is a separate,
    partly-open concern — see Current gaps.*
 
+10. **A type/symbol NAME is displayed from its declaration name node's SOURCE TEXT, not its
+    `escapedName`.** `getNameOfSymbolAsWritten → declarationNameToString → getTextOfNode` reads
+    `sourceFile.text.substring(name.pos, name.end)`; there is **no `escapedName` fallback** for a
+    declaration that has a name. So a generated declaration whose name node sits over unrelated text
+    (e.g. a synthetic alias anchored at a class' `}`) shows THAT text in diagnostics / hover /
+    quickinfo, not its intended name. A zero-width name renders `(Missing)`, and a `pos < 0`
+    (synthesized) name is `nodeIsMissing` too — neither recovers the name. In the position-preserving
+    source-view plane (no reprint) the only way to display a generated name is to give it REAL
+    matching text the checker can read. (Emit is immune: it reprints real text and reparses.) The
+    construction config alias depends on this — its current realization is Construction invariant #9.
+
 ### Background: an upstream-TypeScript shortcut (not done)
 
 Most of #4/#5/#8 exist only because tsserver **crashes** on a position-imperfect synthetic AST.
@@ -369,23 +380,24 @@ instance type) has its own rules:
 
 9. **The exported `<Name>Config` alias is a sibling, anchored OUTSIDE the class.** Every construction
    class (consumer, plain `Base` descendant, and construction-base mixin — emit *and* source view)
-   emits an exported `type <Name>Config<TParams> = <the config>`. The alias name is
-   `<ClassName>Config`, suffixed with `_` on collision with a file-local name
-   (`constructionConfigAliasName`). **Only EMIT's `static new` references the alias by name**
+   emits an exported `type <Name>Config<TParams> = <the config>` and the `static new` references it
    (`static new(props: <Name>Config)`), so `.new(...)` errors name the alias instead of a verbose
-   `Pick<…>`. **Source view INLINES the structural config into the `static new` param** instead
-   (`constructionConfigParamType`): the alias name is synthetic, so TypeScript's alias display
-   (`declarationNameToString` → reads the name node's SOURCE TEXT) lands on the alias's anchor (the
-   class' `}`) and prints a meaningless `parameter of type '}'`. Inlining drops the alias symbol from
-   the param, so the editor diagnostic EXPANDS to `Pick<Point, …>` / `{ … }` (member names come from
-   symbols → position-independent). The inlined clone's subtree is collapsed to `[-1,-1]` (a
-   settable-accessor config carries explicit member type nodes with real cloned positions that would
-   otherwise strand — invariant #5), and the source-view alias is **force-exported** even for a
-   module-local class (`createConstructionConfigAlias`): the `static new` no longer references it, so
-   an unreferenced module-local alias would otherwise redden as an unused local (TS6196) in the
-   editor; the source-view tree is never emitted, so the extra `export` reaches no `.js`/`.d.ts`.
-   The alias declaration itself stays in both modes for user `initialize(config?: <Name>Config)`
-   references. It is listed AFTER the class and BOTH modes collapse the whole
+   `Pick<…>`. The alias name is `<ClassName>Config`, suffixed with `_` on collision with a file-local
+   name (`constructionConfigAliasName`).
+   *Displaying the alias name in source view (current realization of source-view invariant #10).* A
+   synthetic alias has no real `<Name>Config` text, so the editor would print `parameter of type '}'`
+   (it reads the name node's source position — the class' `}`); emit is immune (it reprints). So in
+   source view the transform **appends each generated alias as REAL text past the original file end**
+   (`appendGeneratedConfigAliasesAsRealText`): printed from a synthetic clone, reparsed for real
+   `[N, …)` positions, and the synthetic node swapped for the reparsed one. Appending never shifts the
+   `[0, N)` offsets, so user code stays correct, and the checker reads the real name in diagnostics,
+   hover and quickinfo (incl. generics, `BoxConfig<number>`). The appended tail is LIVE for the
+   language service, so the companion **`language-service-plugin`** (a `ts.server.PluginModule`, built
+   CJS via `tsconfig.lsplugin.json`, configured as a SECOND editor plugin) drops navigation spans
+   starting past the on-disk document length and REMAPS a go-to-definition hit on the appended alias
+   back to the owning class. Without it, find-references / rename / definition return phantom tail
+   spans (caught by the `stress-references` plane). Guarded by `tsserver-config-alias-navigation.t.ts`.
+   It is listed AFTER the class and BOTH modes collapse the whole
    subtree to one real anchor at `declaration.end` (the gap just past the closing brace).
    `positionConstructionConfigAlias` owns this; three constraints force that exact placement:
      - an *in-class* anchor (`members.end`) overlaps the class and strands an identifier in trivia
@@ -493,8 +505,8 @@ The same crash text has several possible causes; check in this order before assu
 | a diagnostic appears on **unrelated** code after an edit and persists until server restart | the transform threw mid-edit; tsserver serves the untransformed fallback for the whole project (#7). |
 | TS2304 in **emit** *and* TS2562 in **source view**, on a `@mixin` that `extends` a generic base | the mixin's own type parameter leaked into the `RuntimeMixinClass<Base<T>>` marker — must be erased to `any`; see `eraseOwnTypeParameterReferences` (Current gaps → Resolved). |
 | TS2720 / TS4112 on a consumer extending a navigable-base cast | the single-source cast had a competing construct signature (a bare `typeof Base`), stranding the mixin members; statics must be `Omit<…,"prototype"|"new">` bags (Current gaps → heritage navigation). |
-| a failing `.new(...)` shows `parameter of type '}'` **only in the editor** (emit names `<Name>Config`) | the source-view `static new` param referenced the synthetic `<Name>Config` alias; TS's alias display reads the alias name node's SOURCE TEXT, which lands on the class' `}`. Source view must INLINE the structural config (`constructionConfigParamType`) so the diagnostic expands to `Pick<…>` (#9); pinned by `tsserver-construction-config-alias.t.ts`. |
-| `'<Name>Config' is declared but never used` (TS6196) **only in the editor** | the source-view alias is module-local and the source-view `static new` no longer references it (it inlines) — the alias must be force-exported in source view (#9). |
+| a failing `.new(...)` shows `parameter of type '}'` **only in the editor** (emit names `<Name>Config`) | TS displays a type alias by reading its declaration name node's SOURCE TEXT; the synthetic alias is anchored at the class' `}`. Source view must append the alias as REAL text past the document end so the real `<Name>Config` name is read (`appendGeneratedConfigAliasesAsRealText`, #9); pinned by `tsserver-config-alias-navigation.t.ts`. |
+| find-references / rename / go-to-definition return a phantom span **past the file end** in the editor | the appended alias text (#9) is live for the language service; the `language-service-plugin` companion must be configured to drop / remap those spans. The `stress-references` plane catches a missing/broken filter. |
 
 ## Current gaps
 

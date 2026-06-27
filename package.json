@@ -1,6 +1,6 @@
 {
     "name": "ts-mixin-class",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "description": "TypeScript mixin transformer with full generics support, native syntax and zero runtime overhead",
     "type": "module",
     "packageManager": "pnpm@11.7.0",

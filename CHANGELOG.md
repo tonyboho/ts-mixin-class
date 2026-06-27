@@ -1,5 +1,60 @@
 # ts-mixin-class
 
+## 0.0.7 - 2026-06-27
+
+### Patch Changes
+
+- 3399077: Always name the `<Class>Config` alias in `<Class>.new({ ... })` errors. When a
+  config mixed required and optional fields, a call missing a required key reported
+  `... but required in type 'Pick<Class, ...>'` instead of naming the alias; the
+  generated `<Class>Config` name is now used throughout the message, including the
+  nested "but required in type ..." line. Quickinfo on such a config also resolves
+  to its field shape (`{ id: string; label?: string }`) rather than an opaque
+  `Pick<...> & Partial<...>`. Configs that are entirely required or entirely
+  optional are unchanged.
+- e1e2b6e: Name the generated `<Class>Config` alias in the editor. A failing
+  `<Class>.new({ ... })`, or any reference to the config type, used to show a
+  meaningless `}` where the alias name belongs; the IDE now reads the real
+  `<Class>Config` name in diagnostics, hovers, and quickinfo — generics included.
+
+  This adds a companion language-service plugin. Register it next to the program
+  transform in `tsconfig.json` so editor navigation (go-to-definition,
+  find-references, rename) stays clean for the generated aliases:
+
+  ```json
+  {
+    "compilerOptions": {
+      "plugins": [
+        { "transform": "ts-mixin-class", "transformProgram": true },
+        { "name": "ts-mixin-class/language-service-plugin" }
+      ]
+    }
+  }
+  ```
+
+  It is optional but recommended.
+
+- 601cd69: Add the `fillMissedInitializersWith` compiler-plugin option. For classes that
+  extend `Base` (directly or transitively), every instance field left without an
+  initializer is given an explicit default in the emitted code, so each instance
+  keeps a stable object shape (monomorphic property access in V8). The fill uses a
+  non-null assertion (`undefined!` / `null!`), so the field's declared type is never
+  widened.
+
+  Three modes: `"undefined"` (default), `"null"`, and `"nothing"` (off). The fill
+  applies to fields of every visibility — public, protected, private, or unmarked —
+  and only where no initializer was written: a field with an explicit initializer is
+  left untouched, so `public id: number = undefined` stays a type error.
+
+- 937d5f7: Mark a required construction-config key with the definite-assignment `!`. A public
+  field declared `id!: T` is a required key in the generated `<Class>Config`; every
+  other public field is optional. The `!` reads as "supplied from outside" — exactly
+  what `.new({ ... })` provides — and lets the field skip an initializer without a
+  strict property-initialization error. A `!` field may still carry a default
+  (`id!: T = ...`), even though TypeScript normally forbids `!` together with an
+  initializer: the default is applied during construction while `.new({ ... })` still
+  requires the key.
+
 ## 0.0.6 - 2026-06-26
 
 ### Patch Changes

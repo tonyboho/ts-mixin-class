@@ -324,3 +324,51 @@ it("can emit undefined non-null initializers for plain Base descendants without 
     t.notMatch(printed, "mixinChain",
         "Plain Base descendant rewrite does not add consumer helper imports")
 })
+
+it("fills with null non-null initializers under fillMissedInitializersWith \"null\"", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        class ShapeBase extends Base {
+            public baseValue!: number
+            protected protectedValue: number
+        }
+
+        @mixin()
+        class ShapeMixin {
+            public mixinValue!: string
+        }
+
+        class ShapeConsumer extends ShapeBase implements ShapeMixin {
+            public ownValue!: boolean
+        }
+    `), {
+        fillMissedInitializersWith : "null"
+    })
+    const printed         = printSourceFile(ts, transformedFile)
+
+    t.match(printed, "public baseValue: number = null!", "A public field is filled with `null!` in null mode")
+    t.match(printed, "protectedValue: number = null!", "A protected field is filled with `null!` in null mode")
+    t.match(printed, "public mixinValue: string = null!", "A mixin field is filled with `null!` in null mode")
+    t.match(printed, "public ownValue: boolean = null!", "A consumer field is filled with `null!` in null mode")
+    t.notMatch(printed, "= undefined!", "null mode never fills with undefined")
+    t.notMatch(printed, "number | null", "Declared property types are not widened in null mode")
+})
+
+it("fills nothing under fillMissedInitializersWith \"nothing\"", async (t: Test) => {
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        class ShapeBase extends Base {
+            public baseValue!: number
+        }
+    `), {
+        fillMissedInitializersWith : "nothing"
+    })
+    const printed         = printSourceFile(ts, transformedFile)
+
+    // "nothing" leaves the field untouched: no synthetic initializer, the `!` survives.
+    t.match(printed, "public baseValue!: number;", "nothing mode leaves the `!` field with no initializer")
+    t.notMatch(printed, "= undefined!", "nothing mode adds no undefined fill")
+    t.notMatch(printed, "= null!", "nothing mode adds no null fill")
+})

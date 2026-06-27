@@ -1,5 +1,5 @@
 /dist
-/language-service-plugin/index.js
+/language-service-plugin/index.cjs
 /node_modules
 /bench/fixtures/generated
 /bench/results

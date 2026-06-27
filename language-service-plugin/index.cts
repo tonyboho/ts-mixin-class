@@ -18,9 +18,14 @@
 // Compiled to CommonJS (`tsconfig.lsplugin.json`) because tsserver loads plugins via `require`
 // and ignores the package `exports` map (it resolves `<name>/package.json` -> `main`).
 
-import type ts from "typescript"
+// INVARIANT: this plugin must use the SAME typescript instance tsserver runs — the one handed to
+// us as `modules.typescript` — never a separately-loaded copy (a second instance means mismatched
+// enums / `instanceof` / version). So `ts` is a TYPE-ONLY import, used only for annotations
+// (`ts.server.*`, `ts.LanguageService`, …): using it as a runtime VALUE is then a COMPILE ERROR,
+// which enforces the invariant. The runtime instance's type is `typeof import("typescript")`.
+import type * as ts from "typescript"
 
-function init(modules: { typescript: typeof ts }): ts.server.PluginModule {
+function init(modules: { typescript: typeof import("typescript") }): ts.server.PluginModule {
     const tsInstance = modules.typescript
 
     function create(info: ts.server.PluginCreateInfo): ts.LanguageService {

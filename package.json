@@ -25,13 +25,13 @@
             "default": "./dist/src/base.js"
         },
         "./language-service-plugin": {
-            "require": "./language-service-plugin/index.js",
-            "default": "./language-service-plugin/index.js"
+            "require": "./language-service-plugin/index.cjs",
+            "default": "./language-service-plugin/index.cjs"
         }
     },
     "files": [
         "dist/src",
-        "language-service-plugin/index.js",
+        "language-service-plugin/index.cjs",
         "language-service-plugin/package.json",
         "README.md"
     ],

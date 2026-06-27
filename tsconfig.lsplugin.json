@@ -7,7 +7,7 @@
         "types": []
     },
     "include": [
-        "language-service-plugin/index.ts"
+        "language-service-plugin/index.cts"
     ],
     "exclude": []
 }

@@ -2,5 +2,5 @@
     "name": "ts-mixin-class-language-service-plugin",
     "private": true,
     "type": "commonjs",
-    "main": "index.js"
+    "main": "index.cjs"
 }

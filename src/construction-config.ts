@@ -552,9 +552,46 @@ function createConstructionConfig(
     }
 
     return {
-        type              : intersectionOrSingle(tsInstance, parts),
+        type              : flattenIfIntersection(tsInstance, parts),
         optionalParameter : requiredType === undefined
     }
+}
+
+// A config that combines constituents (required `Pick`, optional `Partial<Pick>`, explicit
+// accessor members) is structurally their intersection. But then a *failing* `.new(...)`
+// diagnostic points at an inner constituent (`Pick<C, ...>`) instead of the config alias:
+// TypeScript attaches the alias symbol only to the OUTERMOST type node (the one whose parent is
+// the alias declaration), so an inner `Pick` keeps its own `Pick` alias and surfaces in the
+// "...but required in type X" elaboration. Flattening the intersection through a single
+// homomorphic mapped type (`{ [K in keyof T]: T[K] }`) yields one anonymous object type that IS
+// the alias's whole target, so every elaboration names `<Class>Config`. Homomorphic-ness
+// preserves each member's optionality and keeps the shape closed (excess-property-checked).
+// A single constituent already carries the alias (its node's parent is the alias declaration),
+// so it is returned untouched — no mapped type, no extra checker work in the common case.
+function flattenIfIntersection(tsInstance: TypeScript, parts: ts.TypeNode[]): ts.TypeNode {
+    const combined = intersectionOrSingle(tsInstance, parts)
+
+    if (parts.length < 2) {
+        return combined
+    }
+
+    const factory = tsInstance.factory
+
+    return factory.createMappedTypeNode(
+        undefined,
+        factory.createTypeParameterDeclaration(
+            undefined,
+            factory.createIdentifier("K"),
+            factory.createTypeOperatorNode(tsInstance.SyntaxKind.KeyOfKeyword, combined)
+        ),
+        undefined,
+        undefined,
+        factory.createIndexedAccessTypeNode(
+            deepCloneNode(tsInstance, combined),
+            factory.createTypeReferenceNode("K", undefined)
+        ),
+        undefined
+    )
 }
 
 function staticConstructionConfigProperties(

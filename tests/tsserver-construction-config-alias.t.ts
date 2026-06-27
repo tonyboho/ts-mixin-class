@@ -114,13 +114,17 @@ it("tsserver quickinfo on a config-alias reference shows the expanded config typ
     try {
         const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
 
-        const accountInfo = assertResponseBody<QuickInfoBody>(
+        const accountInfo    = assertResponseBody<QuickInfoBody>(
             t,
             await aliasRequest(fixture.directory, sourceFile, "quickinfo", "config?: AccountConfig", "AccountConfig")
         )
+        const accountDisplay = accountInfo.displayString ?? ""
+        // The config flattens its required+optional intersection through a homomorphic mapped type,
+        // so quickinfo resolves to the actual field shape (required `balance`, optional `label?`)
+        // rather than an opaque `Pick<...> & Partial<...>`.
         t.true(
-            (accountInfo.displayString ?? "").includes("Pick<Account"),
-            "Quickinfo on AccountConfig expands to the public-only config Pick over Account"
+            accountDisplay.includes("balance") && accountDisplay.includes("label?"),
+            `Quickinfo on AccountConfig resolves to its field shape, got:\n${accountDisplay}`
         )
 
         const boxInfo = assertResponseBody<QuickInfoBody>(
@@ -536,6 +540,71 @@ it("tsserver names the config alias (PointConfig), not a meaningless `}`, for a 
             "The editor never shows the meaningless `}` a synthetic alias name would print")
         t.notMatch(argError, "Pick<Point",
             "The alias name is shown, not the expanded structural Pick")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// A `.new(...)` missing a required config key, viewed in the EDITOR, where the config has BOTH
+// required and optional fields. That combination makes the config type an INTERSECTION
+// (`Pick<C, required> & Partial<Pick<C, optional>>`); TypeScript attaches the alias symbol only
+// to the OUTERMOST node, so the nested "...but required in type X" elaboration would point at the
+// inner `Pick<C, required>` constituent (carrying its own `Pick` alias) instead of the config
+// alias. The transform flattens the intersection through a homomorphic mapped type, so the whole
+// config carries the alias and every elaboration names `<Class>Config`. (An all-required config is
+// a single `Pick` that already names the alias - this pins the required+optional intersection.)
+const intersectionConfigMissingRequiredText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    class Ledger extends Base {
+        public baseValue!: string = "base"
+    }
+
+    @mixin()
+    class Auditable {
+        public mixinValue!: number = 0
+    }
+
+    class Account extends Ledger implements Auditable {
+        public ownValue!: boolean = false
+        public definiteOwnValue!: string
+        public optionalOwnValue?: boolean
+    }
+
+    // Missing the required \`definiteOwnValue\`; \`optionalOwnValue?\` makes the config an intersection.
+    const a = Account.new({ baseValue : "x", mixinValue : 1, ownValue : true })
+    void a
+`)
+
+it("tsserver names the config alias in the NESTED 'required in type' elaboration too (a required+optional intersection config), not an expanded Pick", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text: intersectionConfigMissingRequiredText } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                intersectionConfigMissingRequiredText,
+                "semanticDiagnosticsSync",
+                { file: sourceFile }
+            )
+        )
+
+        const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
+            .map((diagnostic) => diagnostic.text ?? "").join("\n")
+
+        t.match(argError, "parameter of type 'AccountConfig'",
+            "The header names the generated config alias")
+        t.match(argError, "required in type 'AccountConfig'",
+            "The nested `required in type` elaboration also names the alias")
+        t.notMatch(argError, "Pick<Account",
+            "The nested elaboration never expands the alias to its structural Pick")
     } finally {
         await fixture.dispose()
     }

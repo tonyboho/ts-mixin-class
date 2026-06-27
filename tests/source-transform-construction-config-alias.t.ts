@@ -22,10 +22,17 @@ it("emits an exported named config alias and references it from the generated st
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
+    // The required+optional config is flattened through a homomorphic mapped type (so a failing
+    // `.new(...)` names the alias, not an inner `Pick`); the constituent keys still appear inside.
     t.match(
         printed,
-        "export type ModelConfig = Pick<Model, \"id\"> & Partial<Pick<Model, \"name\">>;",
+        "export type ModelConfig = {",
         "A construction base emits an exported config alias named after the class"
+    )
+    t.match(
+        printed,
+        "Pick<Model, \"id\"> & Partial<Pick<Model, \"name\">>",
+        "The alias keeps the required `id` and optional `name` constituents"
     )
     t.match(
         printed,
@@ -57,7 +64,7 @@ it("marks required config keys with `!` and lets a `!` field keep an initializer
     t.is(messages, "", "A `!` field with an initializer compiles (no TS1263) and `.new` only requires it")
     t.match(
         printed,
-        "export type ModelConfig = Pick<Model, \"id\"> & Partial<Pick<Model, \"label\">>;",
+        "Pick<Model, \"id\"> & Partial<Pick<Model, \"label\">>",
         "`!` makes `id` a required key; the unmarked `label` is an optional key"
     )
     t.match(printed, "id: string = \"anon\"", "The emitted `!` field keeps its default and drops the now-illegal `!`")
@@ -86,9 +93,14 @@ it("emits a generic config alias carrying the class type parameters", async (t: 
 
     t.match(
         printed,
-        "export type ConsumerConfig<T> = Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
-            "Partial<Pick<Consumer<T>, \"optionalBaseValue\">>;",
-        "The config alias clones the class type parameters and references the consumer instance type"
+        "export type ConsumerConfig<T> = {",
+        "The config alias clones the class type parameters into a flattened named alias"
+    )
+    t.match(
+        printed,
+        "Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
+            "Partial<Pick<Consumer<T>, \"optionalBaseValue\">>",
+        "The generic alias references the consumer instance type with required and optional keys"
     )
     t.match(
         printed,

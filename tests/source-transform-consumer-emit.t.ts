@@ -200,8 +200,13 @@ it("generates public-only static construction config overloads by default", asyn
 
     t.match(
         printed,
-        "export type ConsumerConfig<T> = Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
-            "Partial<Pick<Consumer<T>, \"optionalBaseValue\" | \"optionalMixinValue\" | \"optionalOwnValue\">>;",
+        "export type ConsumerConfig<T> = {",
+        "Default public-only construction config emits a flattened named alias"
+    )
+    t.match(
+        printed,
+        "Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
+            "Partial<Pick<Consumer<T>, \"optionalBaseValue\" | \"optionalMixinValue\" | \"optionalOwnValue\">>",
         "Default public-only construction config preserves required and optional property names in the named alias"
     )
     t.match(
@@ -233,7 +238,7 @@ it("generates public-only static construction config overloads for plain Base de
 
     t.match(
         printed,
-        "export type ModelConfig = Pick<Model, \"id\"> & Partial<Pick<Model, \"name\">>;",
+        "Pick<Model, \"id\"> & Partial<Pick<Model, \"name\">>",
         "Plain Base descendants get required and optional public-only config fields in the named alias"
     )
     t.match(

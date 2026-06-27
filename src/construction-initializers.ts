@@ -3,12 +3,19 @@ import { propertyNameText, type FillMissedInitializersWith, type TransformOption
 import { hasModifier, preserveTextRange } from "./util.js"
 import type { TypeScript } from "./util.js"
 
-// Give every construction-class field a value, so each instance keeps a stable object shape
-// (monomorphic property access — see TODO "Always emit field initializers"). A field with no
-// source initializer is filled with the configured value; the value is a non-null assertion
-// (`undefined!` / `null!`, type `never`) so the property type is never widened, and it prints
-// to `.js` as a plain `field = undefined` / `field = null`. Adding an initializer also strips a
-// definite-assignment `!` (a `!` field with an initializer is illegal — TS1263).
+// Normalize a construction class's public field initializers. Two concerns, both about giving
+// every instance a stable object shape and keeping the new `!`-required-config convention legal:
+//
+//   1. Fill (option `fillMissedInitializersWith`, default "undefined"): a field with no source
+//      initializer is given one, so the slot exists on every instance (monomorphic property
+//      access). The value is a non-null assertion (`undefined!` / `null!`, type `never`) so the
+//      property type is never widened, and prints to `.js` as plain `field = undefined`/`= null`.
+//      "nothing" disables filling.
+//   2. Definite-assignment `!`: a `public id!: T` field marks a REQUIRED config key. TypeScript
+//      forbids an initializer on a `!` field (TS1263), so whenever the field ends up with an
+//      initializer (filled, or one the user wrote), the `!` is stripped — leaving a clean
+//      `id: T = ...`. This strip runs even when filling is "nothing", so `id!: T = init` always
+//      compiles. A `!` field left with no initializer keeps its `!` (it satisfies strict-init).
 export function fillMissedInitializers(
     tsInstance: TypeScript,
     members: ts.NodeArray<ts.ClassElement>,
@@ -16,13 +23,9 @@ export function fillMissedInitializers(
 ): ts.NodeArray<ts.ClassElement> {
     const fill = options.fillMissedInitializersWith
 
-    if (fill === "nothing") {
-        return members
-    }
-
     let changed            = false
     const rewrittenMembers = members.map((member) => {
-        const rewrittenMember = fillMissedInitializer(tsInstance, member, fill)
+        const rewrittenMember = normalizeFieldInitializer(tsInstance, member, fill)
 
         if (rewrittenMember !== member) {
             changed = true
@@ -57,45 +60,71 @@ export function fillMissedInitializersClass(
     ), declaration)
 }
 
-function fillMissedInitializer(
+function normalizeFieldInitializer(
     tsInstance: TypeScript,
     member: ts.ClassElement,
-    fill: Exclude<FillMissedInitializersWith, "nothing">
+    fill: FillMissedInitializersWith
 ): ts.ClassElement {
     if (!isFillableProperty(tsInstance, member)) {
         return member
     }
 
-    const fillKeyword = fill === "null" ? "null" : "undefined"
+    const fillKeyword  = fill === "null" ? "null" : "undefined"
+    const fillEnabled  = fill !== "nothing"
+    const hasInitiator = member.initializer !== undefined
 
-    // Only fill a missing initializer, or normalize an existing bare `undefined` / `null` that
-    // would otherwise fail to assign to a non-nullable type. A real initializer is left intact.
-    if (member.initializer !== undefined && !isBareFillKeyword(tsInstance, member.initializer, fillKeyword)) {
+    if (hasInitiator) {
+        // Normalize a bare `= undefined` / `= null` that would not assign to a non-nullable type
+        // into the `<keyword>!` form; otherwise keep the real initializer, only stripping a `!`.
+        const replaceWithFill = fillEnabled &&
+            isBareFillKeyword(tsInstance, member.initializer, fillKeyword)
+
+        if (!replaceWithFill && member.exclamationToken === undefined) {
+            return member
+        }
+
+        const initializer = replaceWithFill
+            ? preserveTextRange(tsInstance, createFillExpression(tsInstance, fillKeyword), member.initializer)
+            : member.initializer
+
+        return rebuildPropertyWithInitializer(tsInstance, member, initializer)
+    }
+
+    // No initializer: fill it (unless "nothing"); a `!` field with no initializer keeps its `!`.
+    if (!fillEnabled) {
         return member
     }
 
-    const fillExpression = fill === "null"
-        ? tsInstance.factory.createNull()
-        : tsInstance.factory.createIdentifier("undefined")
+    return rebuildPropertyWithInitializer(tsInstance, member, createFillExpression(tsInstance, fillKeyword))
+}
 
-    const filledInitializer = member.initializer === undefined
-        ? tsInstance.factory.createNonNullExpression(fillExpression)
-        : preserveTextRange(
-            tsInstance,
-            tsInstance.factory.createNonNullExpression(fillExpression),
-            member.initializer
-        )
-
+// Rebuild the property with the given initializer, dropping a definite-assignment `!` (illegal
+// alongside an initializer) while keeping an optional `?` — they are mutually exclusive, so
+// `member.questionToken` is the only token that can survive.
+function rebuildPropertyWithInitializer(
+    tsInstance: TypeScript,
+    member: ts.PropertyDeclaration,
+    initializer: ts.Expression
+): ts.PropertyDeclaration {
     return preserveTextRange(tsInstance, tsInstance.factory.updatePropertyDeclaration(
         member,
         member.modifiers,
         member.name,
-        // Keep an optional `?` marker; drop a definite-assignment `!`, since the property now
-        // carries an initializer (a `!` field with an initializer is illegal).
         member.questionToken,
         member.type,
-        filledInitializer
+        initializer
     ), member)
+}
+
+function createFillExpression(
+    tsInstance: TypeScript,
+    fillKeyword: "undefined" | "null"
+): ts.NonNullExpression {
+    const value = fillKeyword === "null"
+        ? tsInstance.factory.createNull()
+        : tsInstance.factory.createIdentifier("undefined")
+
+    return tsInstance.factory.createNonNullExpression(value)
 }
 
 function isBareFillKeyword(

@@ -10,8 +10,8 @@ type Equal<Left, Right> =
         : false
 
 class ConfigShapeModel extends Base {
-    public firstName: string = ""
-    public lastName: string = ""
+    public firstName!: string = ""
+    public lastName!: string = ""
 
     fullName(): string {
         return `${this.firstName} ${this.lastName}`.trim()

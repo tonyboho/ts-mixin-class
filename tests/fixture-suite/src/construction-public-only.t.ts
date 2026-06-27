@@ -5,7 +5,7 @@ import { Base } from "ts-mixin-class/base"
 
 
 class Model extends Base {
-    public id: string = ""
+    public id!: string = ""
     public name?: string = ""
 }
 
@@ -26,14 +26,14 @@ void [ model21, model22 ]
 
 
 class ConstructableBase extends Base {
-    public baseValue: string = "base"
+    public baseValue!: string = "base"
     public optionalBaseValue?: string
     skippedBaseValue: string = "skipped"
 }
 
 @mixin()
 class ConstructableMixin {
-    public mixinValue: number = 0
+    public mixinValue!: number = 0
     public optionalMixinValue?: number
     skippedMixinValue: number = -1
 
@@ -43,7 +43,7 @@ class ConstructableMixin {
 }
 
 class ConstructableConsumer extends ConstructableBase implements ConstructableMixin {
-    public ownValue: boolean = false
+    public ownValue!: boolean = false
     public optionalOwnValue?: boolean
     public definiteOwnValue!: string
     skippedOwnValue: boolean = false

@@ -10,8 +10,8 @@ import { Base } from "ts-mixin-class/base"
 // `tests/construction-settable-accessor-config.t.ts`. This fixture only covers the parts
 // that compile today.)
 class Profile extends Base {
-    public first: string = ""
-    public last: string  = ""
+    public first!: string = ""
+    public last!: string  = ""
 
     // get/set pair — not a config field.
     public get full(): string {

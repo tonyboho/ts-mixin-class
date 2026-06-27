@@ -4,13 +4,13 @@ import { Base, mixin } from "ts-mixin-class"
 
 
 class GenericBase<T> extends Base {
-    public genericBaseValue: T | undefined
+    public genericBaseValue!: T | undefined
     skippedGenericBaseValue: T | undefined
 }
 
 @mixin()
 class GenericMixin<T> {
-    public genericMixinValue: T | undefined
+    public genericMixinValue!: T | undefined
     skippedGenericMixinValue: T | undefined
 
     genericMixinMethod(): T | undefined {
@@ -19,17 +19,17 @@ class GenericMixin<T> {
 }
 
 class GenericConsumer<T> extends GenericBase<T> implements GenericMixin<T> {
-    public genericOwnValue: T | undefined
+    public genericOwnValue!: T | undefined
     skippedGenericOwnValue: T | undefined
 }
 
 @mixin()
 class GenericContainerMixin {
-    public touched: boolean = false
+    public touched!: boolean = false
 }
 
 class GenericContainer<T> extends Base implements GenericContainerMixin {
-    public item: T | undefined
+    public item!: T | undefined
 }
 
 const genericConstructed = GenericConsumer.new({

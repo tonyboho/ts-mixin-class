@@ -16,7 +16,7 @@ it("emits an exported named config alias and references it from the generated st
         import { Base } from "ts-mixin-class/base"
 
         export class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
             public name?: string = ""
         }
     `))
@@ -34,22 +34,52 @@ it("emits an exported named config alias and references it from the generated st
     )
 })
 
+it("marks required config keys with `!` and lets a `!` field keep an initializer", async (t: Test) => {
+    // The required/optional split is driven by the definite-assignment `!`: `id!` is a required
+    // config key, the unmarked `label` is optional. A `!` field may also carry an initializer
+    // (a default); TypeScript forbids `!` + initializer (TS1263), so the transformer strips the
+    // `!` from the emitted property, leaving a clean `id: string = "anon"` — and never widens it.
+    const transformedFile = transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        export class Model extends Base {
+            public id!: string = "anon"
+            public label: string = ""
+        }
+
+        const created = Model.new({ id : "x" })
+        const id: string = created.id
+        void [ created, id ]
+    `))
+    const printed         = printSourceFile(ts, transformedFile)
+    const messages        = typecheckText(printed).join("\n")
+
+    t.is(messages, "", "A `!` field with an initializer compiles (no TS1263) and `.new` only requires it")
+    t.match(
+        printed,
+        "export type ModelConfig = Pick<Model, \"id\"> & Partial<Pick<Model, \"label\">>;",
+        "`!` makes `id` a required key; the unmarked `label` is an optional key"
+    )
+    t.match(printed, "id: string = \"anon\"", "The emitted `!` field keeps its default and drops the now-illegal `!`")
+    t.notMatch(printed, "id!: string", "The definite-assignment `!` is stripped from the emitted property")
+})
+
 it("emits a generic config alias carrying the class type parameters", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class GenericBase<T> extends Base {
-            public baseValue: T | undefined
+            public baseValue!: T | undefined
             public optionalBaseValue?: T
         }
 
         @mixin()
         class SourceClass<T> {
-            public mixinValue: T | undefined
+            public mixinValue!: T | undefined
         }
 
         export class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
-            public ownValue: T | undefined
+            public ownValue!: T | undefined
         }
     `))
     const printed         = printSourceFile(ts, transformedFile)
@@ -72,8 +102,8 @@ it("names the config alias in `.new(...)` type errors instead of an inline Pick"
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
-            public role: string = ""
+            public id!: string = ""
+            public role!: string = ""
         }
 
         Model.new({ id : "x" })
@@ -91,7 +121,7 @@ it("exports the config alias for reuse as a factory parameter or annotation", as
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
             public name?: string = ""
         }
 
@@ -113,7 +143,7 @@ it("rejects a missing required field when the alias is used as a factory paramet
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
         }
 
         const bad: ModelConfig = {}
@@ -129,7 +159,7 @@ it("lets a consumer type its initialize override with the strict config alias", 
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
             public name?: string = ""
 
             override initialize(config: ModelConfig): void {
@@ -151,7 +181,7 @@ it("keeps the initialize override body strictly typed against the config alias",
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
 
             override initialize(config: ModelConfig): void {
                 super.initialize(config)
@@ -173,7 +203,7 @@ it("lets a mixin type its initialize override with its own config alias and a co
 
         @mixin()
         class A extends Base {
-            public a: string = ""
+            public a!: string = ""
 
             override initialize(config: AConfig): void {
                 super.initialize(config)
@@ -183,7 +213,7 @@ it("lets a mixin type its initialize override with its own config alias and a co
 
         @mixin()
         class B extends Base {
-            public b: number = 0
+            public b!: number = 0
 
             override initialize(config: BConfig): void {
                 super.initialize(config)
@@ -192,7 +222,7 @@ it("lets a mixin type its initialize override with its own config alias and a co
         }
 
         class C extends Base implements A, B {
-            public c: boolean = false
+            public c!: boolean = false
         }
 
         const created = C.new({ a : "x", b : 1, c : true })
@@ -222,7 +252,7 @@ it("supports an initialize override through a mixin dependency chain", async (t:
 
         @mixin()
         class Identified extends Base {
-            public id: string = ""
+            public id!: string = ""
 
             override initialize(config: IdentifiedConfig): void {
                 super.initialize(config)
@@ -235,7 +265,7 @@ it("supports an initialize override through a mixin dependency chain", async (t:
         // reads; the consumer below merges the whole chain.
         @mixin()
         class Audited implements Identified {
-            public audited: boolean = false
+            public audited!: boolean = false
 
             override initialize(config: IdentifiedConfig): void {
                 super.initialize(config)
@@ -243,7 +273,7 @@ it("supports an initialize override through a mixin dependency chain", async (t:
         }
 
         class Record extends Base implements Audited {
-            public name: string = ""
+            public name!: string = ""
 
             override initialize(config: RecordConfig): void {
                 super.initialize(config)
@@ -265,7 +295,7 @@ it("lets a plain class extend a construction mixin and add a required config fie
 
         @mixin()
         class Timestamped extends Base {
-            public createdAt: Date = new Date()
+            public createdAt!: Date = new Date()
         }
 
         // NOTE: extending a mixin directly is NOT the idiomatic pattern - a class should
@@ -275,7 +305,7 @@ it("lets a plain class extend a construction mixin and add a required config fie
         // REQUIRED field keeps an assignable generated \`static new(props: EventConfig)\` - no
         // TS2417 static-side clash.
         class Event extends Timestamped {
-            public name: string = ""
+            public name!: string = ""
         }
 
         const created = Event.new({ createdAt : new Date(), name : "x" })
@@ -297,7 +327,7 @@ it("supports a three-level chain where each construction mixin/consumer override
 
         @mixin()
         class Mixin1 extends Base {
-            public one: string = ""
+            public one!: string = ""
             override initialize(config: Mixin1Config): void { super.initialize(config) }
         }
 
@@ -306,12 +336,12 @@ it("supports a three-level chain where each construction mixin/consumer override
         // gets the protocol member even though the class declares its own initialize.
         @mixin()
         class Mixin2 extends Base implements Mixin1 {
-            public two: number = 0
+            public two!: number = 0
             override initialize(config: Mixin2Config): void { super.initialize(config) }
         }
 
         class Consumer extends Base implements Mixin2 {
-            public three: boolean = false
+            public three!: boolean = false
             override initialize(config: ConsumerConfig): void { super.initialize(config) }
         }
 
@@ -338,13 +368,13 @@ it("lets a construction mixin apply several initialize-overriding mixins without
 
         @mixin()
         class A extends Base {
-            public a: string = ""
+            public a!: string = ""
             override initialize(config: AConfig): void { super.initialize(config) }
         }
 
         @mixin()
         class B extends Base {
-            public b: number = 0
+            public b!: number = 0
             override initialize(config: BConfig): void { super.initialize(config) }
         }
 
@@ -353,11 +383,11 @@ it("lets a construction mixin apply several initialize-overriding mixins without
         // the protocol member is injected so the merge does not fail with TS2320.
         @mixin()
         class Combined extends Base implements A, B {
-            public x: boolean = false
+            public x!: boolean = false
         }
 
         class Holder extends Base implements Combined {
-            public h: string = ""
+            public h!: string = ""
         }
 
         const created = Holder.new({ a : "x", b : 1, x : true, h : "h" })
@@ -390,7 +420,7 @@ it("keeps a mixin's initialize override body strictly typed against its own conf
 
         @mixin()
         class A extends Base {
-            public a: string = ""
+            public a!: string = ""
 
             override initialize(config: AConfig): void {
                 super.initialize(config)
@@ -438,7 +468,7 @@ it("falls back to a suffixed alias name when the class name is already taken", a
         type ModelConfig = { custom : string }
 
         export class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
         }
 
         const user: ModelConfig = { custom : "x" }

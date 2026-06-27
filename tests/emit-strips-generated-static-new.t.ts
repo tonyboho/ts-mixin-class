@@ -16,8 +16,8 @@ const constructionClassText = `
 import { Base } from "ts-mixin-class/base"
 
 export class Account extends Base {
-    public id: string = ""
-    public balance: number = 0
+    public id!: string = ""
+    public balance!: number = 0
     public label?: string
 }
 

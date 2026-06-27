@@ -16,12 +16,12 @@ const text = `
 import { Base } from "ts-mixin-class/base"
 
 export class Account extends Base {
-    public id: string = ""
+    public id!: string = ""
     public label?: string
 }
 
 class Local extends Base {
-    public token: string = ""
+    public token!: string = ""
 }
 
 const account = Account.new({ id: "a1" })

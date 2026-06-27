@@ -11,38 +11,38 @@ import { Base, mixin } from "ts-mixin-class"
 // Direct `new X()` stays disabled at every depth.
 
 class RootModel extends Base {
-    public id: string = ""
+    public id!: string = ""
 }
 
 @mixin()
 class AuditMixin {
-    public auditedBy: string = ""
+    public auditedBy!: string = ""
 }
 
 // A mixin that depends on another mixin: a consumer of `TimestampMixin` must also
 // pull in `AuditMixin`'s config transitively.
 @mixin()
 class TimestampMixin implements AuditMixin {
-    public createdAt: number = 0
+    public createdAt!: number = 0
 }
 
 // A construction *consumer* (extends a `Base` descendant + consumes a mixin), used
 // here as an intermediate base for the subclasses below. It consumes only
 // `TimestampMixin`, but its config must still include `AuditMixin.auditedBy`.
 class UserModel extends RootModel implements TimestampMixin {
-    public name: string = ""
+    public name!: string = ""
 }
 
 // One level past the consumer: must see `id` (extends chain through RootModel),
 // `createdAt` + `auditedBy` (UserModel's mixin and its transitive dependency),
 // `name` (UserModel's own), and its own `role`.
 class AdminModel extends UserModel {
-    public role: string = ""
+    public role!: string = ""
 }
 
 // Two levels past the consumer: adds `scope` on top of everything above.
 class SuperAdminModel extends AdminModel {
-    public scope: string = ""
+    public scope!: string = ""
 }
 
 // @ts-expect-error direct `new` stays disabled on a transitive construction subclass.

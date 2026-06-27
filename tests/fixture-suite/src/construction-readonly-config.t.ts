@@ -12,7 +12,7 @@ import { Base } from "ts-mixin-class/base"
 class Point extends Base {
     public readonly x!: number
     public readonly y!: number
-    public label: string = ""
+    public label!: string = ""
 }
 
 const p = Point.new({ x : 1, y : 2, label : "origin-ish" })

@@ -236,9 +236,13 @@ function collectClassMemberFacts(
         const name = propertyNameText(tsInstance, member.name)
 
         if (name !== undefined) {
+            // A config key is REQUIRED only when the field carries a definite-assignment `!`
+            // (`public id!: T`); every other public field is an optional config key. The `!`
+            // reads as "supplied from outside" — exactly true for a value coming from `.new`'s
+            // config — and lets the field omit an initializer without a strict-init error.
             configProperties.push({
                 name,
-                optional : member.questionToken !== undefined
+                optional : member.exclamationToken === undefined
             })
         }
     }

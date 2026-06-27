@@ -12,8 +12,8 @@ class Entity {
 }
 
 class Registry<T extends Entity> extends Base {
-    public head: T | undefined
-    public count: number = 0
+    public head!: T | undefined
+    public count!: number = 0
 }
 
 const a = Registry.new({ head : { id : "a" }, count : 1 })

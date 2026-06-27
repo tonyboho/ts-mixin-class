@@ -177,21 +177,21 @@ it("generates public-only static construction config overloads by default", asyn
         import { Base, mixin } from "ts-mixin-class"
 
         class GenericBase<T> extends Base {
-            public baseValue: T | undefined
+            public baseValue!: T | undefined
             public optionalBaseValue?: T
             skippedBaseValue: T | undefined
         }
 
         @mixin()
         class SourceClass<T> {
-            public mixinValue: T | undefined
+            public mixinValue!: T | undefined
             public optionalMixinValue?: T
             skippedMixinValue: T | undefined
             mixinMethod (): T | undefined { return this.mixinValue }
         }
 
         export class Consumer<T> extends GenericBase<T> implements SourceClass<T> {
-            public ownValue: T | undefined
+            public ownValue!: T | undefined
             public optionalOwnValue?: T
             skippedOwnValue: T | undefined
         }
@@ -224,7 +224,7 @@ it("generates public-only static construction config overloads for plain Base de
         import { Base } from "ts-mixin-class/base"
 
         export class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
             public name?: string = ""
             skippedValue: string = ""
         }
@@ -250,15 +250,15 @@ it("generates construction members for transitive same-file Base descendants", a
         import { Base } from "ts-mixin-class/base"
 
         class GrandBase extends Base {
-            public g: string = ""
+            public g!: string = ""
         }
 
         class Mid extends GrandBase {
-            public m: number = 0
+            public m!: number = 0
         }
 
         class Leaf extends Mid {
-            public l: boolean = false
+            public l!: boolean = false
         }
     `))
     const printed         = printSourceFile(ts, transformedFile)
@@ -276,16 +276,16 @@ it("can emit undefined non-null initializers for public-only construction config
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue: number = undefined
+            public baseValue!: number = undefined
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue: string = undefined
+            public mixinValue!: string = undefined
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue: boolean = undefined
+            public ownValue!: boolean = undefined
             skippedValue: number = undefined
         }
     `), {
@@ -310,7 +310,7 @@ it("can emit undefined non-null initializers for plain Base descendants without 
         import { Base } from "ts-mixin-class/base"
 
         class PlainShape extends Base {
-            public value: number = undefined
+            public value!: number = undefined
         }
     `), {
         fillMissedInitializersWith : "undefined"

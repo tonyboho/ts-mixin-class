@@ -17,8 +17,8 @@ const aliasUsageText = trimIndent(`
     import { Base } from "ts-mixin-class/base"
 
     class Account extends Base {
-        public id: string = ""
-        public balance: number = 0
+        public id!: string = ""
+        public balance!: number = 0
         public label?: string
 
         override initialize(config?: AccountConfig): void {
@@ -31,7 +31,7 @@ const aliasUsageText = trimIndent(`
 
     class Box<T> extends Base {
         public value!: T
-        public tag: string = ""
+        public tag!: string = ""
 
         override initialize(config?: BoxConfig<T>): void {
             super.initialize(config)
@@ -194,7 +194,7 @@ const initializeOverrideText = trimIndent(`
 
     @mixin()
     class A extends Base {
-        public a: string = ""
+        public a!: string = ""
 
         override initialize(config?: AConfig): void {
             super.initialize(config)
@@ -203,7 +203,7 @@ const initializeOverrideText = trimIndent(`
 
     @mixin()
     class B extends Base {
-        public b: number = 0
+        public b!: number = 0
 
         override initialize(config?: BConfig): void {
             super.initialize(config)
@@ -211,7 +211,7 @@ const initializeOverrideText = trimIndent(`
     }
 
     class C extends Base implements A, B {
-        public c: boolean = false
+        public c!: boolean = false
     }
 
     const created = C.new({ a : "x", b : 1, c : true })
@@ -256,23 +256,23 @@ const mixinMergeText = trimIndent(`
 
     @mixin()
     class A extends Base {
-        public a: string = ""
+        public a!: string = ""
         override initialize(config: AConfig): void { super.initialize(config) }
     }
 
     @mixin()
     class B extends Base {
-        public b: number = 0
+        public b!: number = 0
         override initialize(config: BConfig): void { super.initialize(config) }
     }
 
     @mixin()
     class Combined extends Base implements A, B {
-        public x: boolean = false
+        public x!: boolean = false
     }
 
     class Holder extends Base implements Combined {
-        public h: string = ""
+        public h!: string = ""
     }
 
     const created = Holder.new({ a : "x", b : 1, x : true, h : "h" })
@@ -335,18 +335,18 @@ const chainText = trimIndent(`
 
     @mixin()
     class Mixin1 extends Base {
-        public one: string = ""
+        public one!: string = ""
         override initialize(config: Mixin1Config): void { super.initialize(config) }
     }
 
     @mixin()
     class Mixin2 extends Base implements Mixin1 {
-        public two: number = 0
+        public two!: number = 0
         override initialize(config: Mixin2Config): void { super.initialize(config) }
     }
 
     class Consumer extends Base implements Mixin2 {
-        public three: boolean = false
+        public three!: boolean = false
         override initialize(config: ConsumerConfig): void { super.initialize(config) }
     }
 
@@ -440,11 +440,11 @@ const extendsMixinText = trimIndent(`
 
     @mixin()
     class Timestamped extends Base {
-        public createdAt: Date = new Date()
+        public createdAt!: Date = new Date()
     }
 
     class Event extends Timestamped {
-        public name: string = ""
+        public name!: string = ""
     }
 
     const created = Event.new({ createdAt : new Date(), name : "x" })

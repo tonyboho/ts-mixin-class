@@ -13,8 +13,8 @@ import { Base } from "ts-mixin-class"
 // --- Non-generic ---------------------------------------------------------------
 
 class Account extends Base {
-    public id: string = ""
-    public balance: number = 0
+    public id!: string = ""
+    public balance!: number = 0
     public label?: string
 
     // The strict alias is a valid `initialize` parameter type for a non-mixin class.
@@ -37,7 +37,7 @@ const account: Account = Account.new({ id : "a1", balance : 100 })
 
 class Box<T> extends Base {
     public value!: T
-    public tag: string = ""
+    public tag!: string = ""
 
     // The generic alias `BoxConfig<T>` reuses the class type parameter in the override.
     override initialize(config?: BoxConfig<T>): void {

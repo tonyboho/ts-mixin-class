@@ -8,8 +8,8 @@ import { Base } from "ts-mixin-class/base"
 // config builder keys on declaration kind (property vs method), not on whether the type
 // happens to be a function.
 class Widget extends Base {
-    public label: string = ""
-    public onClick: () => string = () => "default"
+    public label!: string = ""
+    public onClick!: () => string = () => "default"
 
     // A declared method — excluded from config even though its type is also a function.
     describe(): string {

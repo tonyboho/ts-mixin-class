@@ -314,16 +314,16 @@ it("public-only construction config fills undefined initializers by default", as
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue: number = undefined
+            public baseValue!: number = undefined
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue: string = undefined
+            public mixinValue!: string = undefined
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue: boolean = undefined
+            public ownValue!: boolean = undefined
         }
 
         void ShapeConsumer
@@ -339,16 +339,16 @@ it("fillMissedInitializersWith \"nothing\" leaves the strict undefined-initializ
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue: number = undefined
+            public baseValue!: number = undefined
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue: string = undefined
+            public mixinValue!: string = undefined
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue: boolean = undefined
+            public ownValue!: boolean = undefined
         }
 
         void ShapeConsumer
@@ -373,18 +373,18 @@ it("can allow undefined initializers for public-only construction config fields"
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue: number = undefined
+            public baseValue!: number = undefined
             public optionalBaseValue?: number = undefined
             baseSkippedValue: number = undefined
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue: string = undefined
+            public mixinValue!: string = undefined
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue: boolean = undefined
+            public ownValue!: boolean = undefined
 
             constructor () {
                 super()
@@ -422,7 +422,7 @@ it("can allow undefined initializers for plain Base descendants", async (t: Test
         import { Base } from "ts-mixin-class/base"
 
         class PlainShape extends Base {
-            public value: number = undefined
+            public value!: number = undefined
         }
 
         const constructed = PlainShape.new({ value : 1 })
@@ -446,7 +446,7 @@ it("requires public-only config fields for plain Base descendants", async (t: Te
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            public id: string = ""
+            public id!: string = ""
             public name?: string = ""
             skippedValue: string = ""
         }

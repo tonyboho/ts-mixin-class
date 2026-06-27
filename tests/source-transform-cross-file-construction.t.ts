@@ -78,7 +78,7 @@ const providerText = `
     import { mixin } from "ts-mixin-class"
 
     export class AppBase extends Base {
-        public appValue: string = "app"
+        public appValue!: string = "app"
     }
 
     @mixin()
@@ -90,8 +90,8 @@ const providerText = `
 
     @mixin()
     export class DirectBaseMixin extends Base {
-        public mixinValue: number = 0
-        public tag: string = ""
+        public mixinValue!: number = 0
+        public tag!: string = ""
 
         // A mixin can type its \`initialize\` override with its own strict config alias;
         // the consumer's generated \`$base\` interface re-declares the \`Base.initialize\`
@@ -111,13 +111,13 @@ const providerText = `
 
     @mixin()
     export class TagMixin {
-        public label: string = ""
+        public label!: string = ""
     }
 
     // A construction *consumer* exported for another file to subclass. Its config
     // includes the consumed mixin's \`label\`, which the subclass's \`.new\` must see.
     export class TaggedBase extends Base implements TagMixin {
-        public ownBaseValue: string = ""
+        public ownBaseValue!: string = ""
     }
 `
 
@@ -132,7 +132,7 @@ it("regenerates construction members for an ordinary class extending an imported
                     import { AppBase } from "./provider.js"
 
                     class OrdinaryDerived extends AppBase {
-                        public ownValue: number = 0
+                        public ownValue!: number = 0
                     }
 
                     const instance = OrdinaryDerived.new({ appValue : "configured", ownValue : 7 })
@@ -174,7 +174,7 @@ it("reports a failing cross-file `.new(...)` call as a type error without crashi
                     import { AppBase } from "./provider.js"
 
                     class OrdinaryDerived extends AppBase {
-                        public ownValue: number = 0
+                        public ownValue!: number = 0
                     }
 
                     const bad = OrdinaryDerived.new({})
@@ -211,7 +211,7 @@ it("regenerates construction members for a consumer of an imported Base-descenda
                     import { FeatureMixin } from "./provider.js"
 
                     class FeatureConsumer implements FeatureMixin {
-                        public ownFlag: boolean = false
+                        public ownFlag!: boolean = false
                     }
 
                     const instance = FeatureConsumer.new({ appValue : "configured", ownFlag : true })
@@ -247,7 +247,7 @@ it("supports a consumer of an imported mixin that extends Base directly, includi
                     import { DirectBaseMixin } from "./provider.js"
 
                     class DirectConsumer implements DirectBaseMixin {
-                        public ownFlag: boolean = false
+                        public ownFlag!: boolean = false
                     }
 
                     const instance = DirectConsumer.new({ mixinValue : 7, tag : "", ownFlag : true })
@@ -293,7 +293,7 @@ it("aggregates an imported construction consumer's mixin config when subclassed 
                     import { TaggedBase } from "./provider.js"
 
                     class TaggedSubclass extends TaggedBase {
-                        public extra: string = ""
+                        public extra!: string = ""
                     }
 
                     // Passing the imported base's mixin field (\`label\`) must typecheck:
@@ -338,7 +338,7 @@ it("aggregates transitive mixin config for a consumer across three files", async
 
                     @mixin()
                     export class Audit {
-                        public auditField: string = ""
+                        public auditField!: string = ""
                     }
                 `
             },
@@ -351,7 +351,7 @@ it("aggregates transitive mixin config for a consumer across three files", async
 
                     @mixin()
                     export class Timestamp extends Base implements Audit {
-                        public timestampField: number = 0
+                        public timestampField!: number = 0
                     }
                 `
             },
@@ -361,7 +361,7 @@ it("aggregates transitive mixin config for a consumer across three files", async
                     import { Timestamp } from "./timestamp.js"
 
                     class Doc implements Timestamp {
-                        public docField: boolean = false
+                        public docField!: boolean = false
                     }
 
                     // Passing the two-hop transitive field (\`auditField\`, from audit.ts)
@@ -407,7 +407,7 @@ it("aggregates transitive registry mixin config when subclassing an imported bas
 
                     @mixin()
                     export class Audit {
-                        public auditField: string = ""
+                        public auditField!: string = ""
                     }
                 `
             },
@@ -419,7 +419,7 @@ it("aggregates transitive registry mixin config when subclassing an imported bas
 
                     @mixin()
                     export class Timestamp implements Audit {
-                        public timestampField: number = 0
+                        public timestampField!: number = 0
                     }
                 `
             },
@@ -430,7 +430,7 @@ it("aggregates transitive registry mixin config when subclassing an imported bas
                     import { Timestamp } from "./timestamp.js"
 
                     export class Model extends Base implements Timestamp {
-                        public modelField: string = ""
+                        public modelField!: string = ""
                     }
                 `
             },
@@ -440,7 +440,7 @@ it("aggregates transitive registry mixin config when subclassing an imported bas
                     import { Model } from "./model.js"
 
                     class Admin extends Model {
-                        public adminField: boolean = false
+                        public adminField!: boolean = false
                     }
 
                     // \`auditField\` is two mixin hops above the imported base \`Model\`
@@ -489,7 +489,7 @@ it("carries transitive construction config through a declaration (.d.ts) package
 
                 @mixin()
                 export class Audit {
-                    public auditField: string = ""
+                    public auditField!: string = ""
                 }
             `
         },
@@ -502,7 +502,7 @@ it("carries transitive construction config through a declaration (.d.ts) package
 
                 @mixin()
                 export class Timestamp extends Base implements Audit {
-                    public timestampField: number = 0
+                    public timestampField!: number = 0
                 }
             `
         }
@@ -555,7 +555,7 @@ it("makes a consumer of a declaration (.d.ts) construction-base mixin constructi
 
                 @mixin()
                 export class Audit {
-                    public auditField: string = ""
+                    public auditField!: string = ""
                 }
             `
         },
@@ -568,7 +568,7 @@ it("makes a consumer of a declaration (.d.ts) construction-base mixin constructi
 
                 @mixin()
                 export class Timestamp extends Base implements Audit {
-                    public timestampField: number = 0
+                    public timestampField!: number = 0
                 }
             `
         }
@@ -584,7 +584,7 @@ it("makes a consumer of a declaration (.d.ts) construction-base mixin constructi
                     import { Timestamp } from "construction-lib/timestamp"
 
                     class Doc implements Timestamp {
-                        public docField: boolean = false
+                        public docField!: boolean = false
                     }
 
                     const doc = Doc.new({ auditField : "a", timestampField : 1, docField : true })
@@ -622,7 +622,7 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
                 import { Base } from "ts-mixin-class/base"
 
                 export class AppBase extends Base {
-                    public appValue: string = ""
+                    public appValue!: string = ""
                 }
             `
         }
@@ -638,7 +638,7 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
                     import { AppBase } from "app-base-lib/app-base"
 
                     class Widget extends AppBase {
-                        public ownValue: number = 0
+                        public ownValue!: number = 0
                     }
 
                     const widget = Widget.new({ appValue : "x", ownValue : 7 })

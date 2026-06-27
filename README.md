@@ -75,6 +75,9 @@ Include `ts-mixin-class` as a compiler plugin in `tsconfig.json`:
             {
                 "transform": "ts-mixin-class",
                 "transformProgram": true
+            },
+            {
+                "name": "ts-mixin-class/language-service-plugin"
             }
         ]
     }

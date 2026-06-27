@@ -3,14 +3,15 @@ import { propertyNameText, type FillMissedInitializersWith, type TransformOption
 import { hasModifier, preserveTextRange } from "./util.js"
 import type { TypeScript } from "./util.js"
 
-// Normalize a construction class's public field initializers. Two concerns, both about giving
+// Normalize a construction class's instance field initializers. Two concerns, both about giving
 // every instance a stable object shape and keeping the new `!`-required-config convention legal:
 //
-//   1. Fill (option `fillMissedInitializersWith`, default "undefined"): a field with no source
+//   1. Fill (option `fillMissedInitializersWith`, default "undefined"): a field with NO source
 //      initializer is given one, so the slot exists on every instance (monomorphic property
 //      access). The value is a non-null assertion (`undefined!` / `null!`, type `never`) so the
 //      property type is never widened, and prints to `.js` as plain `field = undefined`/`= null`.
-//      "nothing" disables filling.
+//      "nothing" disables filling. A field that already has an initializer is NEVER touched by
+//      fill — an explicit `= undefined` on a non-nullable field stays a real type error.
 //   2. Definite-assignment `!`: a `public id!: T` field marks a REQUIRED config key. TypeScript
 //      forbids an initializer on a `!` field (TS1263), so whenever the field ends up with an
 //      initializer (filled, or one the user wrote), the `!` is stripped — leaving a clean
@@ -69,33 +70,25 @@ function normalizeFieldInitializer(
         return member
     }
 
-    const fillKeyword  = fill === "null" ? "null" : "undefined"
-    const fillEnabled  = fill !== "nothing"
-    const hasInitiator = member.initializer !== undefined
-
-    if (hasInitiator) {
-        // Normalize a bare `= undefined` / `= null` that would not assign to a non-nullable type
-        // into the `<keyword>!` form; otherwise keep the real initializer, only stripping a `!`.
-        const replaceWithFill = fillEnabled &&
-            isBareFillKeyword(tsInstance, member.initializer, fillKeyword)
-
-        if (!replaceWithFill && member.exclamationToken === undefined) {
+    // A field that ALREADY has an initializer is never filled: fill only supplies a value where
+    // none was written. An explicit `= undefined` / `= null` on a non-nullable field therefore
+    // stays a genuine type error (TS2322) instead of being silently rewritten. The only rewrite
+    // for an initialized field is stripping a definite-assignment `!` (illegal with an
+    // initializer, TS1263) — e.g. `id!: T = value` becomes `id: T = value`.
+    if (member.initializer !== undefined) {
+        if (member.exclamationToken === undefined) {
             return member
         }
 
-        const initializer = replaceWithFill
-            ? preserveTextRange(tsInstance, createFillExpression(tsInstance, fillKeyword), member.initializer)
-            : member.initializer
-
-        return rebuildPropertyWithInitializer(tsInstance, member, initializer)
+        return rebuildPropertyWithInitializer(tsInstance, member, member.initializer)
     }
 
-    // No initializer: fill it (unless "nothing"); a `!` field with no initializer keeps its `!`.
-    if (!fillEnabled) {
+    // No initializer: fill it (unless "nothing"). A `!` field with no initializer keeps its `!`.
+    if (fill === "nothing") {
         return member
     }
 
-    return rebuildPropertyWithInitializer(tsInstance, member, createFillExpression(tsInstance, fillKeyword))
+    return rebuildPropertyWithInitializer(tsInstance, member, createFillExpression(tsInstance, fill))
 }
 
 // Rebuild the property with the given initializer, dropping a definite-assignment `!` (illegal
@@ -125,16 +118,6 @@ function createFillExpression(
         : tsInstance.factory.createIdentifier("undefined")
 
     return tsInstance.factory.createNonNullExpression(value)
-}
-
-function isBareFillKeyword(
-    tsInstance: TypeScript,
-    expression: ts.Expression,
-    fillKeyword: "undefined" | "null"
-): boolean {
-    return fillKeyword === "null"
-        ? expression.kind === tsInstance.SyntaxKind.NullKeyword
-        : tsInstance.isIdentifier(expression) && expression.text === "undefined"
 }
 
 // Fill targets EVERY instance field, not just public/config ones — a stable object shape is a

@@ -309,21 +309,21 @@ it("manual mix property application typechecks", async (t: Test) => {
     t.expect(diagnostics).toEqual([])
 })
 
-it("public-only construction config fills undefined initializers by default", async (t: Test) => {
+it("fills missing initializers by default", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue!: number = undefined
+            public baseValue!: number
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue!: string = undefined
+            public mixinValue!: string
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue!: boolean = undefined
+            public ownValue!: boolean
         }
 
         void ShapeConsumer
@@ -334,38 +334,42 @@ it("public-only construction config fills undefined initializers by default", as
     t.expect(diagnostics).toEqual([])
 })
 
-it("fillMissedInitializersWith \"nothing\" leaves the strict undefined-initializer diagnostics", async (t: Test) => {
+it("does not fill an explicit `= undefined` — it stays a type error even in the default mode", async (t: Test) => {
+    // Fill only supplies a value where NONE was written. An explicit `= undefined` on a
+    // non-nullable field is the user writing a bug, so it must remain a TS2322 type error — it
+    // is never silently rewritten to `undefined!`, not even under the default "undefined" mode.
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue!: number = undefined
+            public baseValue: number = undefined
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue!: string = undefined
+            public mixinValue: string = undefined
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue!: boolean = undefined
+            public ownValue: boolean = undefined
         }
 
         void ShapeConsumer
     `), {
-        fillMissedInitializersWith : "nothing"
+        // The default mode; the point is that fill does NOT rescue an explicit `= undefined`.
+        fillMissedInitializersWith : "undefined"
     })
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
     const messages    = diagnostics.join("\n")
 
-    t.match(messages, "TS2322", "Plain undefined initializer is rejected when fill is disabled")
+    t.match(messages, "TS2322", "An explicit `= undefined` is a type error, not silently filled")
     t.match(messages, "Type 'undefined' is not assignable to type 'number'",
-        "Base public-only config field keeps the original strict initializer diagnostic")
+        "Base field's explicit `= undefined` is rejected")
     t.match(messages, "Type 'undefined' is not assignable to type 'string'",
-        "Mixin public-only config field keeps the original strict initializer diagnostic")
+        "Mixin field's explicit `= undefined` is rejected")
     t.match(messages, "Type 'undefined' is not assignable to type 'boolean'",
-        "Consumer public-only config field keeps the original strict initializer diagnostic")
+        "Consumer field's explicit `= undefined` is rejected")
 })
 
 it("fills undefined initializers for all construction fields regardless of visibility", async (t: Test) => {
@@ -373,20 +377,20 @@ it("fills undefined initializers for all construction fields regardless of visib
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue!: number = undefined
-            public optionalBaseValue?: number = undefined
-            protected protectedValue: number = undefined
-            baseSkippedValue: number = undefined
+            public baseValue!: number
+            public optionalBaseValue?: number
+            protected protectedValue: number
+            baseSkippedValue: number
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue!: string = undefined
+            public mixinValue!: string
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue!: boolean = undefined
-            private hiddenValue: string = undefined
+            public ownValue!: boolean
+            private hiddenValue: string
 
             constructor () {
                 super()
@@ -422,12 +426,12 @@ it("fills undefined initializers for all construction fields regardless of visib
     t.match(printed, "hiddenValue: string = undefined!", "A private field is filled")
 })
 
-it("can allow undefined initializers for plain Base descendants", async (t: Test) => {
+it("fills missing initializers for plain Base descendants", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"
 
         class PlainShape extends Base {
-            public value!: number = undefined
+            public value!: number
         }
 
         const constructed = PlainShape.new({ value : 1 })

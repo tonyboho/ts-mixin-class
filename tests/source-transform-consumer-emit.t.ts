@@ -276,17 +276,17 @@ it("emits undefined non-null initializers for construction fields of every visib
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
-            public baseValue!: number = undefined
+            public baseValue!: number
         }
 
         @mixin()
         class ShapeMixin {
-            public mixinValue!: string = undefined
+            public mixinValue!: string
         }
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
-            public ownValue!: boolean = undefined
-            skippedValue: number = undefined
+            public ownValue!: boolean
+            skippedValue: number
         }
     `), {
         fillMissedInitializersWith : "undefined"
@@ -310,7 +310,7 @@ it("can emit undefined non-null initializers for plain Base descendants without 
         import { Base } from "ts-mixin-class/base"
 
         class PlainShape extends Base {
-            public value!: number = undefined
+            public value!: number
         }
     `), {
         fillMissedInitializersWith : "undefined"

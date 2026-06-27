@@ -1,5 +1,11 @@
 # ts-mixin-class — internals guide for agents
 
+> **Maintaining this doc — never delete a superseded invariant or approach.** When a change
+> supersedes something documented here, do NOT remove it: keep its reasoning, demote it, and mark it
+> **superseded (kept for context)**, then note what replaced it and why it no longer applies. The
+> *why* of a past approach — and the traps it avoided — keeps its value; a future reader re-deriving it
+> would re-hit the same pitfalls. Git history is not a substitute for what is read in-context here.
+
 ## Architecture in one screen
 
 `ts-mixin-class` is a **ts-patch `ProgramTransformer`** (`transformProgram: true`) that turns

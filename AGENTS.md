@@ -397,20 +397,27 @@ instance type) has its own rules:
    starting past the on-disk document length and REMAPS a go-to-definition hit on the appended alias
    back to the owning class. Without it, find-references / rename / definition return phantom tail
    spans (caught by the `stress-references` plane). Guarded by `tsserver-config-alias-navigation.t.ts`.
-   It is listed AFTER the class and BOTH modes collapse the whole
-   subtree to one real anchor at `declaration.end` (the gap just past the closing brace).
-   `positionConstructionConfigAlias` owns this; three constraints force that exact placement:
+   It is listed AFTER the class and `positionConstructionConfigAlias` collapses the whole subtree
+   to one real anchor at `declaration.end` (the gap just past the closing brace). That anchor is
+   load-bearing for EMIT; **source view supersedes the position** — the append swaps in the
+   reparsed tail node, so the alias's source-view span is in the tail, not here. Two constraints
+   force the exact emit anchor:
      - an *in-class* anchor (`members.end`) overlaps the class and strands an identifier in trivia
        (invariant #5), so it must be OUTSIDE the class;
      - a `[-1,-1]` (off-screen) collapse scatters a perturbed-config diagnostic to an unrelated line
-       and breaks stress parity, so it must be a REAL position (shared by both modes for column
-       parity, like the `static new` members); and
-     - because the alias is source-referenced (`initialize(config?: <Name>Config)`), its `.original`
-       (the class) escapes into the unbound source-view clone — a real, in-tree position lets
-       `alignGeneratedNavigableNodesWithParseTree` clear the alias's `Synthesized` flag (it is listed
-       in `isNavigableGeneratedNodeKind`), so `getParseTreeNode` resolves it to itself instead of
-       walking into the clone and crashing find-references / quickinfo display in
-       `forEachSymbolTableInScope`.
+       and breaks stress parity, so it must be a REAL position (like the `static new` members).
+   `positionConstructionConfigAlias` also sets the alias's `.original` (the class), which the append
+   step reads to detect it.
+   - **Superseded (kept for context):** a third constraint once forced a real *in-tree* position. The
+     alias is source-referenced (`initialize(config?: <Name>Config)`) and its `.original` (the class)
+     escapes into the unbound source-view clone, so a real position let
+     `alignGeneratedNavigableNodesWithParseTree` clear the alias's `Synthesized` flag (it was listed in
+     `isNavigableGeneratedNodeKind`) and `getParseTreeNode` resolve it to itself, instead of walking
+     into the clone and crashing find-references / quickinfo display in `forEachSymbolTableInScope`.
+     This no longer applies: the append replaces the synthetic alias with a **real reparsed node**
+     (never synthetic, no `.original`), so the alignment pass cannot act on it — `TypeAliasDeclaration`
+     was dropped from `isNavigableGeneratedNodeKind`. (The constraint still holds for the analogous
+     `MethodSignature` protocol member below, which is NOT appended.)
    Guarded by the alias tests, `tsserver-construction-config-alias.t.ts`, the
    `construction-config-alias-usage.t.ts` corpus fixture (so every stress probe targets the alias
    identifier), the stress parity corpus, and the trivia-strand test.

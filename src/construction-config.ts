@@ -228,16 +228,18 @@ export function createConstructionMembers(
 }
 
 // Positions the generated `<ClassName>Config` alias, a sibling top-level statement the
-// caller lists AFTER the class. BOTH modes collapse the whole subtree to one real anchor
-// at `declaration.end` - the gap just past the closing brace, OUTSIDE the class body,
-// where the alias overlaps no sibling and no navigable user token:
-//   - it is a real, in-tree position, so `alignGeneratedNavigableNodesWithParseTree`
-//     clears the alias's `Synthesized` flag and `getParseTreeNode` resolves it to itself
-//     rather than walking `.original` into the unbound source-view clone and crashing
-//     when a user reference to the alias renders its display (find-references / quickinfo);
-//   - collapsing maps a perturbed config key that errors inside the alias body (e.g.
-//     TS2344) to the anchor column in both modes, so emit and source view stay parity-
-//     aligned (the same trick the construction `static new` members use); and
+// caller lists AFTER the class, collapsing the whole subtree to one real anchor at
+// `declaration.end` - the gap just past the closing brace, OUTSIDE the class body, where the
+// alias overlaps no sibling and no navigable user token. This anchor is load-bearing for
+// EMIT; SOURCE VIEW supersedes the position - it appends the alias as REAL text past the file
+// end and swaps in the reparsed node (`appendGeneratedConfigAliasesAsRealText`), so its
+// source-view span comes from the tail, not from here. This call still sets the alias's
+// `.original` (the class), which the append step uses to detect it. Two reasons for the exact
+// anchor (both about emit; the tail handles source view):
+//   - collapsing maps a perturbed config key that errors inside the alias body (e.g. TS2344)
+//     to the anchor column, keeping emit parity-aligned with source view (the same trick the
+//     construction `static new` members use); a `[-1,-1]` off-screen collapse would scatter
+//     the diagnostic to an unrelated line; and
 //   - being outside the class, it strands no identifier in trivia (invariant #5).
 export function positionConstructionConfigAlias(
     tsInstance: TypeScript,

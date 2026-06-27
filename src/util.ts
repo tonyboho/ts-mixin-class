@@ -508,11 +508,6 @@ function isNavigableGeneratedNodeKind(tsInstance: TypeScript, node: ts.Node): bo
     return tsInstance.isClassDeclaration(node) ||
         tsInstance.isClassExpression(node) ||
         tsInstance.isInterfaceDeclaration(node) ||
-        // The generated `<ClassName>Config` alias is a real-positioned sibling whose
-        // `.original` (the class) escapes into the unbound source-view clone; a user
-        // reference to it (`initialize(config?: AccountConfig)`) otherwise walks
-        // `getParseTreeNode` there and crashes the checker / declaration emit.
-        tsInstance.isTypeAliasDeclaration(node) ||
         tsInstance.isIdentifier(node) ||
         tsInstance.isTypeParameterDeclaration(node) ||
         tsInstance.isTypeReferenceNode(node) ||

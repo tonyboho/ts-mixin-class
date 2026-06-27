@@ -81,22 +81,23 @@ export function createSourceFile(input: SourceInput): ts.SourceFile {
 }
 
 export type CommonTransformOptions = {
-    packageName?                         : string,
-    allowUndefinedForRequiredProperties? : boolean
+    packageName?                : string,
+    fillMissedInitializersWith? : "undefined" | "null" | "nothing"
 }
 
-// Transform options shared by every script: `--package-name <name>` and the
-// `--allow-undefined` flag (maps to `allowUndefinedForRequiredProperties`).
+// Transform options shared by every script: `--package-name <name>` and
+// `--fill-missed-initializers <undefined|null|nothing>` (maps to `fillMissedInitializersWith`).
 export function transformOptionsFromArgs(args: ParsedArgs): CommonTransformOptions {
     const options: CommonTransformOptions = {}
     const packageName                     = args.options.get("package-name")
+    const fill                            = args.options.get("fill-missed-initializers")
 
     if (packageName !== undefined) {
         options.packageName = packageName
     }
 
-    if (args.flags.has("allow-undefined")) {
-        options.allowUndefinedForRequiredProperties = true
+    if (fill === "undefined" || fill === "null" || fill === "nothing") {
+        options.fillMissedInitializersWith = fill
     }
 
     return options

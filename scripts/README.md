@@ -13,7 +13,7 @@ transformed if it imports `mixin` / `Base` from the package, e.g.
 `import { Base, mixin } from "ts-mixin-class"`.
 
 Common options: `--mode emit|ide|both`, `--package-name <name>`,
-`--allow-undefined` (sets `allowUndefinedForRequiredProperties`).
+`--fill-missed-initializers <undefined|null|nothing>` (sets `fillMissedInitializersWith`).
 
 `ide` = the position-preserving **source-view** pass (what tsserver / the IDE and
 `tsc --noEmit` use). `emit` = the printed pass (what `tsc` emits). Bugs usually

@@ -126,20 +126,6 @@ also at every consumer.
 
 ---
 
-## Known failing stress seeds
-
-- **`stress-edit` throws on seed `2081798705` (sourceView).** Reproduce:
-  `MIXIN_STRESS_SEED=2081798705 pnpm test` (test "transform survives randomized
-  editor-like edits across the fixture corpus"). The transform **throws** (not a clean
-  diagnostic) mid-edit with `Unsupported base class expression of a mixin consumer`. The
-  failing edit chain ends on `manual-mix-dependency.t.ts` deleting chars at `@843`
-  (`delete "p {\n "`), after edits to `empty-mixin.t.ts`, `default-mixin-consumer.t.ts`,
-  `mixin-self-reference.t.ts`. Likely a transient mid-edit source state where a consumer's
-  base expression parses as unsupported and the transform raises instead of degrading
-  gracefully. Pre-existing (surfaced by a full unfiltered run); not yet investigated.
-
----
-
 ## To reconsider
 
 - **Is the `instance.initialize(props) ?? instance` fallback in `Base.new` (`base.ts`)

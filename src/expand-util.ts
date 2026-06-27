@@ -169,6 +169,17 @@ export function createDiagnosticLiteralType(
     return tsInstance.factory.createLiteralTypeNode(tsInstance.factory.createStringLiteral(message))
 }
 
+// Placeholder entity used when a heritage expression is not a plain reference (an
+// identifier or qualified name). This only happens in a transient mid-edit state — e.g.
+// a deletion momentarily leaves a `@mixin` class's `implements`/`extends` as a string
+// literal or call — which the language service re-transforms on the next keystroke. We
+// must NOT throw there (it crashes tsserver mid-typing; the `stress-edit` contract is that
+// the transform survives any edit), so we degrade to a placeholder name. It surfaces as a
+// transient "cannot find name" at worst, never a crash. The principled entry points
+// (`requiredBaseType`, the consumer base guard) still filter unsupported bases via
+// `isSupportedBaseExpression`, so a *settled* program never reaches this fallback.
+const unsupportedBaseEntityName = "__tsMixinClassUnsupportedBase"
+
 export function expressionToEntityName(tsInstance: TypeScript, expression: ts.Expression): ts.EntityName {
     if (tsInstance.isIdentifier(expression)) {
         return tsInstance.factory.createIdentifier(expression.text)
@@ -181,7 +192,7 @@ export function expressionToEntityName(tsInstance: TypeScript, expression: ts.Ex
         )
     }
 
-    throw new Error("Unsupported base class expression of a mixin consumer")
+    return tsInstance.factory.createIdentifier(unsupportedBaseEntityName)
 }
 
 export function mixinValueIdentifier(tsInstance: TypeScript, ref: ResolvedMixinRef): ts.Identifier {

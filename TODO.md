@@ -60,6 +60,13 @@ diagnostic in both emit and source view), not left to fail at runtime. Detect th
 `extends` target resolves to a known mixin and emit a clear "mix in via `implements`, do not
 `extends` a mixin" diagnostic.
 
+### Sync the README Setup version on release
+
+The README `Setup` section hardcodes example versions in its `package.json` snippet
+(`"ts-mixin-class": "0.0.1"`, `"ts-patch": "4.0.1"`). They drift behind the published package.
+At each release, bump the `ts-mixin-class` version there to the just-published one (and refresh
+`ts-patch` to the current dependency). A small, easy-to-forget release-checklist step.
+
 ---
 
 ## Limitations (future tasks)

@@ -271,7 +271,7 @@ it("generates construction members for transitive same-file Base descendants", a
         "A transitive descendant regenerates static new with its own instance type")
 })
 
-it("can emit undefined non-null initializers for public-only construction config fields", async (t: Test) => {
+it("emits undefined non-null initializers for construction fields of every visibility", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
@@ -299,8 +299,8 @@ it("can emit undefined non-null initializers for public-only construction config
         "Mixin public-only config field gets a local undefined non-null initializer")
     t.match(printed, "public ownValue: boolean = undefined!",
         "Consumer public-only config field gets a local undefined non-null initializer")
-    t.match(printed, "skippedValue: number = undefined",
-        "Non-public field keeps the original strict initializer")
+    t.match(printed, "skippedValue: number = undefined!",
+        "A non-public field is filled too (fill is visibility-independent)")
     t.notMatch(printed, "number | undefined",
         "Declared property types are not widened")
 })

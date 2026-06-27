@@ -137,15 +137,21 @@ function isBareFillKeyword(
         : tsInstance.isIdentifier(expression) && expression.text === "undefined"
 }
 
+// Fill targets EVERY instance field, not just public/config ones — a stable object shape is a
+// runtime concern independent of visibility (`private`/`protected`/unmarked all benefit). The
+// exclusions are the fields that genuinely cannot or should not be filled:
+//   - `static` — not an instance field, so irrelevant to instance object shape;
+//   - `abstract` / `declare` — cannot carry an initializer;
+//   - no type annotation — `undefined!` (type `never`) would change the field's inferred type;
+//   - computed / `#private` names (no `propertyNameText`) — left out of scope for now.
 function isFillableProperty(
     tsInstance: TypeScript,
     member: ts.ClassElement
 ): member is ts.PropertyDeclaration & { type: ts.TypeNode } {
     return tsInstance.isPropertyDeclaration(member) &&
         !hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) &&
-        !hasModifier(tsInstance, member, tsInstance.SyntaxKind.PrivateKeyword) &&
-        !hasModifier(tsInstance, member, tsInstance.SyntaxKind.ProtectedKeyword) &&
-        hasModifier(tsInstance, member, tsInstance.SyntaxKind.PublicKeyword) &&
+        !hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) &&
+        !hasModifier(tsInstance, member, tsInstance.SyntaxKind.DeclareKeyword) &&
         member.type !== undefined &&
         propertyNameText(tsInstance, member.name) !== undefined
 }

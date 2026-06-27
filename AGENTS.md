@@ -282,10 +282,13 @@ instance type) has its own rules:
      added), emitting a clean `id: T = ...`. The strip runs in **both** paths and even when filling
      is `"nothing"`, so `id!: T = v` always compiles. A `!` field left with no initializer keeps its
      `!` (it satisfies `strictPropertyInitialization`).
-   - **`fillMissedInitializersWith` (default `"undefined"`).** A public construction field with no
-     source initializer is given one, so every instance has the slot (stable V8 object shape →
-     monomorphic access). The value is a **non-null assertion** (`undefined!` / `null!`, type
-     `never`) so the property type is never widened, printing to `.js` as `field = undefined`/`null`.
+   - **`fillMissedInitializersWith` (default `"undefined"`).** Any *instance* field with no source
+     initializer is given one — **of every visibility** (public/protected/private/unmarked), since a
+     stable object shape is a runtime concern independent of config/visibility; only `static`,
+     `abstract`, `declare`, and untyped fields are excluded (see `isFillableProperty`). So every
+     instance has the slot (stable V8 object shape → monomorphic access). The value is a **non-null
+     assertion** (`undefined!` / `null!`, type `never`) so it assigns to ANY field type without
+     widening it (`number`, not `number | undefined`), printing to `.js` as `field = undefined`/`null`.
      `"null"` / `"nothing"` are the other modes. **Invariant: this rewrite is emit-safe even on
      non-construction fields** — strip-`!`-plus-fill produces output identical to leaving the field
      alone when it already has a real initializer — which is why a blanket "add `!` to every required

@@ -368,13 +368,14 @@ it("fillMissedInitializersWith \"nothing\" leaves the strict undefined-initializ
         "Consumer public-only config field keeps the original strict initializer diagnostic")
 })
 
-it("can allow undefined initializers for public-only construction config fields", async (t: Test) => {
+it("fills undefined initializers for all construction fields regardless of visibility", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
             public baseValue!: number = undefined
             public optionalBaseValue?: number = undefined
+            protected protectedValue: number = undefined
             baseSkippedValue: number = undefined
         }
 
@@ -385,6 +386,7 @@ it("can allow undefined initializers for public-only construction config fields"
 
         class ShapeConsumer extends ShapeBase implements ShapeMixin {
             public ownValue!: boolean = undefined
+            private hiddenValue: string = undefined
 
             constructor () {
                 super()
@@ -401,7 +403,7 @@ it("can allow undefined initializers for public-only construction config fields"
         const mixinValue: string = constructed.mixinValue
         const ownValue: boolean = constructed.ownValue
 
-        // @ts-expect-error public-only config field type stays number, not number | undefined.
+        // @ts-expect-error fill does not widen the property type; it stays number.
         const stillStrict: undefined = constructed.baseValue
 
         void [ baseValue, mixinValue, ownValue, stillStrict ]
@@ -409,12 +411,15 @@ it("can allow undefined initializers for public-only construction config fields"
         fillMissedInitializersWith : "undefined"
     })
 
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
+    const printed     = printSourceFile(ts, transformedFile)
+    const diagnostics = typecheckText(printed)
 
-    t.equal(diagnostics.length, 1, "Only the non-public field keeps the strict undefined initializer diagnostic")
-    t.match(diagnostics[0], "TS2322", "The remaining diagnostic is the assignability error")
-    t.match(diagnostics[0], "Type 'undefined' is not assignable to type 'number'",
-        "The remaining diagnostic comes from the intentionally skipped field")
+    t.expect(diagnostics).toEqual([])
+    // Fill is a runtime shape concern, so it is visibility-independent: public, protected,
+    // private, and unmarked fields are all filled (none keeps a bare strict `= undefined`).
+    t.match(printed, "protectedValue: number = undefined!", "A protected field is filled")
+    t.match(printed, "baseSkippedValue: number = undefined!", "An unmarked (non-public) field is filled")
+    t.match(printed, "hiddenValue: string = undefined!", "A private field is filled")
 })
 
 it("can allow undefined initializers for plain Base descendants", async (t: Test) => {

@@ -10,6 +10,7 @@ import {
     type BenchReport
 } from "./lib/report.js"
 import { runCompile } from "./scenarios/compile.js"
+import { runConfigShape } from "./scenarios/config-shape.js"
 import { runTransformPass } from "./scenarios/transform-pass.js"
 import { runTsServerDiagnostics } from "./scenarios/tsserver-diagnostics.js"
 import { runTsServerEdit } from "./scenarios/tsserver-edit.js"
@@ -26,7 +27,9 @@ import { runTsServerEdit } from "./scenarios/tsserver-edit.js"
 // The compare loop: `--save base` before a change, `--baseline base` after it.
 // Every run also writes its rendered output to bench/results/report.txt.
 
-type Scenario = "all" | "compile" | "edit" | "transform" | "tsserver"
+// `config-shape` is investigative (it compares hypothetical config-type SHAPES with plain tsc, not
+// the transform), so it runs only when named explicitly — never as part of `all`.
+type Scenario = "all" | "compile" | "config-shape" | "edit" | "transform" | "tsserver"
 
 const transcript: string[] = []
 const reportFile           = path.join(resultsRoot, "report.txt")
@@ -69,6 +72,10 @@ async function runScenarios(scenario: Scenario, config: BenchConfig): Promise<Be
 
     if (scenario === "all" || scenario === "edit") {
         reports.push(await runTsServerEdit(config))
+    }
+
+    if (scenario === "config-shape") {
+        reports.push(await runConfigShape(config))
     }
 
     return reports
@@ -145,13 +152,16 @@ function requireValue(args: string[], index: number, flag: string): string {
 
 function scenarioArg(value: string): Scenario {
     if (
-        value === "all" || value === "compile" || value === "edit" ||
-        value === "transform" || value === "tsserver"
+        value === "all" || value === "compile" || value === "config-shape" ||
+        value === "edit" || value === "transform" || value === "tsserver"
     ) {
         return value
     }
 
-    throw new Error(`Unknown benchmark scenario ${JSON.stringify(value)}. Use all, compile, edit, transform, or tsserver.`)
+    throw new Error(
+        `Unknown benchmark scenario ${JSON.stringify(value)}. ` +
+        "Use all, compile, config-shape, edit, transform, or tsserver."
+    )
 }
 
 function baselineFile(name: string): string {

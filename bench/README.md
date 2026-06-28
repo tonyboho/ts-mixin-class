@@ -35,6 +35,21 @@ is the right place to judge a transformer change before writing it. The other
 three are end-to-end regression guards where the transformer's own cost is
 diluted by TypeScript's bind + check.
 
+There is also an **investigative** scenario, run only when named explicitly (never
+by `pnpm run bench`):
+
+| Scenario | Command | What it measures |
+| --- | --- | --- |
+| `config-shape` | `pnpm run bench:config-shape` | the checker cost of how the `<Class>Config` type could be SHAPED, over a deep `extends` hierarchy |
+
+It does **not** exercise the transform — it hand-models the type surface each
+candidate strategy would emit (`baseline` / `flat` = current / `tree-import` /
+`tree-symbol` / `tree-static-symbol`) and compiles each with plain `tsc`, so the
+numbers isolate the representation's own cost (see TODO.md → "Tree (incremental)
+config"). It runs a **depth sweep** so the scaling curve is visible (`flat` ~O(D²),
+`tree-import` ~O(D)). Knobs: `TS_MIXIN_BENCH_CONFIG_DEPTHS` (comma list, default
+`4,8,16,32`), `TS_MIXIN_BENCH_CONFIG_CHAINS` (15), `TS_MIXIN_BENCH_CONFIG_PROPS` (6).
+
 ## Compare a change (measure, change, measure, compare)
 
 Save a baseline, make the source change, re-run against the baseline:

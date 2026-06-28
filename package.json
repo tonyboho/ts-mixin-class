@@ -41,6 +41,7 @@
         "bench:compile": "pnpm --silent run build && node dist/bench/index.js compile",
         "bench:tsserver": "pnpm --silent run build && node dist/bench/index.js tsserver",
         "bench:edit": "pnpm --silent run build && node dist/bench/index.js edit",
+        "bench:config-shape": "pnpm --silent run build && node dist/bench/index.js config-shape",
         "bench:ts-repro": "pnpm --silent run build && node dist/bench/diagnostics/typescript-interface-repro.js",
         "bench:c3": "pnpm --silent run build && node dist/bench/c3/index.js",
         "build": "tsc -p tsconfig.json && tsc -p tsconfig.lsplugin.json",

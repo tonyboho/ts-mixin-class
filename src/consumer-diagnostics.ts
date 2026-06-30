@@ -8,6 +8,7 @@ import {
     DependencyLinearizationError,
     extendsClause,
     metadataBaseLocalName,
+    mixinDiagnosticCode,
     requiredBaseType,
     uniqueTypeParameterName,
     type FileMixinContext,
@@ -164,14 +165,20 @@ export function createRequiredBaseValidations(
     return validations
 }
 
-export function createMissingRuntimeImportValidations(
+// A consumed mixin marked as a runtime mixin class in its `.d.ts` has no JavaScript runtime module
+// to apply at runtime. This is resolved entirely from the ref (`ref.missingRuntimeImport`), so it is
+// a NATIVE diagnostic (family code TS990006), spanned on the offending `implements` entry and drained
+// by `wrapProgramDiagnostics` — surfaced identically on the emit and source-view planes. The span is
+// gated on a real position; a construction consumer re-expanded from a synthesized declaration carries
+// synthetic heritage (and a missing-runtime ref never reaches that path anyway).
+export function pushMissingRuntimeImportDiagnostics(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
+    context: FileMixinContext,
     mixinRefs: ResolvedMixinRef[],
     mixinHeritage: ts.ExpressionWithTypeArguments[]
-): RequiredBaseValidation[] {
-    const validations: RequiredBaseValidation[] = []
-
+): void {
     for (let index = 0; index < mixinRefs.length; index++) {
         const ref = mixinRefs[index]
 
@@ -179,19 +186,23 @@ export function createMissingRuntimeImportValidations(
             continue
         }
 
-        const heritageType = mixinHeritage[index]
-        const range        = heritageType ?? declaration
+        const anchor = mixinHeritage[index] ?? declaration.name ?? declaration
 
-        validations.push(createConsumerDiagnosticValidation(
-            tsInstance,
-            declaration,
-            `__mixinMissingRuntimeValue${validations.length}`,
-            missingRuntimeImportDiagnosticMessage(declaration, ref),
-            range
-        ))
+        if (anchor.pos < 0 || anchor.end < 0) {
+            continue
+        }
+
+        const start = anchor.getStart(sourceFile)
+
+        context.nativeDiagnostics.push({
+            fileName    : sourceFile.fileName,
+            start,
+            length      : anchor.getEnd() - start,
+            code        : mixinDiagnosticCode.MixinMissingRuntime,
+            category    : tsInstance.DiagnosticCategory.Error,
+            messageText : missingRuntimeImportDiagnosticMessage(declaration, ref)
+        })
     }
-
-    return validations
 }
 
 // The emit path uses a shallow `cloneNode`; source view needs a `deepCloneNode` so the

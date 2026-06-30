@@ -110,6 +110,7 @@ it("reports imported declaration mixins without runtime values", async (t: Test)
         const output = commandOutput(result)
 
         t.not.isStrict(result.exitCode, 0, "Broken declaration-only mixin package fails to build")
+        t.match(output, "TS990006", "Surfaces the native missing-runtime diagnostic code")
         t.match(output, "Missing mixin runtime value", "Reports missing runtime value")
         t.match(output, "BrokenMixin", "Diagnostic names the broken mixin")
         t.match(output, "broken-mixin-package", "Diagnostic names the package")

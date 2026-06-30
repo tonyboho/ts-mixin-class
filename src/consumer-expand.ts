@@ -10,9 +10,9 @@ import {
     appendRequiredBaseValidationTypeParameters,
     appendSourceViewValidationTypeParameters,
     createLinearizationDiagnosticValidation,
-    createMissingRuntimeImportValidations,
     createRequiredBaseValidations,
     linearizationDiagnosticMessage,
+    pushMissingRuntimeImportDiagnostics,
     unsupportedBaseDiagnosticMessage
 } from "./consumer-diagnostics.js"
 import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
@@ -133,13 +133,13 @@ export function expandConsumerClass(
         )
     }
 
-    const implicitRequiredBase            = expansion.extendsType === undefined
+    const implicitRequiredBase    = expansion.extendsType === undefined
         ? firstRequiredBaseType(tsInstance, context, linearized)
         : undefined
-    const emptyBaseName                   = expansion.extendsType === undefined && implicitRequiredBase === undefined
+    const emptyBaseName           = expansion.extendsType === undefined && implicitRequiredBase === undefined
         ? generatedName(expansion.name, consumerEmptyBaseSuffix)
         : undefined
-    const requiredBaseValidations         = expansion.extendsType === undefined
+    const requiredBaseValidations = expansion.extendsType === undefined
         ? []
         : createRequiredBaseValidations(
             tsInstance,
@@ -151,15 +151,17 @@ export function expandConsumerClass(
             expansion.generatedHeritageTypeRange,
             options
         )
-    const missingRuntimeImportValidations = createMissingRuntimeImportValidations(
+    pushMissingRuntimeImportDiagnostics(
         tsInstance,
+        sourceFile,
         declaration,
+        context,
         expansion.directMixinRefs,
         mixinHeritage
     )
-    const reducedMixinHeritage            = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
-    const facts                           = getSourceFileFacts(tsInstance, sourceFile, options)
-    const consumerBaseImports             = consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts)
+    const reducedMixinHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
+    const facts                = getSourceFileFacts(tsInstance, sourceFile, options)
+    const consumerBaseImports  = consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts)
     // A construction consumer transitively extends the package `Base` (so it gets a
     // generated static `new` factory). This mirrors `createConstructionMembers`' own
     // gate: an applied mixin's required base may itself be the package `Base`, or the
@@ -198,7 +200,6 @@ export function expandConsumerClass(
     )
     const consumerValidations        = [
         ...requiredBaseValidations,
-        ...missingRuntimeImportValidations,
         ...staticCollisionValidations
     ]
     // Each generated declaration gets its own type parameter clones: reusing one

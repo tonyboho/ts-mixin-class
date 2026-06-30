@@ -329,12 +329,26 @@ instance type) has its own rules:
      (`heritageTypeToTypeReference`) when the base has **no** type arguments (the emit `$base`
      interface does *not* re-extend it, so `initialize`/base fields flow only through this return —
      `object` drops them), but `object` when it **does** (interface already carries the generic base).
-   - **Gate on no own constructor.** Only brand a construction class/consumer that declares **no
-     constructor**. One with an explicit constructor opts into manual construction: its own public
-     construct signature already allows `new`, and a branded base would only break its `super(...)`.
-     Such a shape-A consumer instead gets a **permissive** head (`new (...args: any[]) => instance`,
-     `ConstructionBrand.branded = false`) that strips a branded base's `typeof Base` brand so
-     `super()` resolves. Mixin-less (shape B) classes with a constructor keep their literal `extends`.
+   - **Brand site depends on whether the class declares its own constructor.** `$base`'s construct
+     governs an external `new` only when the class has **no** constructor of its own; with a
+     constructor, the class's **own** construct signature governs, so branding `$base` is useless
+     there (and would break its `super(...)`). Two sites:
+       - **No own constructor →** brand `$base` (above), both planes. The class inherits the poisoned
+         construct.
+       - **Own constructor →** keep `$base` permissive (`new (...args: any[]) => instance`,
+         `ConstructionBrand.branded = false`, so `super()` resolves) and instead poison the
+         constructor's OWN first parameter (`brandConstructorParameter` in `expand-util.ts`). The
+         construct stays public, so `AnyConstructor` assignability holds. This inserts a parameter,
+         which shifts the constructor body — so it is **EMIT ONLY** (the emit diagnostic remap
+         absorbs the shift; position-preserving source view cannot, so the IDE leaves a
+         with-constructor construction class un-banned and the build is what catches the stray `new`).
+         A mixin's emit value cast achieves the same ban without touching the constructor (the factory
+         applies an unbranded `base`), so a construction **mixin** is banned in emit whether or not it
+         declares a constructor.
+       - *Superseded (kept for context):* originally a class with its own constructor was **never**
+         branded — it "opted into manual construction" and a direct `new` stayed allowed (commit
+         `b9bf1e1`). That left the `new`-bypasses-`initialize()` footgun open for such classes; it is
+         now closed on the emit plane by the own-parameter brand above.
    - **Imports.** The head inlines `Omit`/`InstanceType` (global lib utilities) so the
      mixin-less construction path — which never requests generated imports — needs none.
    - **Runtime is untouched** (the brand lives only in the `as unknown as` cast, erased on emit), so

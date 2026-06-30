@@ -105,9 +105,11 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 
 Construction is opt-in by extending the package `Base` (directly or transitively). The
 **only** way to construct is the generated static `.new({ … })`; a direct `new X()` is a
-compile-time error (branded construct signature). **A class that extends `Base` must not
-declare its own constructor** — if you need a constructor, don't extend `Base` (use a
-plain consumer / manual construction instead). See §9.
+compile-time error (branded construct signature). A class that extends `Base` **may** still
+declare its own constructor — it is preserved and runs as the native-construct step of
+`.new()`; the direct-`new` ban holds either way. (When the class declares its own
+constructor the ban is enforced on the EMIT plane only; source view leaves it, since
+poisoning the constructor there would shift the position-preserved body. See §9.)
 
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
@@ -151,7 +153,7 @@ plain consumer / manual construction instead). See §9.
 
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
-| 9.1 | A class that `extends Base` declaring its own constructor | n/a | **Unsupported by design**: extend `Base` ⇒ no constructor (construct via `.new`); need a constructor ⇒ don't extend `Base` (plain consumer / manual construction). Left informal: not enforced with a diagnostic today (such a class is simply left unbranded). Don't add tests blessing it as a feature. |
+| 9.1 | A class that `extends Base` declaring its own constructor | ✅ | **Supported**: the constructor is preserved and runs as the native-construct step of `.new()`. A direct `new X()` stays a type error — enforced on the EMIT plane (the brand rides on the constructor's own parameter); source view leaves it un-banned, since poisoning the constructor there would shift the position-preserved body and break navigation. `source-transform-consumer-typecheck.t.ts`, `source-transform-mixins.t.ts`, `construction-mixin-standalone.t.ts` |
 
 ## 10. Cross-file vs single-file
 
@@ -178,7 +180,7 @@ plain consumer / manual construction instead). See §9.
 
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
-| 11.1 | Invalid mixin: abstract / constructor / private / `#private` / abstract member | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
+| 11.1 | Invalid mixin: abstract / private / `#private` / abstract member (a constructor is allowed — see §9.1) | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 11.2 | Invalid mixin: missing type annotations (property/return/param/accessor) | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 11.3 | Anonymous default mixin / anonymous consumer rejected | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 11.4 | Dynamic consumer base expression (`extends makeBase()`) rejected | ✅ | `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |

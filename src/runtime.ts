@@ -1,6 +1,7 @@
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
-import { base, factory, requirements, type AnyConstructor, type ClassStatics, type MixinApplication, type MixinFactory } from "./base.js"
+import { Empty, base, factory, requirements, type AnyConstructor, type ClassStatics, type MixinApplication, type MixinFactory } from "./base.js"
 export {
+    Empty,
     base,
     factory,
     requirements,
@@ -94,6 +95,10 @@ export function defineMixinClass(
     name: string,
     mixinFactory: MixinFactory,
     mixinRequirements: readonly RuntimeMixinClassValue[] = [],
+    // The mixin's requirement CONSTRAINT: every base it is applied over must `classExtends` this
+    // (see `applyRuntimeMixin`). `Object` means "no constraint" — a base-less mixin composes over
+    // any base. This is distinct from the standalone SEED below: the constraint governs consumers,
+    // the seed only roots the mixin's own `new`-able canonical class.
     requiredBase: AnyConstructor<any> = Object,
     // Approach (B): a compile-time merge plan that reconstructs this mixin's requirement
     // linearization by slicing its dependencies' already-materialized linearizations,
@@ -104,11 +109,16 @@ export function defineMixinClass(
     // LinearizationMode). Default (undefined) replays it.
     linearizationMode?: LinearizationMode
 ): RuntimeMixinClassValue {
-    const requirementList                = [ ...mixinRequirements ]
-    const requirementLinearization       = resolveRequirementLinearization(
+    const requirementList          = [ ...mixinRequirements ]
+    const requirementLinearization = resolveRequirementLinearization(
         name, requirementList, linearizationPlan, linearizationMode
     )
-    const canonicalBase                  = applyRuntimeMixins(requiredBase, requirementLinearization.slice().reverse())
+    // Seed the mixin's own canonical (standalone, `new`-able) class from `Empty` when no required
+    // base was given, so a base-less mixin instance descends from the library-owned `Empty` rather
+    // than a bare `Object`. This is a runtime filler only — `Empty` is never stored as the
+    // requirement `requiredBase` (which stays `Object`), so it imposes no constraint on consumers.
+    const seedBase                       = requiredBase === Object ? Empty : requiredBase
+    const canonicalBase                  = applyRuntimeMixins(seedBase, requirementLinearization.slice().reverse())
     const mixinClass                     = mixinFactory(canonicalBase) as RuntimeMixinClassValue
     const applications                   = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
     const marker                         = Symbol(name)

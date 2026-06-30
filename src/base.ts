@@ -17,6 +17,13 @@ export const factory: unique symbol = Symbol.for("ts-mixin-class.factory")
 export const requirements: unique symbol = Symbol.for("ts-mixin-class.requirements")
 export const base: unique symbol = Symbol.for("ts-mixin-class.base")
 
+// The default base for a `@mixin` declared without an `extends` clause. A real, named,
+// library-owned class (rather than the bare `Object`) so every base-less mixin instance shares
+// one common, identifiable ancestor — a stable shape and a single anchor for `instanceof` and
+// any future cross-mixin protocol. `Empty` itself descends from `Object`, so nothing is lost.
+export class Empty {
+}
+
 export class Base {
     // `props` is `unknown` (the top type) so any subclass - including a `@mixin` - can
     // override `initialize` with a STRICTER `<ClassName>Config` parameter

@@ -10,6 +10,7 @@ import {
     type LinearizationSlice
 } from "../src/index.js"
 import {
+    Empty,
     base,
     factory,
     requirements,
@@ -120,9 +121,22 @@ it("reuses canonical requirement classes while defining sibling mixins", async (
     createTrackedMixin("C", cBases, [ A ])
 
     t.equal(aBases.length, 1, "Requirement factory is not re-applied for each dependent mixin")
-    t.equal(aBases[0], Object, "Standalone mixin is first applied to Object")
+    t.equal(aBases[0], Empty, "Standalone mixin is first applied to the package Empty base, not Object")
     t.equal(bBases[0], A, "First dependent mixin receives the canonical requirement class")
     t.equal(cBases[0], A, "Second dependent mixin reuses the same canonical requirement class")
+})
+
+it("roots a base-less mixin at the package Empty class rather than Object", async (t: Test) => {
+    const A = createNamedMixin("A")
+
+    // A standalone `@mixin` with no `extends` is applied over the package `Empty` base — a
+    // real, named, library-owned ancestor — so every mixin instance shares a common shape and
+    // identity distinct from a bare `Object`. `Empty` itself still descends from `Object`.
+    const instance = new (A as unknown as AnyConstructor)()
+
+    t.isInstanceOf(instance, Empty, "A base-less mixin instance is an instance of Empty")
+    t.isInstanceOf(instance, A, "A base-less mixin instance is an instance of the mixin")
+    t.is(Object.getPrototypeOf(Empty), Object.getPrototypeOf(class {}), "Empty is a plain class descending from Object")
 })
 
 it("reuses a canonical requirement chain for deeper dependents", async (t: Test) => {

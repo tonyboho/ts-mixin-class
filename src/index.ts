@@ -14,11 +14,13 @@ import {
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
+import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
     anyConstructorName,
     classStaticsName,
     defaultTransformOptions,
+    implementsTypes,
     defineMixinClassName,
     metadataBaseImportName,
     metadataBaseLocalName,
@@ -37,6 +39,7 @@ import {
     type FillMissedInitializersWith,
     type ImportedNameBinding,
     type MixinClassTransformerConfig,
+    type MixinDecoratorImports,
     type NativeMixinDiagnostic,
     type StaticCollisionCheckMode,
     type TransformOptions
@@ -766,6 +769,8 @@ export function transformSourceFile(
         tsInstance, sourceFile, mixinDecoratorImports, resolvedOptions, crossFile, facts, nativeDiagnostics
     )
 
+    pushAnonymousClassExpressionDiagnostics(tsInstance, sourceFile, context, mixinDecoratorImports, resolvedOptions)
+
     // Resolves local base identifiers to cross-file construction-base entries.
     // Built lazily, only when a class actually needs construction-base resolution.
     let baseImportMapCache: Map<string, ImportedNameBinding> | undefined
@@ -1190,10 +1195,49 @@ function brandedConstructionHeritageClauses(
 
 // A native diagnostic for an anonymous `@mixin` / anonymous mixin consumer, spanned on the class
 // keyword of the (nameless) declaration so the squiggle lands on the class itself.
+// A `@mixin` or a mixin consumer written as a class EXPRESSION (`const C = class implements M {}`)
+// has no stable top-level (or block) statement slot for the generated siblings, so it is not
+// expanded — and would otherwise fail with only a bare TS2420. Flag it with a clean native
+// diagnostic instead. Walks the whole file (cheap; only the few class expressions are inspected),
+// since a class expression lives in expression position, never a statement list.
+function pushAnonymousClassExpressionDiagnostics(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext,
+    imports: MixinDecoratorImports,
+    options: TransformOptions
+): void {
+    const visit = (node: ts.Node): void => {
+        if (tsInstance.isClassExpression(node) && node.pos >= 0 && node.end >= 0) {
+            if (hasMixinDecorator(tsInstance, node, imports, options)) {
+                context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
+                    tsInstance, sourceFile, node, mixinDiagnosticCode.AnonymousDefaultMixin,
+                    "Invalid mixin class declaration. A `@mixin` must be a named class declaration, not a class " +
+                        "expression. Write `class MyMixin { … }` so the transformer can generate stable interface, " +
+                        "factory, registry, and declaration names."
+                ))
+            } else if (implementsTypes(tsInstance, node as unknown as ts.ClassDeclaration).some((heritageType) =>
+                tsInstance.isIdentifier(heritageType.expression) && context.byLocalName.has(heritageType.expression.text)
+            )) {
+                context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
+                    tsInstance, sourceFile, node, mixinDiagnosticCode.AnonymousMixinConsumer,
+                    "Invalid mixin consumer declaration. A mixin consumer must be a named class declaration, not a " +
+                        "class expression. Write `class Consumer implements Mixin { … }` so the transformer can " +
+                        "generate stable intermediate base, diagnostic, and declaration names."
+                ))
+            }
+        }
+
+        tsInstance.forEachChild(node, visit)
+    }
+
+    tsInstance.forEachChild(sourceFile, visit)
+}
+
 function anonymousClassNativeDiagnostic(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
-    declaration: ts.ClassDeclaration,
+    declaration: ts.ClassDeclaration | ts.ClassExpression,
     code: number,
     messageText: string
 ): NativeMixinDiagnostic {

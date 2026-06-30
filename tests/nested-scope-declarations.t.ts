@@ -6,6 +6,7 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 import ts from "typescript"
 
 import { transformSourceFile } from "../src/index.js"
+import type { NativeMixinDiagnostic } from "../src/model.js"
 import { commandOutput, createSourceFile, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
 
 // A class declared inside a function body / block — not a top-level statement — should expand
@@ -197,4 +198,43 @@ it("resolves a nested mixin that shadows a top-level name", async (t: Test) => {
 
     t.equal(imported.fromNested, "nested", "the nested consumer resolved the shadowing nested mixin")
     t.equal(imported.fromTop, "top", "the top-level consumer still resolves the top-level mixin")
+})
+
+// M6 — a `@mixin` / consumer written as a class EXPRESSION (anonymous or named) has no stable
+// statement slot for the generated siblings, so it is rejected with a clean native diagnostic
+// rather than a bare TS2420. A named class DECLARATION (the supported form) is never flagged.
+it("flags a mixin / consumer class expression with a native diagnostic", async (t: Test) => {
+    const codesFor = (body: string): number[] => {
+        const native: NativeMixinDiagnostic[] = []
+
+        transformSourceFile(
+            ts,
+            createSourceFile(`
+                import { mixin } from "ts-mixin-class"
+
+                @mixin()
+                class M {
+                    a (): string { return "x" }
+                }
+
+                ${body}
+            `),
+            {},
+            undefined,
+            native
+        )
+
+        return native.map((diagnostic) => diagnostic.code)
+    }
+
+    t.eq(codesFor("const C = class implements M {}\nvoid C"), [ 990003 ],
+        "a consumer class expression is flagged TS990003")
+    t.eq(codesFor("function f () { const C = class implements M {}; return C }\nvoid f"), [ 990003 ],
+        "a nested consumer class expression is flagged TS990003")
+    t.eq(codesFor("const D = @mixin() class { b (): string { return \"y\" } }\nvoid D"), [ 990002 ],
+        "a `@mixin` class expression is flagged TS990002")
+    t.eq(codesFor("class Good implements M {}\nvoid Good"), [],
+        "a named class declaration consumer (the supported form) is never flagged")
+    t.eq(codesFor("const G = class { z (): number { return 1 } }\nvoid G"), [],
+        "a plain class expression that touches no mixin is never flagged")
 })

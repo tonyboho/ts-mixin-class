@@ -26,6 +26,7 @@ import {
 } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
+    brandConstructorParameter,
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
     MixinTransformError
@@ -174,14 +175,14 @@ export function expandConsumerClass(
             context.crossFile,
             consumerBaseImports
         )
-    // The `$base` cast's construct signature is branded so a direct `new Consumer(...)`
-    // is a type error — construction goes through the static `new`. This is gated to
-    // construction consumers that declare NO constructor of their own (the cooperative
-    // `initialize` pattern): a class with an explicit constructor opts into manual
-    // construction (its own public construct signature already allows `new`, and a
-    // branded base would only break its `super(...)` call against the cooperative base).
-    const brandsConstruction         = isConstructionConsumer &&
-        !declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
+    // A construction consumer refuses a direct `new Consumer(...)` (construction goes through the
+    // static `new`). When it declares NO constructor of its own, the brand rides on the `$base`
+    // cast's construct signature, which the consumer inherits. When it DOES declare a constructor,
+    // that constructor's own signature — not `$base`'s — governs an external `new`, so branding
+    // `$base` is useless there (and would only break the constructor's `super()`); the brand goes
+    // on the constructor's parameter instead (emit only — see below).
+    const hasOwnConstructor          = declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
+    const brandsConstruction         = isConstructionConsumer && !hasOwnConstructor
     const staticCollisionValidations = createStaticCollisionValidations(
         tsInstance,
         sourceFile,
@@ -272,7 +273,7 @@ export function expandConsumerClass(
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseClassNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseClassNode, expansion.generatedRange, declaration)
 
-    const construction             = createConstructionMembers(
+    const construction        = createConstructionMembers(
         tsInstance,
         sourceFile,
         declaration,
@@ -285,11 +286,19 @@ export function expandConsumerClass(
         consumerBaseImports,
         linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
     )
-    const constructionMembers      = construction.members
+    const constructionMembers = construction.members
+    // A construction consumer that declares its OWN constructor brands THAT constructor's parameter
+    // so an external `new Consumer(...)` is a type error while its `super()` stays valid against the
+    // clean `$base`. EMIT only: the brand inserts a parameter (shifting the constructor body), which
+    // emit absorbs via its diagnostic remap but position-preserving source view cannot — so in the
+    // IDE a with-constructor consumer is left un-banned, and the build (`tsc`) is what catches it.
+    const brandedConsumerSource    = !options.sourceView && isConstructionConsumer && hasOwnConstructor && declaration.name !== undefined
+        ? brandConstructorParameter(tsInstance, declaration.members, declaration.name.text)
+        : declaration.members
     const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
         tsInstance,
         sourceFile,
-        declaration.members,
+        brandedConsumerSource,
         expansion.originalExtendsClause === undefined
     )
     const consumerMembers          = isConstructionConsumer

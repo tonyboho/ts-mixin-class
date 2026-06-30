@@ -5,6 +5,43 @@ import ts from "typescript"
 import { printSourceFile, transformSourceFile } from "../src/index.js"
 import { createSourceFile, typecheckText } from "./util.js"
 
+it("bans `new` on a construction consumer with its own constructor in emit, keeping `super()`/`.new()` valid in both planes", async (t: Test) => {
+    // A construction consumer that declares its OWN constructor: the emit path bans a direct `new`
+    // (the brand rides on the constructor's parameter, leaving its `super()` and `.new()` intact),
+    // while source view leaves it un-banned — poisoning the constructor there would inject a
+    // parameter that shifts the position-preserved body and breaks navigation, so the build is what
+    // catches a stray `new`. A consumer with NO own constructor is banned in both planes (covered by
+    // the deep-subclass / fill-missed fixtures), through the `$base` brand instead.
+    const program = (tail: string): string => `
+        import { mixin, Base } from "ts-mixin-class"
+
+        @mixin()
+        class Feature {
+            tag: string = "f"
+        }
+
+        class Widget extends Base implements Feature {
+            id: string = ""
+
+            constructor () {
+                super()
+                this.id = "w"
+            }
+        }
+        ${tail}
+    `
+
+    for (const sourceView of [ false, true ]) {
+        const plane = sourceView ? "source view" : "emit"
+        const clean = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void Widget.new()")), { sourceView })))
+
+        t.is(clean.length, 0, `${plane}: the consumer's own super() and .new() type-check cleanly\n${clean.join("\n")}`)
+    }
+
+    const emitBanned = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void new Widget()")))))
+    t.ne(emitBanned.length, 0, "emit: a direct `new Widget()` is a type error for a with-constructor construction consumer")
+})
+
 it("transformed mixin output typechecks, including generics, statics and super calls", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { base, factory, mixin, requirements } from "ts-mixin-class"

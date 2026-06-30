@@ -321,6 +321,53 @@ export function brandedConstructSignatureType(
     return constructionConstructSignatureType(tsInstance, { consumerName: name, branded: true }, returnType)
 }
 
+// Prepend a poisoned, REQUIRED first parameter to a class's own constructor so an external
+// `new X(...)` is a type error (it must supply the brand, which has no constructible value), while
+// the constructor's own `super()` — targeting the UNBRANDED `$base` — and the static `.new()` keep
+// type-checking. Used for a construction class that declares its OWN constructor, where branding the
+// `$base` head would instead break that `super()`. The constructor stays public, so the class value
+// remains assignable to a public `AnyConstructor` slot (`.mix(...)`), unlike a `protected` ctor.
+//
+// Inserts visible text into the constructor's parameter list, so it is EMIT-only: the emit path
+// reprints and remaps diagnostics, absorbing the shift, whereas source view is position-preserving
+// and the inserted parameter would drift the constructor body's navigation.
+export function brandConstructorParameter(
+    tsInstance: TypeScript,
+    members: ts.NodeArray<ts.ClassElement>,
+    className: string
+): ts.NodeArray<ts.ClassElement> {
+    const factory = tsInstance.factory
+    let changed   = false
+
+    const updated = members.map((member) => {
+        if (!tsInstance.isConstructorDeclaration(member)) {
+            return member
+        }
+
+        changed = true
+
+        return factory.updateConstructorDeclaration(
+            member,
+            member.modifiers,
+            [
+                factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    "use_the_static_new_factory",
+                    undefined,
+                    constructorBrandType(tsInstance, className)
+                ),
+                ...member.parameters
+            ],
+            member.body
+        )
+    })
+
+    return changed
+        ? preserveTextRange(tsInstance, factory.createNodeArray(updated), members)
+        : members
+}
+
 function constructorBrandType(tsInstance: TypeScript, consumerName: string): ts.TypeNode {
     const factory = tsInstance.factory
     const message =

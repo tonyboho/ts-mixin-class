@@ -216,3 +216,15 @@ plain consumer / manual construction instead). See §9.
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
 | 14.1 | Randomized mixin graphs: definition, diagnostics, edit, quickinfo, references, rename | ✅ | `stress-*.t.ts` (seeded) |
+
+## 15. Watch mode (real `tsc -w`)
+
+End-to-end, driven through a genuine `tsc --watch` child process (not an in-process program like
+§14's `stress-edit`): the program transform must be re-invoked on every incremental rebuild and
+its per-program caches (facts, registry, import maps) must invalidate for the changed file, so
+diagnostics stay correct across edits.
+
+| # | Scenario | Status | Tests |
+|---|----------|--------|-------|
+| 15.1 | A cross-file mixin edit breaks the consumer on the next rebuild and reverting clears it (the initial clean build already proves the transform ran — without it `implements Mixin` would not be satisfied); proves the transform re-runs each rebuild and facts/registry invalidate for the edited file | ✅ | `tsc-watch.t.ts` |
+| 15.2 | Randomized break/revert round-trips: a minimal edit (delete/insert an identifier char, delete/insert a bracket) breaks compilation on rebuild and the verbatim revert returns to zero errors — over many seeded edits | ✅ | `stress-tsc-watch.t.ts` (seeded), shared driver `tsc-watch-util.ts` |

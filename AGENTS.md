@@ -238,6 +238,21 @@ Violating any of these produces confusing tsserver errors or crashes.
     matching text the checker can read. (Emit is immune: it reprints real text and reparses.) The
     construction config alias depends on this — its current realization is Construction invariant #9.
 
+11. **Source view is position-preserving WITHOUT a source map — never insert *visible* text inside a
+    position-preserved span.** The source-view plane does not reprint+remap (that is the emit path);
+    the printed transformed text must occupy the SAME offsets as the original so the language service
+    works on original positions directly. Generated nodes therefore go off-screen / zero-width (#8)
+    and must not shift real code. Inserting characters *inside* a kept node — e.g. a brand parameter
+    between a constructor's `(` and its body — shifts everything after it, so navigation / quickinfo
+    on the constructor body breaks (lands `any`, highlight spans the whole constructor; `stress-quickinfo`
+    catches it). A *range* on the synthetic node does NOT fix it: the problem is that there are more
+    characters, not the node's range. The **emit** path reprints and remaps diagnostics
+    (`mapPrintedOffsetToSource`), so it CAN absorb inserted text and still land on the real source
+    line. This is the load-bearing reason the construction direct-`new` ban for a class with its OWN
+    constructor is **emit-only** (the own constructor's signature governs `new`, so the brand must
+    poison its parameter — visible text — which only emit tolerates; the no-constructor case brands
+    `$base` off-screen and holds in both planes). See Construction invariant #5.
+
 ### Background: an upstream-TypeScript shortcut (not done)
 
 Most of #4/#5/#8 exist only because tsserver **crashes** on a position-imperfect synthetic AST.

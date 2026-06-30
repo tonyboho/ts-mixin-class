@@ -17,11 +17,14 @@ import {
     implementsTypes,
     isNamedClassElement,
     mixinClassValueName,
+    mixinDiagnosticCode,
     mixinFactoryName,
     mixinLinearizationConflictName,
+    registryKey,
     requiredBaseType,
     runtimeMixinClassName,
     type FileMixinContext,
+    type NativeMixinDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -84,6 +87,77 @@ import type { TypeScript } from "./util.js"
 //     const X = __X$mixin(Object) as unknown as
 //         (new <T>(...args: any[]) => X<T>) & ClassStatics<ReturnType<typeof __X$mixin>>
 
+// A native diagnostic when a `@mixin` class `extends` a target that resolves to another
+// registered mixin (same-file or imported). Returns undefined when the base is absent, is not a
+// plain identifier, or does not resolve to a mixin (a non-mixin required base is legitimate).
+function mixinExtendsMixinDiagnostic(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    ref: ResolvedMixinRef,
+    declaration: ts.ClassDeclaration,
+    context: FileMixinContext,
+    options: TransformOptions
+): NativeMixinDiagnostic | undefined {
+    const base = requiredBaseType(tsInstance, declaration)
+
+    if (base === undefined || !tsInstance.isIdentifier(base.expression)) {
+        return undefined
+    }
+
+    const baseName = base.expression.text
+
+    if (!baseNameResolvesToMixin(tsInstance, sourceFile, baseName, context, options)) {
+        return undefined
+    }
+
+    const start = base.expression.getStart(sourceFile)
+
+    return {
+        fileName    : sourceFile.fileName,
+        start,
+        length      : base.expression.getEnd() - start,
+        code        : mixinDiagnosticCode.MixinExtendsMixin,
+        category    : tsInstance.DiagnosticCategory.Error,
+        messageText :
+            `Invalid mixin class declaration. Mixin class ${ref.className} cannot extend another mixin class (${baseName}). ` +
+            "A mixin consumes other mixins through `implements` (which builds the runtime chain); " +
+            "`extends` on a mixin is reserved for a required, non-mixin base class. " +
+            `Fix: write \`class ${ref.className} implements ${baseName}\` to mix ${baseName} in, or extend a non-mixin base class.`
+    }
+}
+
+// Whether `name`, used as a `@mixin`'s `extends` base in `sourceFile`, resolves to a registered
+// mixin — a same-file mixin (registered under the file's own key) or an imported one (resolved
+// through the file's import map to its declaring key). Needs the cross-file registry; absent it
+// (a single-file in-process transform) nothing is a known mixin.
+function baseNameResolvesToMixin(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    name: string,
+    context: FileMixinContext,
+    options: TransformOptions
+): boolean {
+    const crossFile = context.crossFile
+
+    if (crossFile === undefined) {
+        return false
+    }
+
+    if (crossFile.registry.has(registryKey(sourceFile.fileName, name))) {
+        return true
+    }
+
+    const imported = buildImportedNameMap(
+        tsInstance,
+        sourceFile,
+        crossFile.resolveModuleFileName,
+        getSourceFileFacts(tsInstance, sourceFile, options)
+    ).get(name)
+
+    return imported !== undefined &&
+        crossFile.registry.has(registryKey(imported.resolvedFileName, imported.importedName))
+}
+
 export function expandMixinClass(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -110,6 +184,16 @@ export function expandMixinClass(
         diagnostics,
         declaration
     )
+
+    // A `@mixin` must not `extends` another mixin (that consumes it as a required base, which is
+    // reserved for non-mixin bases) — it should `implements` it. This is a NATIVE diagnostic
+    // (authored here, drained by `wrapProgramDiagnostics`), so it is pushed once per transform of
+    // the file, before the source-view/emit split below so it surfaces identically in both.
+    const mixinBaseDiagnostic = mixinExtendsMixinDiagnostic(tsInstance, sourceFile, ref, declaration, context, options)
+
+    if (mixinBaseDiagnostic !== undefined) {
+        context.crossFile?.nativeDiagnostics.push(mixinBaseDiagnostic)
+    }
     // A mixin whose OWN dependencies cannot be C3-linearized (a conflict with no consumer to
     // force it) is reported on the mixin in BOTH paths, via two carriers since emit has no
     // `__X$base`: source view puts a never-constrained validation type parameter on the

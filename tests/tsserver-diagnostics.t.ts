@@ -441,6 +441,55 @@ it("tsserver semantic diagnostics report unsupported mixin consumer base express
     }
 })
 
+// The native (transformer-authored) `@mixin extends @mixin` diagnostic must surface in the IDE
+// exactly as it does under `tsc` (see mixin-extends-mixin-diagnostic.t.ts for the emit/CLI plane).
+// Both classes live in one file, so this also covers the SAME-FILE branch of the detection (the
+// CLI test covers the imported branch). The native `code` (990001) rides through tsserver too.
+it("tsserver semantic diagnostics report a `@mixin` extending another mixin with a native diagnostic", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Alpha {
+            alphaValue(): number {
+                return 1
+            }
+        }
+
+        @mixin()
+        class Bravo extends Alpha {
+            bravoValue(): number {
+                return 2
+            }
+        }
+    `)
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file: sourceFile })
+        )
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const nativeCode  = diagnostics.map((diagnostic) => diagnostic.code).find((code) => code === 990001)
+
+        assertDiagnosticParts(t, messages, [
+            "cannot extend another mixin",
+            "Bravo",
+            "Alpha",
+            "implements"
+        ])
+        t.is(nativeCode, 990001, "IDE diagnostic carries the native mixin-diagnostic code 990001")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver semantic diagnostics report declaration mixins without runtime values", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

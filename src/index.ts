@@ -37,6 +37,7 @@ import {
     type FillMissedInitializersWith,
     type ImportedNameBinding,
     type MixinClassTransformerConfig,
+    type NativeMixinDiagnostic,
     type StaticCollisionCheckMode,
     type TransformOptions
 } from "./model.js"
@@ -263,10 +264,59 @@ function remapDiagnostics<Diagnostic extends ts.Diagnostic>(
     return diagnostics.map((diagnostic) => remapDiagnostic(tsInstance, diagnostic))
 }
 
+// Append the transformer-authored NATIVE diagnostics (scoped to `sourceFile`, or all when the
+// whole program is requested) to the checker's diagnostics for the same scope. Each native
+// diagnostic is positioned on the ORIGINAL on-disk source, so its `file` is resolved from the
+// pre-transform program — correct for both the emit (reprinted) and source-view trees without
+// going through the reprint remap. Built lazily and only when there is something to add.
+function appendNativeDiagnostics(
+    tsInstance: TypeScript,
+    originalProgram: ts.Program,
+    nativeDiagnostics: NativeMixinDiagnostic[],
+    diagnostics: ts.Diagnostic[],
+    sourceFile: ts.SourceFile | undefined
+): ts.Diagnostic[] {
+    if (nativeDiagnostics.length === 0) {
+        return diagnostics
+    }
+
+    const scoped = sourceFile === undefined
+        ? nativeDiagnostics
+        : nativeDiagnostics.filter((native) => native.fileName === sourceFile.fileName)
+
+    if (scoped.length === 0) {
+        return diagnostics
+    }
+
+    const built = scoped.flatMap((native): ts.DiagnosticWithLocation[] => {
+        const file = originalProgram.getSourceFile(native.fileName)
+
+        if (file === undefined) {
+            return []
+        }
+
+        return [ {
+            category    : native.category,
+            code        : native.code,
+            file,
+            start       : native.start,
+            length      : native.length,
+            messageText : native.messageText
+        } ]
+    })
+
+    return [ ...diagnostics, ...built ]
+}
+
 // Wrap the diagnostic getters tsc reports through so emit-path positions point at the
 // real source. `getSyntacticDiagnostics` (DiagnosticWithLocation) stays well-typed
 // because the remap keeps a `file`. `emit` carries declaration-emit diagnostics.
-function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts.Program {
+function wrapProgramDiagnostics(
+    tsInstance: TypeScript,
+    program: ts.Program,
+    originalProgram: ts.Program,
+    nativeDiagnostics: NativeMixinDiagnostic[]
+): ts.Program {
     const originalGetSyntactic   = program.getSyntacticDiagnostics.bind(program)
     const originalGetSemantic    = program.getSemanticDiagnostics.bind(program)
     const originalGetDeclaration = program.getDeclarationDiagnostics.bind(program)
@@ -276,7 +326,15 @@ function wrapProgramDiagnostics(tsInstance: TypeScript, program: ts.Program): ts
         return remapDiagnostics(tsInstance, originalGetSyntactic(sourceFile, cancellationToken))
     }
     program.getSemanticDiagnostics    = (sourceFile, cancellationToken) => {
-        return remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken))
+        // Author-time NATIVE diagnostics ride here alongside the (position-remapped) checker
+        // diagnostics, so they reach both `tsc` and tsserver through the one seam.
+        return appendNativeDiagnostics(
+            tsInstance,
+            originalProgram,
+            nativeDiagnostics,
+            remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken)),
+            sourceFile
+        )
     }
     program.getDeclarationDiagnostics = (sourceFile, cancellationToken) => {
         return remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken))
@@ -448,6 +506,9 @@ export default function transformProgram(
 
     const registry          = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
     const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName, registry)
+    // Per-program sink the transform pushes native diagnostics into and the diagnostic wrap
+    // drains. Shared by reference with `crossFile` (where the transform reaches it) below.
+    const nativeDiagnostics: NativeMixinDiagnostic[] = []
     const crossFile         = registry.size === 0 && constructionBases.size === 0
         ? undefined
         : {
@@ -456,7 +517,8 @@ export default function transformProgram(
             cacheKey           : registryCacheKey(registry, constructionBases),
             resolveModuleFileName,
             canImportRuntimeValue,
-            linearizationCache : new Map<string, string[]>()
+            linearizationCache : new Map<string, string[]>(),
+            nativeDiagnostics
         }
     const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program)
 
@@ -465,7 +527,7 @@ export default function transformProgram(
         compilerOptions,
         nextHost,
         undefined
-    ))
+    ), program, nativeDiagnostics)
 }
 
 export function createMixinClassCompilerHost(

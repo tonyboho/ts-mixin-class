@@ -376,6 +376,23 @@ function preserveGeneratedOriginalNodes(
     })
 }
 
+// Build `CreateSourceFileOptions` that carry `formatSource`'s `impliedNodeFormat` onto a file the
+// transform RE-creates from existing text. Under `moduleResolution` node16/nodenext that field is
+// part of the `DocumentRegistry` bucket key, so a recreated file that dropped it would be released
+// under a key it was never acquired under and crash tsserver's incremental rebuild with a
+// `Debug Failure` in `releaseDocumentWithKey` (see tsserver-incremental-rebuild-crash.t.ts). Use
+// this at EVERY `createSourceFile` that reprints/clones a user source file.
+export function sourceFileOptionsPreservingFormat(
+    languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
+    formatSource: ts.SourceFile
+): ts.CreateSourceFileOptions {
+    const base: ts.CreateSourceFileOptions = typeof languageVersionOrOptions === "object"
+        ? languageVersionOrOptions
+        : { languageVersion: languageVersionOrOptions }
+
+    return { ...base, impliedNodeFormat: formatSource.impliedNodeFormat }
+}
+
 export function cloneSourceFileForTransform(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -384,7 +401,7 @@ export function cloneSourceFileForTransform(
     const cloned = tsInstance.createSourceFile(
         sourceFile.fileName,
         sourceFile.text,
-        languageVersionOrOptions,
+        sourceFileOptionsPreservingFormat(languageVersionOrOptions, sourceFile),
         true,
         scriptKindFromFileName(tsInstance, sourceFile.fileName)
     )

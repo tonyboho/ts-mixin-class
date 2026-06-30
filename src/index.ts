@@ -56,7 +56,8 @@ import {
     preserveTopLevelStatementRanges,
     printSourceFileWithMappings,
     scriptKindFromFileName,
-    setParentRecursivePreservingVersion
+    setParentRecursivePreservingVersion,
+    sourceFileOptionsPreservingFormat
 } from "./util.js"
 import type { PrintedSourceMapping, TypeScript } from "./util.js"
 
@@ -630,7 +631,7 @@ export function createMixinClassCompilerHost(
                 const printedSourceFile = tsInstance.createSourceFile(
                     fileName,
                     printed.text,
-                    languageVersionOrOptions,
+                    sourceFileOptionsPreservingFormat(languageVersionOrOptions, sourceFile),
                     true,
                     scriptKindFromFileName(tsInstance, fileName)
                 )

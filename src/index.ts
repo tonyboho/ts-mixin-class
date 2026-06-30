@@ -25,6 +25,7 @@ import {
     mixinApplicationName,
     mixinChainName,
     mixinChainLinearizedName,
+    constructionMixinClassValueName,
     mixinClassValueName,
     mixinDiagnosticCode,
     mixinLinearizationConflictName,
@@ -1205,6 +1206,7 @@ function createHelperTypeImport(
         { typeOnly: true, importedName: metadataBaseImportName,        localName: metadataBaseLocalName },
         { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassName },
         { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueName },
+        { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueName },
         { typeOnly: true, importedName: mixinLinearizationConflictName, localName: mixinLinearizationConflictName }
     ]
 

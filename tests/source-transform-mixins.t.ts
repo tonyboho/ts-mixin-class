@@ -30,6 +30,67 @@ it("does not treat a local @mixin() decorator as the package marker", async (t: 
     t.equal(transformedFile, sourceFile, "Local decorator is ignored")
 })
 
+it("disables direct `new` on a construction mixin without its own constructor in both planes", async (t: Test) => {
+    // A construction (Base-deriving) mixin with NO own constructor: a direct `new` is a type error
+    // in BOTH emit and source view (the brand rides on the generated `$base`), while the static
+    // `.new()` type-checks cleanly.
+    const program = (tail: string): string => `
+        import { mixin, Base } from "ts-mixin-class"
+
+        @mixin()
+        class Boxed extends Base {
+            value: number = 0
+        }
+        ${tail}
+    `
+
+    for (const sourceView of [ false, true ]) {
+        const plane = sourceView ? "source view" : "emit"
+
+        const clean = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void Boxed.new()")), { sourceView })))
+        t.is(clean.length, 0, `${plane}: .new() type-checks cleanly\n${clean.join("\n")}`)
+
+        const banned = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void new Boxed()")), { sourceView })))
+        t.ne(banned.length, 0, `${plane}: a direct \`new Boxed()\` is a type error`)
+    }
+})
+
+it("bans `new` on a construction mixin with its own constructor in emit, keeping `super()`/`.new()` valid in both planes", async (t: Test) => {
+    // A construction mixin that declares its OWN constructor: the emit value cast still bans a
+    // direct `new`, while BOTH planes keep the constructor's `super()` and the static `.new()`
+    // type-checking. Source view deliberately does NOT brand this case — poisoning the constructor
+    // signature there would mean injecting a parameter that shifts the position-preserved body and
+    // breaks navigation; the emit ban is what a build relies on.
+    const program = (tail: string): string => `
+        import { mixin, Base } from "ts-mixin-class"
+
+        @mixin()
+        class Tracked extends Base {
+            seq: number
+
+            constructor () {
+                super()
+                this.seq = 1
+            }
+
+            bump (): number {
+                return ++this.seq
+            }
+        }
+        ${tail}
+    `
+
+    for (const sourceView of [ false, true ]) {
+        const plane = sourceView ? "source view" : "emit"
+
+        const clean = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void Tracked.new()")), { sourceView })))
+        t.is(clean.length, 0, `${plane}: the mixin's own super() and .new() type-check cleanly\n${clean.join("\n")}`)
+    }
+
+    const emitBanned = typecheckText(printSourceFile(ts, transformSourceFile(ts, createSourceFile(program("void new Tracked()")))))
+    t.ne(emitBanned.length, 0, "emit: a direct `new Tracked()` is a type error")
+})
+
 it("expands an imported class-level @mixin() class into interface + factory + const", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { mixin } from "ts-mixin-class"

@@ -309,6 +309,18 @@ function constructionConstructSignatureType(
     return factory.createConstructorTypeNode(undefined, undefined, [ parameter ], returnType)
 }
 
+// The poisoned construct signature `new (use_the_static_new_factory: { readonly "<guidance>": never })
+// => returnType` on its own, for callers (the construction-mixin value cast) that brand `new` without
+// the consumer's `Omit<typeof Base, "prototype">` statics head. Reuses the consumer brand verbatim so
+// the disabled-`new` message and behaviour are identical across the mixin and consumer planes.
+export function brandedConstructSignatureType(
+    tsInstance: TypeScript,
+    name: string,
+    returnType: ts.TypeNode
+): ts.TypeNode {
+    return constructionConstructSignatureType(tsInstance, { consumerName: name, branded: true }, returnType)
+}
+
 function constructorBrandType(tsInstance: TypeScript, consumerName: string): ts.TypeNode {
     const factory = tsInstance.factory
     const message =

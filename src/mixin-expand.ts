@@ -17,6 +17,7 @@ import {
     generatedName,
     implementsTypes,
     isNamedClassElement,
+    constructionMixinClassValueName,
     mixinClassValueName,
     mixinDiagnosticCode,
     mixinFactoryName,
@@ -33,6 +34,7 @@ import {
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
     createLinearizationPlanLiteral,
+    brandedConstructSignatureType,
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
     linearizationMode,
@@ -554,10 +556,20 @@ function expandSourceViewMixinClass(
     // The member is synthetic; in source view it normalizes onto the off-screen `$base` range
     // and the alignment pass clears its `Synthesized` flag (`MethodSignature` is a navigable
     // kind), so navigation does not crash.
-    const needsProtocolInitialize = dependencyRefs.length > 0 &&
-        isConstructionBaseOptIn(
-            tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
-        )
+    // A construction (package-`Base`-deriving) mixin must refuse a direct `new` (construction goes
+    // through the static `.new`). When the mixin declares NO constructor, the brand rides on the
+    // `$base` cast the class extends, so the real class inherits the poisoned construct. When it
+    // DOES declare its own constructor, that constructor's signature — not `$base`'s — governs an
+    // external `new`, and the only way to poison it in source view is to inject a parameter, which
+    // shifts the position-preserved constructor body and breaks navigation. So source view leaves
+    // the with-constructor case unbranded (its `super()` stays valid); the EMIT plane still bans it
+    // through the value cast, so a build (`tsc`) catches the stray `new` regardless.
+    const isConstructionMixin     = isConstructionBaseOptIn(
+        tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
+    )
+    const hasOwnConstructor       = declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
+    const brandConstructionBase   = isConstructionMixin && !hasOwnConstructor
+    const needsProtocolInitialize = dependencyRefs.length > 0 && isConstructionMixin
 
     const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
         undefined,
@@ -578,7 +590,7 @@ function expandSourceViewMixinClass(
         baseName,
         baseTypeParameters(),
         [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-            createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, requiredBase, dependencyRefs)
+            createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, requiredBase, dependencyRefs, brandConstructionBase)
         ]) ],
         []
     ), declaration)
@@ -647,13 +659,20 @@ function createSourceViewMixinMetadataBase(
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
-    dependencyRefs: ResolvedMixinRef[]
+    dependencyRefs: ResolvedMixinRef[],
+    isConstructionMixin = false
 ): ts.ExpressionWithTypeArguments {
     const factory = tsInstance.factory
 
+    // A construction mixin brands the `$base` head so the real class refuses a direct `new`, in
+    // parity with the emit value cast; a base-less / custom-required-base mixin keeps the permissive
+    // head, so its direct `new` stays allowed.
+    const construction          = isConstructionMixin && declaration.name !== undefined
+        ? { consumerName: declaration.name.text, branded: true }
+        : undefined
     const headType              = requiredBase === undefined
         ? factory.createTypeReferenceNode(anyConstructorName, undefined)
-        : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined)
+        : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined, construction)
     const manualMixinApplyTypes = hasManualMixinApplySyntax(sourceFile)
         ? [ createSourceViewMixinApplyType(
             tsInstance,
@@ -853,16 +872,36 @@ function createMixinValueCastType(
         ])
     }
 
-    const requiredBase = requiredBaseType(tsInstance, declaration)
+    const requiredBase     = requiredBaseType(tsInstance, declaration)
+    const requiredBaseArgs = requiredBase === undefined
+        ? []
+        : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]
+
+    // A construction (Base-deriving) mixin: direct `new Mixin(...)` is a type error (construction
+    // goes through the static `.new`), exactly like a construction consumer. The bare construct
+    // signature is dropped (`ConstructionMixinClassValue`) and a poisoned, brand-carrying construct
+    // is added instead. A base-less / required-base (non-package-Base) mixin keeps the permissive
+    // `MixinClassValue` construct, so its direct `new` stays allowed.
+    if (constructionNewType !== undefined) {
+        return factory.createIntersectionTypeNode([
+            // The mixin's own static `.new` comes first so it wins over the `Base.new` inherited
+            // through the value, and the branded construct poisons `new Mixin(...)`.
+            constructionNewType,
+            brandedConstructSignatureType(tsInstance, ref.className, instanceType),
+            factory.createTypeReferenceNode(constructionMixinClassValueName, [
+                instanceType,
+                factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),
+                ...requiredBaseArgs
+            ]),
+            createRuntimeMixinClassType(tsInstance, declaration)
+        ])
+    }
 
     return factory.createIntersectionTypeNode([
-        // The mixin's own construction `new` comes first so it wins overload
-        // resolution over the `Base.new` inherited via MixinClassValue.
-        ...(constructionNewType === undefined ? [] : [ constructionNewType ]),
         factory.createTypeReferenceNode(mixinClassValueName, [
             instanceType,
             factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),
-            ...(requiredBase === undefined ? [] : [ heritageTypeToTypeReference(tsInstance, requiredBase) ])
+            ...requiredBaseArgs
         ]),
         createRuntimeMixinClassType(tsInstance, declaration)
     ])

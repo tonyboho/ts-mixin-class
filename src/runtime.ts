@@ -54,7 +54,17 @@ export type MixinClassValue<
     RequiredBase extends object = any
 > =
     (new (...args: any[]) => Instance)
-    & ClassStatics<ReturnType<Factory>>
+    & ConstructionMixinClassValue<Instance, Factory, RequiredBase>
+
+// `MixinClassValue` WITHOUT the permissive bare construct signature — the value form for a
+// construction (Base-deriving) mixin, whose direct `new` is poisoned with a brand so it can only
+// be built through the generated static `.new(...)`. The statics and `.mix` are unchanged.
+export type ConstructionMixinClassValue<
+    Instance extends object,
+    Factory extends (...args: any[]) => any,
+    RequiredBase extends object = any
+> =
+    ClassStatics<ReturnType<Factory>>
     & {
         readonly mix: <Base extends AnyConstructor<RequiredBase>>(base: Base) =>
             MixinApplication<Base, Instance, ReturnType<Factory>>

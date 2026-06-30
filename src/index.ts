@@ -763,7 +763,20 @@ export function transformSourceFile(
         return sourceFile
     }
 
-    const facts                 = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
+    let facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
+
+    // Source-view nested expansion mutates a block's `statements` IN PLACE (see
+    // `expandNestedStatementLists`), so the input source file must be owned by this call. The
+    // compiler host already passes a per-call clone, but a direct caller may pass a live, reused
+    // source file (e.g. an incrementally-updated editor buffer in stress-edit) — mutating that
+    // would corrupt it. Re-parse a private clone here and re-derive facts on it, so the transform
+    // never mutates its argument. Scoped to source-view-with-nested-classes (rare); other paths
+    // rebuild rather than mutate, and so never touch the input.
+    if (resolvedOptions.sourceView && facts.hasNestedClasses) {
+        sourceFile = cloneSourceFileForTransform(tsInstance, sourceFile, sourceFile.languageVersion)
+        facts      = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
+    }
+
     const mixinDecoratorImports = facts.mixinDecoratorImports
     const context               = buildFileMixinContext(
         tsInstance, sourceFile, mixinDecoratorImports, resolvedOptions, crossFile, facts, nativeDiagnostics

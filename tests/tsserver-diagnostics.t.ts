@@ -29,7 +29,6 @@ const linearizationDiagnosticParts = [
 
 const invalidMixinDiagnosticParts = [
     "Invalid mixin class declaration",
-    "Mixin class ConstructorMixin cannot declare a constructor",
     "Mixin class PrivateMixin member value cannot be private or protected",
     "Mixin class MissingPropertyTypeMixin property value must have an explicit type annotation",
     "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
@@ -143,11 +142,6 @@ const invalidMixinDiagnosticText = trimIndent(`
 
     @mixin()
     abstract class AbstractMixin {
-    }
-
-    @mixin()
-    class ConstructorMixin {
-        constructor() {}
     }
 
     @mixin()

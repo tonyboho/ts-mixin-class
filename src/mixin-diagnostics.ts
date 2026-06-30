@@ -24,15 +24,10 @@ export function collectMixinClassDiagnostics(
     }
 
     for (const member of declaration.members) {
-        if (tsInstance.isConstructorDeclaration(member)) {
-            diagnostics.push({
-                node    : member,
-                message : "Invalid mixin class declaration. " +
-                    `Mixin class ${className} cannot declare a constructor. ` +
-                    "Mixin constructors cannot be composed safely; use field initializers or explicit initialization methods instead."
-            })
-        }
-
+        // A `@mixin` MAY declare its own constructor: the runtime factory preserves it (with a
+        // synthetic `super()`), so `new` on a base-less mixin runs it, and `.new()` runs it as the
+        // native-construct step for a construction mixin. Only the direct `new` CALL on a
+        // construction (Base-derived) class is guarded, elsewhere — never the declaration.
         if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.PrivateKeyword) ||
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.ProtectedKeyword)
         ) {

@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import { fillMissedInitializers } from "./construction-initializers.js"
+import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
 import {
     buildInterfaceMembers,
     constructionProtocolInitializeSignature,
@@ -287,7 +288,7 @@ export function expandMixinClass(
                 ref.localFactoryName,
                 undefined,
                 undefined,
-                createMixinFactoryExpression(tsInstance, declaration, typeParameters, context, options)
+                createMixinFactoryExpression(tsInstance, sourceFile, declaration, typeParameters, context, options)
             )
         ], tsInstance.NodeFlags.Const)
     ), generatedTextRange(sourceFile, declaration.end))
@@ -515,7 +516,7 @@ function expandSourceViewMixinClass(
                 factory.createNodeArray([ metadataExtendsClause, ...(declaration.heritageClauses ?? []) ]),
                 declaration.heritageClauses ?? generatedHeritageRange
             ),
-            fillMissedInitializers(tsInstance, declaration.members, options)
+            fillMissedInitializers(tsInstance, addSyntheticSuperCallToConstructors(tsInstance, sourceFile, declaration.members, true), options)
         ) ]
     }
 
@@ -602,7 +603,7 @@ function expandSourceViewMixinClass(
             baseImportMap
         )
     const constructionMembers = construction.members
-    const updatedMembers      = fillMissedInitializers(tsInstance, declaration.members, options)
+    const updatedMembers      = fillMissedInitializers(tsInstance, addSyntheticSuperCallToConstructors(tsInstance, sourceFile, declaration.members, true), options)
     const mixinMembers        = constructionMembers.length === 0
         ? updatedMembers
         : preserveTextRange(tsInstance, factory.createNodeArray([ ...updatedMembers, ...constructionMembers ]), updatedMembers)
@@ -700,6 +701,7 @@ function createSourceViewMixinMetadataBase(
 
 function createMixinFactoryExpression(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     typeParameters: ts.TypeParameterDeclaration[] | undefined,
     context: FileMixinContext,
@@ -730,7 +732,7 @@ function createMixinFactoryExpression(
                         undefined,
                         undefined,
                         mixinFactoryHeritageClauses(tsInstance, declaration),
-                        mixinRuntimeMembers(tsInstance, declaration, options)
+                        mixinRuntimeMembers(tsInstance, sourceFile, declaration, options)
                     ),
                     declaration.name ?? declaration
                 )
@@ -772,12 +774,12 @@ function mixinFactoryHeritageClauses(
 
 function mixinRuntimeMembers(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     options: TransformOptions
 ): ts.NodeArray<ts.ClassElement> {
     const members = tsInstance.factory.createNodeArray(declaration.members.filter((member) => {
-        if (tsInstance.isConstructorDeclaration(member) ||
-            hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) ||
+        if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) ||
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.PrivateKeyword) ||
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.ProtectedKeyword) ||
             isNamedClassElement(member) && tsInstance.isPrivateIdentifier(member.name)
@@ -788,7 +790,13 @@ function mixinRuntimeMembers(
         return isSupportedMixinClassMember(tsInstance, member)
     }))
 
-    return fillMissedInitializers(tsInstance, members, options)
+    // The mixin's own constructor is preserved (the declaration is allowed). The factory wraps it
+    // as `class extends base`, so a constructor written without `super()` (the source mixin has no
+    // `extends`) needs a synthetic no-arg `super()` to be a valid derived constructor and to chain
+    // through the linearized bases — the same convention as consumer constructors.
+    const withSuper = addSyntheticSuperCallToConstructors(tsInstance, sourceFile, members, true)
+
+    return fillMissedInitializers(tsInstance, withSuper, options)
 }
 
 function asMixinFactory(tsInstance: TypeScript, expression: ts.Expression): ts.Expression {

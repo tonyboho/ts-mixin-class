@@ -52,11 +52,6 @@ it("reports unsupported mixin class declarations with native diagnostics", async
                 }
 
                 @mixin()
-                class ConstructorMixin {
-                    constructor () {}
-                }
-
-                @mixin()
                 class PrivateMixin {
                     private value: string = "x"
                 }
@@ -113,7 +108,6 @@ it("reports unsupported mixin class declarations with native diagnostics", async
             "TS990004",
             "Invalid mixin class declaration",
             "Mixin class AbstractMixin cannot be abstract",
-            "Mixin class ConstructorMixin cannot declare a constructor",
             "Mixin class PrivateMixin member value cannot be private or protected",
             "Mixin class HashPrivateMixin member #value cannot use ECMAScript private names",
             "Mixin class AbstractMemberMixin member value cannot be abstract",

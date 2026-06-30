@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -259,4 +260,66 @@ it("expands a nested construction class (.new + config) and constructs at runtim
     `)
 
     t.eq(imported.point, { x: 3, y: 4 }, "the nested construction class built through its generated .new(...)")
+})
+
+// M10 — nested classes are locals, so they (and their generated siblings) never leak into the
+// emitted `.d.ts`. Only the file's real top-level exports appear.
+it("keeps nested classes and their generated siblings out of the .d.ts", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ { fileName : "source.ts", text     : `
+            import { mixin } from "ts-mixin-class"
+
+            @mixin()
+            class Tagger {
+                tag (value: string): string { return value }
+            }
+
+            export function build (): string {
+                @mixin()
+                class LocalMixin {
+                    hi (): string { return "hi" }
+                }
+
+                class LocalConsumer implements LocalMixin, Tagger {}
+
+                return new LocalConsumer().hi()
+            }
+
+            // The instance of a nested class escapes through an INFERRED return type. TypeScript
+            // widens the un-nameable local type to its structural shape in the .d.ts, so the
+            // member surface appears but neither the nested class name nor the generated \`$base\`
+            // name leaks.
+            export function makeTagger () {
+                class Escaping implements Tagger {}
+
+                return new Escaping()
+            }
+        ` } ]
+    })
+
+    try {
+        const result = await runCommand(
+            "node",
+            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
+            fixture.directory
+        )
+
+        t.equal(result.exitCode, 0, `Builds with declarations.\n${commandOutput(result)}`)
+
+        const declaration = await readFile(path.join(fixture.directory, "dist", "source.d.ts"), "utf8")
+
+        t.match(declaration, "export declare function build", "the real top-level export is declared")
+        t.notMatch(declaration, "LocalMixin", "the nested mixin does not leak into the .d.ts")
+        t.notMatch(declaration, "LocalConsumer", "the nested consumer does not leak into the .d.ts")
+        t.notMatch(declaration, "$base", "no generated nested sibling leaks into the .d.ts")
+
+        // An escaping nested instance widens to its structural shape — the member surface is
+        // emitted, but no nested-class or generated name appears.
+        t.match(declaration, "tag(value: string): string", "an escaped nested type widens to its structural surface")
+        t.notMatch(declaration, "Escaping", "the escaping nested class name never leaks")
+    } finally {
+        await fixture.dispose()
+    }
 })

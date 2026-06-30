@@ -67,9 +67,24 @@ export type PrintedSourceMapping = {
 }
 
 export function preserveTopLevelStatementRanges(tsInstance: TypeScript, sourceFile: ts.SourceFile): void {
-    let previousEnd = 0
+    preserveStatementListRanges(tsInstance, sourceFile, sourceFile.statements, 0)
+}
 
-    for (const statement of sourceFile.statements) {
+// Assign safe real ranges to the generated statements in ONE statement list — the top-level
+// list or a nested function/block body. A synthetic ({-1,-1}) generated sibling is collapsed
+// into the gap after the previous real statement (exactly where a top-level generated sibling
+// sits), so it never strands an identifier in trivia. Generated mixins / consumers can be nested
+// inside a function body or block, so each statement is then recursed for its own nested blocks —
+// every block gets gap-placed ranges relative to ITS own start, not the enclosing span.
+function preserveStatementListRanges(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    statements: ts.NodeArray<ts.Statement>,
+    startPosition: number
+): void {
+    let previousEnd = startPosition
+
+    for (const statement of statements) {
         const descendantRange = preserveSyntheticDescendantRangesAndGetRealRange(
             tsInstance,
             statement,
@@ -91,18 +106,41 @@ export function preserveTopLevelStatementRanges(tsInstance: TypeScript, sourceFi
         if (statement.end >= 0) {
             previousEnd = statement.end
         }
+
+        // A statement that IS a real block (a bare `{ … }`) owns its own list; otherwise descend
+        // to find blocks nested inside it (a function / method / accessor body, a namespace).
+        if ((tsInstance.isBlock(statement) || tsInstance.isModuleBlock(statement)) && statement.pos >= 0) {
+            preserveStatementListRanges(tsInstance, sourceFile, statement.statements, statement.pos)
+        } else {
+            preserveNestedBlockStatementRanges(tsInstance, sourceFile, statement)
+        }
     }
 
-    const first = sourceFile.statements[0]
-    const last  = sourceFile.statements.at(-1)
+    const first = statements[0]
+    const last  = statements.at(-1)
 
     if (first !== undefined && last !== undefined) {
-        tsInstance.setTextRange(sourceFile.statements, {
+        tsInstance.setTextRange(statements, {
             pos : Math.max(0, first.pos),
             end : Math.max(first.end, last.end)
         })
     }
+}
 
+// Find every REAL statement-list block reachable inside `node` (a function/method/accessor body,
+// a bare block, a namespace block) and preserve its statements as their own list.
+function preserveNestedBlockStatementRanges(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    node: ts.Node
+): void {
+    tsInstance.forEachChild(node, (child) => {
+        if ((tsInstance.isBlock(child) || tsInstance.isModuleBlock(child)) && child.pos >= 0) {
+            preserveStatementListRanges(tsInstance, sourceFile, child.statements, child.pos)
+        } else {
+            preserveNestedBlockStatementRanges(tsInstance, sourceFile, child)
+        }
+    })
 }
 
 function preserveSyntheticDescendantRangesAndGetRealRange(
@@ -110,6 +148,13 @@ function preserveSyntheticDescendantRangesAndGetRealRange(
     node: ts.Node,
     parentRange: ts.TextRange
 ): ts.TextRange | undefined {
+    // A REAL statement-list block owns its contents through `preserveStatementListRanges` (gap
+    // placement per its own start). Return its range without touching the statements, so a nested
+    // generated sibling is never collapsed onto the enclosing block's full span.
+    if ((tsInstance.isBlock(node) || tsInstance.isModuleBlock(node)) && node.pos >= 0) {
+        return { pos: node.pos, end: node.end }
+    }
+
     const currentRange = node.pos >= 0 && node.end >= 0
         ? {
             pos : node.pos,

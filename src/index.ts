@@ -895,10 +895,24 @@ export function transformSourceFile(
         return changed ? out : statements
     }
 
-    // Descend through arbitrary nodes to reach nested statement lists (`Block`, `ModuleBlock`),
-    // rebuilding a block only when its statements actually change. `visitEachChild` returns the
-    // same node reference when no child changed, so an untouched subtree stays identical.
+    // Reach the nested statement lists (`Block`, `ModuleBlock`) inside `node` and expand them.
+    //
+    // SOURCE VIEW mutates each block's `statements` IN PLACE (the input is a per-call clone, so
+    // this is safe): the user's function / block ancestors keep their node identity — and so their
+    // binding and `.original`-free state. Rebuilding them with `visitEachChild` instead would set
+    // `.original` to the pre-transform node, which TS's syntactic node builder then follows to an
+    // un-bound node and crashes on, both in display-part serialization AND declaration emit.
+    //
+    // EMIT cannot mutate (its input is the shared host source file), so it rebuilds with
+    // `visitEachChild`; the reprint path never reaches the syntactic node builder, so `.original`
+    // on a rebuilt ancestor is harmless there.
     const expandNestedStatementLists = (node: ts.Statement): ts.Statement => {
+        if (resolvedOptions.sourceView) {
+            mutateNestedStatementLists(node)
+
+            return node
+        }
+
         const visit = (inner: ts.Node): ts.Node => {
             if (tsInstance.isBlock(inner)) {
                 const statements = expandStatementList(inner.statements)
@@ -922,20 +936,39 @@ export function transformSourceFile(
         return visit(node) as ts.Statement
     }
 
+    // Source-view in-place block expansion (see `expandNestedStatementLists`). A block (including a
+    // bare `{ … }` reached as a statement) has its own `statements` expanded and replaced when the
+    // result differs; any other node is descended for blocks nested inside it. The block node's
+    // identity is preserved either way.
+    const mutateNestedStatementLists = (node: ts.Node): void => {
+        if (tsInstance.isBlock(node) || tsInstance.isModuleBlock(node)) {
+            const statements = expandStatementList(node.statements)
+
+            if (statements !== node.statements) {
+                const updated = tsInstance.factory.createNodeArray(statements)
+
+                tsInstance.setTextRange(updated, node.statements)
+                ;(node as { statements: ts.NodeArray<ts.Statement> }).statements = updated
+            }
+
+            return
+        }
+
+        tsInstance.forEachChild(node, (child) => {
+            mutateNestedStatementLists(child)
+        })
+    }
+
     // `nullTransformationContext` is a real runtime export (a no-op lexical-environment context
     // that `visitEachChild` needs for function-like nodes) but is absent from the public typings.
     const nullTransformationContext = (tsInstance as unknown as {
         nullTransformationContext : ts.TransformationContext
     }).nullTransformationContext
 
-    // Nested expansion is enabled on the EMIT plane (the reprint path: `tsc` build and
-    // `tsc --noEmit`). The position-preserving SOURCE-VIEW plane (tsserver) is held back: a
-    // generated `$base` declared inside a block binds as a block-local synthetic symbol that
-    // crashes tsserver's display-part node-builder (`getSymbolDisplayPartsDocumentationAndSymbolKind`
-    // -> `serializeReturnTypeForSignature` -> `getSymbolId(undefined)`) even though the program
-    // itself type-checks cleanly — the §5/§12.9 source-view fragility family. Until that is
-    // solved, source view leaves a nested class unexpanded (a fixable editor error, never a crash).
-    const expandedStatements = facts.hasNestedClasses && !resolvedOptions.sourceView
+    // A mixin / consumer declared inside a function body or block expands too: walk into nested
+    // statement lists and splice the generated siblings into the CONTAINING block (never module
+    // scope). No-op-safe — a file with no nested class keeps the original flat, top-level pass.
+    const expandedStatements = facts.hasNestedClasses
         ? [ ...expandStatementList(sourceFile.statements) ]
         : sourceFile.statements.flatMap(expandClassStatement)
 

@@ -95,7 +95,8 @@ export const mixinDiagnosticCode = {
     MixinExtendsMixin       : 990001,
     AnonymousDefaultMixin   : 990002,
     AnonymousMixinConsumer  : 990003,
-    MixinInvalidDeclaration : 990004
+    MixinInvalidDeclaration : 990004,
+    MixinUnsupportedBase    : 990005
 } as const
 
 export type ImportedNameBinding = {

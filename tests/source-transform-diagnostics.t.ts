@@ -188,32 +188,45 @@ it("rejects an anonymous mixin consumer class with a native diagnostic", async (
     }
 })
 
-it("reports unsupported mixin consumer base expressions with a custom diagnostic", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { mixin } from "ts-mixin-class"
+// Migrated to a NATIVE `ts.Diagnostic` (code TS990005), spanned on the offending base expression
+// and surfaced by the real patched `tsc`.
+it("reports unsupported mixin consumer base expressions with a native diagnostic", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
 
-        function makeBase (): new () => object {
-            return class {
-            }
-        }
+                function makeBase (): new () => object {
+                    return class {
+                    }
+                }
 
-        @mixin()
-        class SourceMixin {
-            value: string = "x"
-        }
+                @mixin()
+                class SourceMixin {
+                    value: string = "x"
+                }
 
-        class Consumer extends makeBase() implements SourceMixin {
-        }
-    `))
-    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
-    const messages        = diagnostics.join("\n")
+                class Consumer extends makeBase() implements SourceMixin {
+                }
+            `
+        } ]
+    })
 
-    assertMessageParts(t, messages, [
-        "Unsupported mixin consumer base expression",
-        "Consumer extends makeBase()",
-        "Only named base classes such as Base or ns.Base are supported for now",
-        "assign the expression to a named class or const"
-    ])
+    try {
+        const output = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, output, [
+            "TS990005",
+            "Unsupported mixin consumer base expression",
+            "Consumer extends makeBase()",
+            "Only named base classes such as Base or ns.Base are supported for now",
+            "assign the expression to a named class or const"
+        ])
+    } finally {
+        await fixture.dispose()
+    }
 })
 
 it("reports conflicting static members between consumed mixins", async (t: Test) => {

@@ -9,7 +9,6 @@ import {
 import {
     appendRequiredBaseValidationTypeParameters,
     appendSourceViewValidationTypeParameters,
-    createConsumerDiagnosticValidation,
     createLinearizationDiagnosticValidation,
     createMissingRuntimeImportValidations,
     createRequiredBaseValidations,
@@ -45,6 +44,7 @@ import {
     DependencyLinearizationError,
     extendsClause,
     generatedName,
+    mixinDiagnosticCode,
     requiredBaseType,
     type FileMixinContext,
     type ImportedNameBinding,
@@ -520,17 +520,33 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
         throw new MixinTransformError(sourceFile, declaration, "Unsupported base diagnostic requires an extends clause")
     }
 
-    const diagnosticValidation  = createConsumerDiagnosticValidation(
-        tsInstance,
-        declaration,
-        "__mixinUnsupportedBaseExpression",
-        unsupportedBaseDiagnosticMessage(tsInstance, sourceFile, declaration, extendsType),
-        generatedHeritageTypeRange
-    )
+    // The base expression is not a named class we can resolve. This is a purely syntactic finding,
+    // so it is a NATIVE diagnostic (family code TS990005), spanned on the offending base expression
+    // and drained by `wrapProgramDiagnostics` — surfaced identically on the emit and source-view
+    // planes. The generated declarations below are a still-type-correct fallback (no `never` carrier).
+    //
+    // Only the GENUINE on-disk unsupported base carries a real position. A construction consumer is
+    // re-expanded from a synthesized declaration whose base was already validated and rewritten into a
+    // `(mixinChain(...) as unknown as ...)` cast (a `ParenthesizedExpression`, pos < 0); that is not an
+    // error, so the push (and `getStart`, which asserts a real position) is gated on a real position —
+    // exactly the boundary the old type-encoded carrier got for free by riding the discarded node.
+    if (extendsType.expression.pos >= 0 && extendsType.expression.end >= 0) {
+        const baseStart = extendsType.expression.getStart(sourceFile)
+
+        context.nativeDiagnostics.push({
+            fileName    : sourceFile.fileName,
+            start       : baseStart,
+            length      : extendsType.expression.getEnd() - baseStart,
+            code        : mixinDiagnosticCode.MixinUnsupportedBase,
+            category    : tsInstance.DiagnosticCategory.Error,
+            messageText : unsupportedBaseDiagnosticMessage(tsInstance, sourceFile, declaration, extendsType)
+        })
+    }
+
     const checkedTypeParameters = appendRequiredBaseValidationTypeParameters(
         tsInstance,
         declaration.typeParameters,
-        [ diagnosticValidation ]
+        []
     )
 
     const baseInterface = preserveGeneratedDeclarationRange(tsInstance, factory.createInterfaceDeclaration(
@@ -550,7 +566,7 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
         appendRequiredBaseValidationTypeParameters(
             tsInstance,
             declaration.typeParameters,
-            [ diagnosticValidation ]
+            []
         ),
         [ unsupportedBaseConsumerHeritage(
             tsInstance,
@@ -572,8 +588,7 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
             declaration,
             baseName,
             generatedHeritageRange,
-            generatedHeritageTypeRange,
-            [ diagnosticValidation.typeArgument ]
+            generatedHeritageTypeRange
         ),
         addSyntheticSuperCallToConstructors(
             tsInstance,

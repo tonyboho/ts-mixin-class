@@ -655,8 +655,11 @@ it("tsserver semantic diagnostics report copied fixture type-errors without expe
         )
         const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
+        // The linearization conflict (BadLinearizationConsumer) is no longer in this corpus: it
+        // migrated to a NATIVE diagnostic (TS990007) that `@ts-expect-error` cannot suppress, so it
+        // cannot live in a build-must-pass file. Its tsserver coverage is the dedicated
+        // linearization-conflict test above; this corpus keeps the still-type-encoded families.
         assertDiagnosticParts(t, messages, requiredBaseDiagnosticParts)
-        assertDiagnosticParts(t, messages, linearizationDiagnosticParts)
         assertDiagnosticParts(t, messages, staticCollisionDiagnosticParts)
     } finally {
         await fixture.dispose()
@@ -673,11 +676,13 @@ it("fixture type-errors keeps expect-error suppressions for expected diagnostics
         .filter((line) => line.includes("@ts-expect-error"))
     const expectErrorText  = expectErrorLines.join("\n")
 
-    t.equal(expectErrorLines.length, 5, "Fixture has one suppression per expected diagnostic")
+    // The linearization conflict migrated to a native diagnostic (which an expect-error directive
+    // cannot suppress), so it left this corpus -- four suppressions remain, one per still-
+    // type-encoded family (two contracts, required base, static collision).
+    t.equal(expectErrorLines.length, 4, "Fixture has one suppression per expected diagnostic")
     t.match(expectErrorText, "ContractSourceClass1", "Fixture suppresses the first contract diagnostic")
     t.match(expectErrorText, "ContractSourceClass2", "Fixture suppresses the second contract diagnostic")
     t.match(expectErrorText, "RequiredMixin", "Fixture suppresses the required-base diagnostic")
-    t.match(expectErrorText, "LinearizationX", "Fixture suppresses the linearization diagnostic")
     t.match(expectErrorText, "StaticCollisionLeftMixin", "Fixture suppresses the static collision diagnostic")
 })
 

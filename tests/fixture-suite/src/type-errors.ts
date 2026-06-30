@@ -36,31 +36,11 @@ class UnrelatedRequiredConsumerBase {
 class BadRequiredConsumer extends UnrelatedRequiredConsumerBase implements RequiredMixin {
 }
 
-@mixin()
-class LinearizationA {
-}
-
-@mixin()
-class LinearizationB {
-}
-
-// LinearizationX and LinearizationY are each individually consistent (so neither mixin
-// errors); only a consumer that applies BOTH forces LinearizationA and LinearizationB into
-// opposite orders, which has no C3 linearization. (A mixin whose OWN dependencies conflict is
-// covered by nontrivial-diamond-linearization.t.ts and source-transform-cross-package-*; it
-// can't live in this build-must-pass corpus because its emit-mode error cannot be suppressed
-// at the declaration -- the mixin decorator is stripped and the file reprinted.)
-@mixin()
-class LinearizationX implements LinearizationA, LinearizationB {
-}
-
-@mixin()
-class LinearizationY implements LinearizationB, LinearizationA {
-}
-
-// @ts-expect-error LinearizationX and LinearizationY have inconsistent C3 requirements together.
-class BadLinearizationConsumer implements LinearizationX, LinearizationY {
-}
+// A consumer (or mixin) whose applied mixins have no C3 linearization is now reported as a
+// NATIVE diagnostic (TS990007), which an expect-error directive cannot suppress (native
+// diagnostics are appended after the checker). So a linearization conflict can no longer live in
+// this build-must-pass corpus -- it is covered by the dedicated failing-build tests instead
+// (nontrivial-diamond-linearization.t.ts on both planes, source-transform-cross-package-*).
 
 @mixin()
 class StaticCollisionLeftMixin {
@@ -80,6 +60,5 @@ void [
     BadGenericConsumer,
     BadOverrideConsumer,
     BadRequiredConsumer,
-    BadLinearizationConsumer,
     BadStaticCollisionConsumer
 ]

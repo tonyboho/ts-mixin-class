@@ -28,7 +28,6 @@ import {
     constructionMixinClassValueName,
     mixinClassValueName,
     mixinDiagnosticCode,
-    mixinLinearizationConflictName,
     mixinFactoryName,
     runtimeMixinClassName,
     shouldSkipFileName,
@@ -1206,8 +1205,7 @@ function createHelperTypeImport(
         { typeOnly: true, importedName: metadataBaseImportName,        localName: metadataBaseLocalName },
         { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassName },
         { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueName },
-        { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueName },
-        { typeOnly: true, importedName: mixinLinearizationConflictName, localName: mixinLinearizationConflictName }
+        { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueName }
     ]
 
     const used = candidates.filter((candidate) => referenced.has(candidate.localName))

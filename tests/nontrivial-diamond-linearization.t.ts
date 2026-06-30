@@ -77,8 +77,9 @@ it("preserves the C3 order of a nontrivial diamond through compile-and-run", asy
 
 // A 3-cycle of pairwise orders: P imposes A<B, Q imposes B<C, R imposes C<A. Each pair is
 // consistent on its own, so P, Q, R each compile; only a consumer of all three forms the
-// cycle A<B<C<A and must be reported as a compile-time C3 conflict.
-it("detects a nontrivial 3-cycle linearization conflict at compile time", async (t: Test) => {
+// cycle A<B<C<A and must be reported as a compile-time C3 conflict. The conflict is a NATIVE
+// diagnostic (TS990007) surfaced identically in emit (`tsc`) and source-view (`--noEmit`) modes.
+it("detects a nontrivial 3-cycle linearization conflict at compile time on both planes", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
@@ -102,21 +103,25 @@ it("detects a nontrivial 3-cycle linearization conflict at compile time", async 
     })
 
     try {
-        const build  = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
-        const output = commandOutput(build)
+        for (const extraArgs of [ [], [ "--noEmit" ] ]) {
+            const build  = await runCommand("node", [ tscBinary, ...extraArgs, "-p", fixture.tsconfigFile ], fixture.directory)
+            const output = commandOutput(build)
+            const mode   = extraArgs.length === 0 ? "emit" : "--noEmit"
 
-        t.ne(build.exitCode, 0, `A 3-cycle diamond must fail to compile:\n${output}`)
-        t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
-            `... with the C3 conflict diagnostic:\n${output}`)
+            t.ne(build.exitCode, 0, `A 3-cycle diamond must fail to compile (${mode}):\n${output}`)
+            t.match(output, "TS990007", `... as the native C3 conflict diagnostic (${mode}):\n${output}`)
+            t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
+                `... with the C3 conflict message (${mode}):\n${output}`)
+        }
     } finally {
         await fixture.dispose()
     }
 })
 
 // A `@mixin` whose OWN dependencies are inconsistent is reported at compile time even with
-// no consumer to force the linearization. The source-view / `--noEmit` path reports it on the
-// generated `__Z$base` (a never-constrained validation type parameter, like a consumer's
-// conflict), so it surfaces in tsserver without stranding a real token in the source view.
+// no consumer to force the linearization, as a NATIVE diagnostic (TS990007) spanned on the
+// mixin's first `implements` entry — so it surfaces in tsserver without stranding a real token
+// in the source view, identically to the emit path below.
 it("detects a mixin-only linearization conflict (no consumer) at compile time", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
@@ -154,9 +159,8 @@ it("detects a mixin-only linearization conflict (no consumer) at compile time", 
 })
 
 // The same mixin-only conflict must ALSO fail an emit build (`tsc`, not `--noEmit`), not just
-// the source-view / type-check path. Emit has no `__Z$base` carrier, so the transformer
-// intersects `MixinLinearizationConflict<"<message>">` into the mixin value's cast; `tsc`
-// reports the C3 message there.
+// the source-view / type-check path. The native diagnostic is pushed before the emit/source-view
+// split, so `tsc` reports the same TS990007 C3 message.
 it("detects a mixin-only linearization conflict in emit mode (tsc, not --noEmit)", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,

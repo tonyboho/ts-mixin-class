@@ -9,9 +9,9 @@ import {
 import {
     appendRequiredBaseValidationTypeParameters,
     appendSourceViewValidationTypeParameters,
-    createLinearizationDiagnosticValidation,
     createRequiredBaseValidations,
     linearizationDiagnosticMessage,
+    pushLinearizationConflictDiagnostic,
     pushMissingRuntimeImportDiagnostics,
     unsupportedBaseDiagnosticMessage
 } from "./consumer-diagnostics.js"
@@ -630,16 +630,19 @@ function expandConsumerClassWithLinearizationDiagnostic(
         declaration.heritageClauses?.pos ?? declaration.name.end
     )
     const generatedHeritageTypeRange = extendsType ?? generatedHeritageRange
-    const diagnosticValidation       = createLinearizationDiagnosticValidation(
+
+    pushLinearizationConflictDiagnostic(
         tsInstance,
-        declaration,
-        linearizationDiagnosticMessage(directMixinRefs, context, error),
-        generatedHeritageTypeRange
+        sourceFile,
+        context,
+        mixinHeritage[0] ?? declaration.name,
+        linearizationDiagnosticMessage(directMixinRefs, context, error)
     )
-    const checkedTypeParameters      = appendRequiredBaseValidationTypeParameters(
+
+    const checkedTypeParameters = appendRequiredBaseValidationTypeParameters(
         tsInstance,
         declaration.typeParameters,
-        [ diagnosticValidation ]
+        []
     )
 
     const baseInterfaceNode = factory.createInterfaceDeclaration(
@@ -670,7 +673,7 @@ function expandConsumerClassWithLinearizationDiagnostic(
         appendRequiredBaseValidationTypeParameters(
             tsInstance,
             declaration.typeParameters,
-            [ diagnosticValidation ]
+            []
         ),
         [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
             cloneExpressionWithTypeArguments(
@@ -694,8 +697,7 @@ function expandConsumerClassWithLinearizationDiagnostic(
             declaration,
             baseName,
             generatedHeritageRange,
-            generatedHeritageTypeRange,
-            [ diagnosticValidation.typeArgument ]
+            generatedHeritageTypeRange
         ),
         addSyntheticSuperCallToConstructors(
             tsInstance,

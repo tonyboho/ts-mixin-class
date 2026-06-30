@@ -21,7 +21,6 @@ import {
     mixinClassValueName,
     mixinDiagnosticCode,
     mixinFactoryName,
-    mixinLinearizationConflictName,
     registryKey,
     requiredBaseType,
     runtimeMixinClassName,
@@ -44,8 +43,8 @@ import {
 } from "./expand-util.js"
 import {
     appendSourceViewValidationTypeParameters,
-    createLinearizationDiagnosticValidation,
-    linearizationDiagnosticMessage
+    linearizationDiagnosticMessage,
+    pushLinearizationConflictDiagnostic
 } from "./consumer-diagnostics.js"
 import {
     createMixinApplyType,
@@ -205,21 +204,28 @@ export function expandMixinClass(
     if (mixinBaseDiagnostic !== undefined) {
         context.nativeDiagnostics.push(mixinBaseDiagnostic)
     }
-    // A mixin whose OWN dependencies cannot be C3-linearized (a conflict with no consumer to
-    // force it) is reported on the mixin in BOTH paths, via two carriers since emit has no
-    // `__X$base`: source view puts a never-constrained validation type parameter on the
-    // generated `__X$base` (consumer-style, see expandSourceViewMixinClass); emit intersects
-    // `MixinLinearizationConflict<message>` into the value cast (see
-    // withMixinLinearizationConflictType). No merge plan is emitted for a conflicting set.
-    const dependencyRefs        = localMixinRefs(context, localMixinHeritageTypes(tsInstance, declaration, context))
+    // A mixin whose OWN dependencies cannot be C3-linearized (a conflict with no consumer to force
+    // it) is a NATIVE diagnostic (family code TS990007), pushed here before the source-view/emit
+    // split so it surfaces identically in both — no `__X$base` validation (source view) or
+    // `MixinLinearizationConflict<message>` value-cast intersection (emit) any more. No merge plan
+    // is emitted for a conflicting set. Spanned on the first `implements` entry (the conflict's deps).
+    const dependencyHeritage    = localMixinHeritageTypes(tsInstance, declaration, context)
+    const dependencyRefs        = localMixinRefs(context, dependencyHeritage)
     const linearizationConflict = mixinLinearizationConflict(context, dependencyRefs)
-    const linearizationMessage  = linearizationConflict === undefined
-        ? undefined
-        : linearizationDiagnosticMessage(dependencyRefs, context, linearizationConflict)
+
+    if (linearizationConflict !== undefined && declaration.name !== undefined) {
+        pushLinearizationConflictDiagnostic(
+            tsInstance,
+            sourceFile,
+            context,
+            dependencyHeritage[0] ?? declaration.name,
+            linearizationDiagnosticMessage(dependencyRefs, context, linearizationConflict)
+        )
+    }
 
     if (options.sourceView) {
         return [
-            ...expandSourceViewMixinClass(tsInstance, sourceFile, declaration, context, options, linearizationMessage)
+            ...expandSourceViewMixinClass(tsInstance, sourceFile, declaration, context, options)
         ]
     }
 
@@ -318,12 +324,7 @@ export function expandMixinClass(
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
-                    withMixinLinearizationConflictType(
-                        tsInstance,
-                        declaration,
-                        createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType),
-                        linearizationMessage
-                    )
+                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType)
                 )
             )
         ], tsInstance.NodeFlags.Const)
@@ -389,35 +390,6 @@ function defineMixinClassArguments(
     return args
 }
 
-// Emit-mode reporting for a mixin whose own dependencies cannot be C3-linearized: intersect
-// `MixinLinearizationConflict<"<message>">` into the value cast so `tsc` reports the message.
-// Only for a conflicting set (message present); the normal cast is returned untouched
-// otherwise. The message string literal is pinned to the mixin's first `implements` type so
-// the emitted diagnostic remaps onto the heritage line, matching where the source-view path
-// reports it. (The source-view path reports on `$base` instead, so this is emit-only.)
-function withMixinLinearizationConflictType(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    castType: ts.TypeNode,
-    linearizationMessage: string | undefined
-): ts.TypeNode {
-    if (linearizationMessage === undefined) {
-        return castType
-    }
-
-    const factory      = tsInstance.factory
-    const heritageType = implementsTypes(tsInstance, declaration)[0] ?? declaration
-    const conflictType = factory.createTypeReferenceNode(mixinLinearizationConflictName, [
-        preserveTextRange(
-            tsInstance,
-            factory.createLiteralTypeNode(factory.createStringLiteral(linearizationMessage)),
-            heritageType
-        )
-    ])
-
-    return factory.createIntersectionTypeNode([ castType, conflictType ])
-}
-
 // The mixin's own requirement set cannot be C3-linearized: returns the error (so the caller
 // can report it on the mixin) or undefined when the set is empty or consistent.
 function mixinLinearizationConflict(
@@ -468,11 +440,7 @@ function expandSourceViewMixinClass(
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     context: FileMixinContext,
-    options: TransformOptions,
-    // Present when the mixin's own dependencies cannot be C3-linearized: the message is
-    // surfaced as a never-constrained validation on the generated `__X$base`, exactly like a
-    // consumer's linearization conflict (createLinearizationDiagnosticValidation).
-    linearizationConflictMessage?: string
+    options: TransformOptions
 ): ts.Statement[] {
     const factory = tsInstance.factory
 
@@ -523,25 +491,17 @@ function expandSourceViewMixinClass(
     }
 
     const baseName = generatedName(declaration.name.text, consumerBaseSuffix)
-    // Mirror the consumer's linearization diagnostic: a never-constrained validation type
-    // parameter on `__X$base`, instantiated with the message in the (position-preserved)
-    // generated heritage clause. Empty when there is no conflict.
-    const linearizationValidations = linearizationConflictMessage === undefined
-        ? []
-        : [ createLinearizationDiagnosticValidation(
-            tsInstance,
-            declaration,
-            linearizationConflictMessage,
-            generatedHeritageTypeRange
-        ) ]
-    const baseTypeParameters  = () => appendSourceViewValidationTypeParameters(
+    // A mixin's own linearization conflict is now a NATIVE diagnostic (pushed in expandMixinClass
+    // before the source-view/emit split), so `__X$base` carries no never-constrained validation —
+    // only the mixin's own type parameters (deep-cloned so they carry no shared source positions).
+    const baseTypeParameters = () => appendSourceViewValidationTypeParameters(
         tsInstance,
         declaration.typeParameters,
-        linearizationValidations
+        []
     )
-    const dependencyRefs           = localMixinRefs(context, dependencyHeritage)
-    const facts                    = getSourceFileFacts(tsInstance, sourceFile, options)
-    const baseImportMap            = context.crossFile === undefined
+    const dependencyRefs     = localMixinRefs(context, dependencyHeritage)
+    const facts              = getSourceFileFacts(tsInstance, sourceFile, options)
+    const baseImportMap      = context.crossFile === undefined
         ? undefined
         : buildImportedNameMap(tsInstance, sourceFile, context.crossFile.resolveModuleFileName, facts)
 
@@ -630,8 +590,7 @@ function expandSourceViewMixinClass(
             declaration,
             baseName,
             generatedHeritageRange,
-            generatedHeritageTypeRange,
-            linearizationValidations.map((validation) => validation.typeArgument)
+            generatedHeritageTypeRange
         ),
         mixinMembers
     )

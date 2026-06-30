@@ -24,43 +24,32 @@ import {
 } from "./util.js"
 import type { TypeScript } from "./util.js"
 
-export function createLinearizationDiagnosticValidation(
+// A set of mixins (a consumer's `implements`, or a mixin's own dependencies) that cannot be
+// C3-linearized. The conflict is decided by the transformer's own linearization pass, so it is a
+// NATIVE diagnostic (family code TS990007), spanned on the offending heritage and drained by
+// `wrapProgramDiagnostics` — surfaced identically on the emit and source-view planes. The span is
+// gated on a real position (a re-expansion from a synthesized declaration carries synthetic heritage).
+export function pushLinearizationConflictDiagnostic(
     tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    message: string,
-    generatedRange: ts.TextRange
-): RequiredBaseValidation {
-    return createConsumerDiagnosticValidation(
-        tsInstance,
-        declaration,
-        "__mixinLinearizationError",
-        message,
-        generatedRange
-    )
-}
-
-export function createConsumerDiagnosticValidation(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    parameterBaseName: string,
-    message: string,
-    generatedRange: ts.TextRange
-): RequiredBaseValidation {
-    const factory = tsInstance.factory
-
-    return {
-        typeParameter : preserveTextRange(tsInstance, factory.createTypeParameterDeclaration(
-            undefined,
-            uniqueTypeParameterName(declaration, parameterBaseName),
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
-            undefined
-        ), generatedRange),
-        typeArgument : preserveTextRange(
-            tsInstance,
-            factory.createLiteralTypeNode(factory.createStringLiteral(message)),
-            generatedRange
-        )
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext,
+    anchor: ts.Node,
+    message: string
+): void {
+    if (anchor.pos < 0 || anchor.end < 0) {
+        return
     }
+
+    const start = anchor.getStart(sourceFile)
+
+    context.nativeDiagnostics.push({
+        fileName    : sourceFile.fileName,
+        start,
+        length      : anchor.getEnd() - start,
+        code        : mixinDiagnosticCode.MixinLinearizationConflict,
+        category    : tsInstance.DiagnosticCategory.Error,
+        messageText : message
+    })
 }
 
 export function unsupportedBaseDiagnosticMessage(

@@ -34,13 +34,6 @@ so the per-class overhead and how it scales are both visible. Run it in the `rep
 not the dev-time cross-check. (Complements `bench/c3`, which times the linearization step on
 abstract integer graphs; this times real emitted classes end to end.)
 
-### Sync the README Setup version on release
-
-The README `Setup` section hardcodes example versions in its `package.json` snippet
-(`"ts-mixin-class": "0.0.1"`, `"ts-patch": "4.0.1"`). They drift behind the published package.
-At each release, bump the `ts-mixin-class` version there to the just-published one (and refresh
-`ts-patch` to the current dependency). A small, easy-to-forget release-checklist step.
-
 ---
 
 ## Limitations (future tasks)

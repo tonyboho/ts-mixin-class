@@ -221,6 +221,18 @@ export function commandOutput(result: CommandResult): string {
     ].join("\n")
 }
 
+// Type-check a fixture with the package's own patched `tsc` (the program transform + its
+// `getSemanticDiagnostics` wrap run, so NATIVE transformer diagnostics surface — unlike the
+// in-process `transformSourceFile -> printSourceFile -> typecheckText` path, which only sees
+// type-encoded errors baked into the reprinted text). `--noEmit` keeps it a pure check.
+export async function runFixtureTypecheck(fixture: TypeScriptFixture): Promise<CommandResult> {
+    return runCommand(
+        "node",
+        [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile, "--noEmit" ],
+        fixture.directory
+    )
+}
+
 export function createSourceFile(text: string): ts.SourceFile
 export function createSourceFile(fileName: string, text: string): ts.SourceFile
 export function createSourceFile(fileNameOrText: string, maybeText?: string): ts.SourceFile {

@@ -3,7 +3,7 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 import ts from "typescript"
 
 import { printSourceFile, transformSourceFile } from "../src/index.js"
-import { createSourceFile, typecheckText } from "./util.js"
+import { commandOutput, createSourceFile, createTypeScriptFixture, runFixtureTypecheck, typecheckText } from "./util.js"
 
 it("transformed required-base mixin rejects unrelated consumer bases at typecheck time", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
@@ -109,45 +109,70 @@ it("reports unsupported mixin class declarations", async (t: Test) => {
     ])
 })
 
-it("reports anonymous default mixin classes with a custom diagnostic", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { mixin } from "ts-mixin-class"
+// Migrated to a NATIVE `ts.Diagnostic` (code TS990002): run through the real patched `tsc` so the
+// diagnostic wrap surfaces it (the in-process `typecheckText` path only sees type-encoded errors).
+it("rejects an anonymous default mixin class with a native diagnostic", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
 
-        @mixin()
-        export default class {
-            value: string = "x"
-        }
-    `))
-    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
-    const messages        = diagnostics.join("\n")
+                @mixin()
+                export default class {
+                    value: string = "x"
+                }
+            `
+        } ]
+    })
 
-    assertMessageParts(t, messages, [
-        "Invalid mixin class declaration",
-        "default-exported mixin class must be named",
-        "export default class MyMixin"
-    ])
+    try {
+        const output = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, output, [
+            "Invalid mixin class declaration",
+            "default-exported mixin class must be named",
+            "export default class MyMixin",
+            "TS990002"
+        ])
+    } finally {
+        await fixture.dispose()
+    }
 })
 
-it("reports anonymous mixin consumer class declarations with a custom diagnostic", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { mixin } from "ts-mixin-class"
+// Migrated to a NATIVE `ts.Diagnostic` (code TS990003).
+it("rejects an anonymous mixin consumer class with a native diagnostic", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
 
-        @mixin()
-        class SourceMixin {
-            value: string = "x"
-        }
+                @mixin()
+                class SourceMixin {
+                    value: string = "x"
+                }
 
-        export default class implements SourceMixin {
-        }
-    `))
-    const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
-    const messages        = diagnostics.join("\n")
+                export default class implements SourceMixin {
+                }
+            `
+        } ]
+    })
 
-    assertMessageParts(t, messages, [
-        "Invalid mixin consumer declaration",
-        "A mixin consumer class must be named",
-        "export default class Consumer"
-    ])
+    try {
+        const output = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, output, [
+            "Invalid mixin consumer declaration",
+            "A mixin consumer class must be named",
+            "export default class Consumer",
+            "TS990003"
+        ])
+    } finally {
+        await fixture.dispose()
+    }
 })
 
 it("reports unsupported mixin consumer base expressions with a custom diagnostic", async (t: Test) => {

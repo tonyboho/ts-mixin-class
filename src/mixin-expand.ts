@@ -192,7 +192,7 @@ export function expandMixinClass(
     const mixinBaseDiagnostic = mixinExtendsMixinDiagnostic(tsInstance, sourceFile, ref, declaration, context, options)
 
     if (mixinBaseDiagnostic !== undefined) {
-        context.crossFile?.nativeDiagnostics.push(mixinBaseDiagnostic)
+        context.nativeDiagnostics.push(mixinBaseDiagnostic)
     }
     // A mixin whose OWN dependencies cannot be C3-linearized (a conflict with no consumer to
     // force it) is reported on the mixin in BOTH paths, via two carriers since emit has no

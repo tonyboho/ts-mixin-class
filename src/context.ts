@@ -10,6 +10,7 @@ import {
     type FileMixinContext,
     type ImportedNameBinding,
     type MixinDecoratorImports,
+    type NativeMixinDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -204,7 +205,8 @@ export function buildFileMixinContext(
     imports: MixinDecoratorImports,
     options: TransformOptions,
     crossFile?: CrossFileContext,
-    facts = getSourceFileFacts(tsInstance, sourceFile, options)
+    facts = getSourceFileFacts(tsInstance, sourceFile, options),
+    nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): FileMixinContext {
     const context: FileMixinContext = {
         byLocalName        : new Map(),
@@ -214,7 +216,8 @@ export function buildFileMixinContext(
         // Share the program-wide linearization index when cross-file context is
         // available; otherwise fall back to a file-local cache (still reused
         // across multiple consumers in the same file).
-        linearizationCache : crossFile?.linearizationCache ?? new Map()
+        linearizationCache : crossFile?.linearizationCache ?? new Map(),
+        nativeDiagnostics
     }
 
     addLocalMixinRefs(sourceFile, imports, facts, context)

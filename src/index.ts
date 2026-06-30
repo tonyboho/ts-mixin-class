@@ -12,7 +12,6 @@ import {
     resolveCrossFileConstructionBase
 } from "./construction-config.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
-import { createMixinDeclarationDiagnosticAliases } from "./expand-util.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
@@ -27,6 +26,7 @@ import {
     mixinChainName,
     mixinChainLinearizedName,
     mixinClassValueName,
+    mixinDiagnosticCode,
     mixinLinearizationConflictName,
     mixinFactoryName,
     runtimeMixinClassName,
@@ -517,10 +517,9 @@ export default function transformProgram(
             cacheKey           : registryCacheKey(registry, constructionBases),
             resolveModuleFileName,
             canImportRuntimeValue,
-            linearizationCache : new Map<string, string[]>(),
-            nativeDiagnostics
+            linearizationCache : new Map<string, string[]>()
         }
-    const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program)
+    const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program, nativeDiagnostics)
 
     return wrapProgramDiagnostics(tsInstance, tsInstance.createProgram(
         program.getRootFileNames(),
@@ -536,7 +535,8 @@ export function createMixinClassCompilerHost(
     compilerOptions: ts.CompilerOptions,
     config: MixinClassTransformerConfig,
     crossFile?: CrossFileContext,
-    baseProgram?: ts.Program
+    baseProgram?: ts.Program,
+    nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): ts.CompilerHost {
     const options              = resolveTransformOptions(config)
     const sourceCache          = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
@@ -616,7 +616,7 @@ export function createMixinClassCompilerHost(
                     return cached
                 }
 
-                const transformedSourceFile = transformSourceFile(tsInstance, sourceFile, options, crossFile)
+                const transformedSourceFile = transformSourceFile(tsInstance, sourceFile, options, crossFile, nativeDiagnostics)
 
                 if (transformedSourceFile === sourceFile) {
                     setCachedSourceFile(sourceCache, sourceFile, cacheKey, sourceFile)
@@ -648,7 +648,7 @@ export function createMixinClassCompilerHost(
             const transformedSourceFile    = transformSourceFile(tsInstance, transformSourceFileInput, {
                 ...options,
                 sourceView : true
-            }, crossFile)
+            }, crossFile, nativeDiagnostics)
 
             if (transformedSourceFile === transformSourceFileInput) {
                 return cachePreserveSourceFile(sourceFile)
@@ -748,7 +748,8 @@ export function transformSourceFile(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     options: Partial<TransformOptions> = {},
-    crossFile?: CrossFileContext
+    crossFile?: CrossFileContext,
+    nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): ts.SourceFile {
     const resolvedOptions = {
         ...defaultTransformOptions,
@@ -762,7 +763,7 @@ export function transformSourceFile(
     const facts                 = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
     const mixinDecoratorImports = facts.mixinDecoratorImports
     const context               = buildFileMixinContext(
-        tsInstance, sourceFile, mixinDecoratorImports, resolvedOptions, crossFile, facts
+        tsInstance, sourceFile, mixinDecoratorImports, resolvedOptions, crossFile, facts, nativeDiagnostics
     )
 
     // Resolves local base identifiers to cross-file construction-base entries.
@@ -787,29 +788,34 @@ export function transformSourceFile(
             ? facts.classesByDeclaration.get(statement)
             : undefined
 
+        // Anonymous `@mixin` / anonymous mixin consumer: a NATIVE diagnostic (drained by the
+        // diagnostic wrap), pushed once and the class left in place — no `expandedAnything`, so a
+        // file whose only finding is this needs no reprint.
         if (classFacts !== undefined && classFacts.name === undefined && classFacts.hasMixinDecorator) {
-            expandedAnything = true
-            return anonymousClassDiagnosticStatements(
+            context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
                 tsInstance,
+                sourceFile,
                 classFacts.declaration,
-                "AnonymousDefaultMixin",
+                mixinDiagnosticCode.AnonymousDefaultMixin,
                 "Invalid mixin class declaration. A default-exported mixin class must be named. " +
                     "Write `export default class MyMixin` so the transformer can generate stable interface, factory, registry, and declaration names."
-            )
+            ))
+            return [ statement ]
         }
 
         if (classFacts !== undefined && classFacts.name === undefined &&
             localMixinHeritageTypesFromFacts(tsInstance, classFacts, context).length > 0
         ) {
-            expandedAnything = true
-            return anonymousClassDiagnosticStatements(
+            context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
                 tsInstance,
+                sourceFile,
                 classFacts.declaration,
-                "AnonymousMixinConsumer",
+                mixinDiagnosticCode.AnonymousMixinConsumer,
                 "Invalid mixin consumer declaration. A mixin consumer class must be named. " +
                     "Write `class Consumer implements Mixin` or `export default class Consumer implements Mixin` " +
                     "so the transformer can generate stable intermediate base, diagnostic, and declaration names."
-            )
+            ))
+            return [ statement ]
         }
 
         if (classFacts !== undefined && classFacts.name !== undefined) {
@@ -1074,24 +1080,27 @@ function brandedConstructionHeritageClauses(
     )
 }
 
-function anonymousClassDiagnosticStatements(
+// A native diagnostic for an anonymous `@mixin` / anonymous mixin consumer, spanned on the class
+// keyword of the (nameless) declaration so the squiggle lands on the class itself.
+function anonymousClassNativeDiagnostic(
     tsInstance: TypeScript,
-    statement: ts.ClassDeclaration,
-    generatedBaseName: string,
-    message: string
-): ts.Statement[] {
-    return [
-        ...createMixinDeclarationDiagnosticAliases(
-            tsInstance,
-            generatedBaseName,
-            [ {
-                node : statement,
-                message
-            } ],
-            statement
-        ),
-        statement
-    ]
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    code: number,
+    messageText: string
+): NativeMixinDiagnostic {
+    const keyword = declaration.getChildren(sourceFile)
+        .find((child) => child.kind === tsInstance.SyntaxKind.ClassKeyword) ?? declaration
+    const start   = keyword.getStart(sourceFile)
+
+    return {
+        fileName : sourceFile.fileName,
+        start,
+        length   : keyword.getEnd() - start,
+        code,
+        category : tsInstance.DiagnosticCategory.Error,
+        messageText
+    }
 }
 
 // Generated imports (type helpers + mixin factories from other modules) are

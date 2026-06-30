@@ -73,10 +73,7 @@ export type CrossFileContext = {
     // Per-mixin C3 linearizations (registry key -> linearized keys). The result
     // depends only on the registry graph, so it is shared across every consumer
     // and file in the program instead of being rebuilt per linearizeDependencies.
-    linearizationCache     : Map<string, string[]>,
-    // Sink for NATIVE (transformer-authored) diagnostics discovered during the transform;
-    // drained by `wrapProgramDiagnostics` into `getSemanticDiagnostics` (both tsc and tsserver).
-    nativeDiagnostics      : NativeMixinDiagnostic[]
+    linearizationCache     : Map<string, string[]>
 }
 
 // A transformer-authored diagnostic: a real error we synthesize (our own message / code / span)
@@ -95,7 +92,9 @@ export type NativeMixinDiagnostic = {
 // Native diagnostic codes — outside TypeScript's own numeric range so they are unmistakably ours
 // and stable across versions (they surface as `TS990001`, …).
 export const mixinDiagnosticCode = {
-    MixinExtendsMixin : 990001
+    MixinExtendsMixin      : 990001,
+    AnonymousDefaultMixin  : 990002,
+    AnonymousMixinConsumer : 990003
 } as const
 
 export type ImportedNameBinding = {
@@ -139,7 +138,11 @@ export type FileMixinContext = {
     usedFactoryImports : Map<string, { specifier: string, importedName: string, localName: string }>,
     // Shared with the program-wide cache via CrossFileContext when available, so
     // per-mixin C3 linearizations are reused across consumers and files.
-    linearizationCache : Map<string, string[]>
+    linearizationCache : Map<string, string[]>,
+    // The per-program native-diagnostic sink, shared by reference with `wrapProgramDiagnostics`.
+    // Present even when there is no cross-file context (a lone anonymous `@mixin` is not in the
+    // registry, so its diagnostic could not ride on `crossFile`). Empty for in-process transforms.
+    nativeDiagnostics  : NativeMixinDiagnostic[]
 }
 
 export type RequiredBaseValidation = {

@@ -14,7 +14,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
 
 // Unfiltered import maps are recomputed for the same file across the construction-base
@@ -241,28 +241,48 @@ function addLocalMixinRefs(
     facts: SourceFileFacts,
     context: FileMixinContext
 ): void {
-    if (imports.identifiers.size > 0 || imports.namespaces.size > 0) {
-        for (const classFacts of facts.classes) {
-            if (!classFacts.hasMixinDecorator || classFacts.name === undefined) {
-                continue
-            }
+    if (imports.identifiers.size === 0 && imports.namespaces.size === 0) {
+        return
+    }
 
-            const name                  = classFacts.name
-            const ref: ResolvedMixinRef = {
-                key                  : registryKey(sourceFile.fileName, name),
-                className            : name,
-                localValueName       : name,
-                localFactoryName     : generatedName(name, mixinFactorySuffix),
-                factoryImport        : undefined,
-                requiredBase         : undefined,
-                dependencies         : [],
-                declaration          : classFacts.declaration,
-                configProperties     : classFacts.configProperties,
-                missingRuntimeImport : undefined
-            }
+    const register = (classFacts: ClassFacts): void => {
+        if (!classFacts.hasMixinDecorator || classFacts.name === undefined || context.byLocalName.has(classFacts.name)) {
+            return
+        }
 
-            context.byLocalName.set(name, ref)
-            context.byKey.set(ref.key, ref)
+        const name                  = classFacts.name
+        const ref: ResolvedMixinRef = {
+            key                  : registryKey(sourceFile.fileName, name),
+            className            : name,
+            localValueName       : name,
+            localFactoryName     : generatedName(name, mixinFactorySuffix),
+            factoryImport        : undefined,
+            requiredBase         : undefined,
+            dependencies         : [],
+            declaration          : classFacts.declaration,
+            configProperties     : classFacts.configProperties,
+            missingRuntimeImport : undefined
+        }
+
+        context.byLocalName.set(name, ref)
+        context.byKey.set(ref.key, ref)
+    }
+
+    for (const classFacts of facts.classes) {
+        register(classFacts)
+    }
+
+    // Nested `@mixin` declarations (inside a function body / block) are indexed by declaration
+    // only — not in `facts.classes` — so register them here too, making a nested mixin usable
+    // within its own scope. A name already taken by a top-level mixin wins (the `has` guard);
+    // scope-precise resolution for same-named nested mixins is a separate concern.
+    if (facts.hasNestedClasses) {
+        const topLevel = new Set(facts.classes.map((classFacts) => classFacts.declaration))
+
+        for (const classFacts of facts.classesByDeclaration.values()) {
+            if (!topLevel.has(classFacts.declaration)) {
+                register(classFacts)
+            }
         }
     }
 }

@@ -783,7 +783,7 @@ export function transformSourceFile(
     let expandedAnything      = false
     let needsGeneratedImports = false
 
-    const expandedStatements = sourceFile.statements.flatMap((statement): ts.Statement[] => {
+    const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
             : undefined
@@ -862,7 +862,75 @@ export function transformSourceFile(
         }
 
         return [ statement ]
-    })
+    }
+
+    // Expand each statement in a list, then recurse into the nested statement lists of whatever
+    // comes back, so a mixin / consumer declared inside a function body or block expands too.
+    // The generated siblings land in the SAME list as the class (its containing block), never
+    // hoisted to module scope. No-op-safe: when nothing in a list expands or nests, the original
+    // array reference flows back unchanged, so the position-preserved source-view tree is never
+    // rebuilt.
+    const expandStatementList = (statements: readonly ts.Statement[]): readonly ts.Statement[] => {
+        let changed               = false
+        const out: ts.Statement[] = []
+
+        for (const statement of statements) {
+            const expanded = expandClassStatement(statement)
+
+            if (expanded.length !== 1 || expanded[0] !== statement) {
+                changed = true
+            }
+
+            for (const expandedStatement of expanded) {
+                const recursed = expandNestedStatementLists(expandedStatement)
+
+                if (recursed !== statement) {
+                    changed = true
+                }
+
+                out.push(recursed)
+            }
+        }
+
+        return changed ? out : statements
+    }
+
+    // Descend through arbitrary nodes to reach nested statement lists (`Block`, `ModuleBlock`),
+    // rebuilding a block only when its statements actually change. `visitEachChild` returns the
+    // same node reference when no child changed, so an untouched subtree stays identical.
+    const expandNestedStatementLists = (node: ts.Statement): ts.Statement => {
+        const visit = (inner: ts.Node): ts.Node => {
+            if (tsInstance.isBlock(inner)) {
+                const statements = expandStatementList(inner.statements)
+
+                return statements === inner.statements
+                    ? inner
+                    : tsInstance.factory.updateBlock(inner, statements)
+            }
+
+            if (tsInstance.isModuleBlock(inner)) {
+                const statements = expandStatementList(inner.statements)
+
+                return statements === inner.statements
+                    ? inner
+                    : tsInstance.factory.updateModuleBlock(inner, statements)
+            }
+
+            return tsInstance.visitEachChild(inner, visit, nullTransformationContext)
+        }
+
+        return visit(node) as ts.Statement
+    }
+
+    // `nullTransformationContext` is a real runtime export (a no-op lexical-environment context
+    // that `visitEachChild` needs for function-like nodes) but is absent from the public typings.
+    const nullTransformationContext = (tsInstance as unknown as {
+        nullTransformationContext : ts.TransformationContext
+    }).nullTransformationContext
+
+    const expandedStatements = facts.hasNestedClasses
+        ? [ ...expandStatementList(sourceFile.statements) ]
+        : sourceFile.statements.flatMap(expandClassStatement)
 
     if (!expandedAnything) {
         return sourceFile
@@ -1246,14 +1314,20 @@ function shouldTransformSourceFile(
     options: TransformOptions,
     crossFile: CrossFileContext | undefined
 ): boolean {
+    // Nested classes live only in `classesByDeclaration`, not `classes`; a file whose only
+    // mixin / consumer is nested must still transform, so the gate scans the full set when any
+    // nested class exists (otherwise the cheaper top-level `classes` array, unchanged behaviour).
+    const candidateClasses               = facts.hasNestedClasses
+        ? [ ...facts.classesByDeclaration.values() ]
+        : facts.classes
     const hasMixinDecoratorImports       = facts.mixinDecoratorImports.identifiers.size > 0 ||
         facts.mixinDecoratorImports.namespaces.size > 0
     const hasMixinDeclaration            = hasMixinDecoratorImports &&
-        facts.classes.some((classFacts) => classFacts.hasMixinDecorator)
-    const hasPotentialConsumer           = facts.classes.some((classFacts) => {
+        candidateClasses.some((classFacts) => classFacts.hasMixinDecorator)
+    const hasPotentialConsumer           = candidateClasses.some((classFacts) => {
         return classFacts.implementsIdentifierNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
-    const hasPotentialConstructionConfig = facts.classes.some((classFacts) => classFacts.extendsType !== undefined) &&
+    const hasPotentialConstructionConfig = candidateClasses.some((classFacts) => classFacts.extendsType !== undefined) &&
         (
             importsPackageBase(tsInstance, facts, options) ||
             extendsCrossFileConstructionBase(tsInstance, sourceFile, facts, crossFile)

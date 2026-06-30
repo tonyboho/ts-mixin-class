@@ -38,7 +38,11 @@ export type SourceFileFacts = {
     imports               : ImportFacts[],
     classes               : ClassFacts[],
     classesByName         : Map<string, ClassFacts>,
-    classesByDeclaration  : Map<ts.ClassDeclaration, ClassFacts>
+    classesByDeclaration  : Map<ts.ClassDeclaration, ClassFacts>,
+    // True when at least one class is declared below the top level (inside a function body,
+    // block, or namespace). The driver only walks into nested statement lists when this is set,
+    // so a file with only top-level classes keeps the original flat, top-level-only pass.
+    hasNestedClasses      : boolean
 }
 
 const sourceFileFactsCache = new WeakMap<ts.SourceFile, Map<string, SourceFileFacts>>()
@@ -95,12 +99,36 @@ function collectSourceFileFacts(
         }
     }
 
+    // Nested class declarations (inside function bodies, blocks, namespaces) are indexed by
+    // DECLARATION ONLY — deliberately NOT added to `classes` / `classesByName`. The cross-file
+    // registry and base-name resolution iterate those two and must stay top-level-only (a nested
+    // class is a local: it cannot be exported and must never enter the registry or shadow a
+    // top-level base name by string). The driver still finds a nested class's facts through
+    // `classesByDeclaration` to expand it in place.
+    let hasNestedClasses = false
+
+    const indexNestedClasses = (node: ts.Node): void => {
+        tsInstance.forEachChild(node, (child) => {
+            if (tsInstance.isClassDeclaration(child) && !classesByDeclaration.has(child)) {
+                hasNestedClasses = true
+                classesByDeclaration.set(child, classFacts(tsInstance, child, mixinDecoratorImports, options))
+            }
+
+            indexNestedClasses(child)
+        })
+    }
+
+    for (const statement of sourceFile.statements) {
+        indexNestedClasses(statement)
+    }
+
     return {
         mixinDecoratorImports,
         imports,
         classes,
         classesByName,
-        classesByDeclaration
+        classesByDeclaration,
+        hasNestedClasses
     }
 }
 

@@ -2,6 +2,7 @@ import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { mixin } from "ts-mixin-class"
+import { Base } from "ts-mixin-class/base"
 
 // Mixins and consumers declared below the top level (inside a function body or a plain block)
 // expand like top-level ones. They cannot be exported (they are locals), which is all they give
@@ -100,6 +101,17 @@ function makeShadowingConsumer(): string {
 class TopShadowConsumer implements Shadowed {
 }
 
+// A nested CONSTRUCTION class (extends the package `Base`): gets its generated static `.new(...)`
+// factory and its `<Name>Config` alias in the same block, and constructs through `Base.new`.
+function makeConstructed(): { id: string, balance: number } {
+    class Account extends Base {
+        public id!: string = ""
+        public balance!: number = 0
+    }
+
+    return Account.new({ id: "a1", balance: 100 })
+}
+
 // A consumer nested inside a plain block (not a function body).
 function makeBlockConsumer(): string {
     {
@@ -118,4 +130,8 @@ it("nested-scope mixin and consumer declarations work at runtime", async (t: Tes
     t.equal(makeShadowingConsumer(), "inner", "nested mixin shadowing a top-level name")
     t.equal(new TopShadowConsumer().top(), "top", "top-level mixin keeps its own member under shadowing")
     t.equal(makeBlockConsumer(), "labeled", "nested consumer inside a plain block")
+
+    const account = makeConstructed()
+    t.equal(account.id, "a1", "nested construction class built its id through .new(...)")
+    t.equal(account.balance, 100, "nested construction class built its balance through .new(...)")
 })

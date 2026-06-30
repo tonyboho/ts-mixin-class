@@ -238,3 +238,25 @@ it("flags a mixin / consumer class expression with a native diagnostic", async (
     t.eq(codesFor("const G = class { z (): number { return 1 } }\nvoid G"), [],
         "a plain class expression that touches no mixin is never flagged")
 })
+
+// M7 — a nested CONSTRUCTION class (extends the package `Base`) expands inside a function: it
+// gets its generated static `.new(...)` factory and its `<Name>Config` alias placed in the same
+// block, and constructs correctly at runtime through the inherited `Base.new`.
+it("expands a nested construction class (.new + config) and constructs at runtime", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { Base } from "ts-mixin-class/base"
+
+        function build (): { x: number, y: number } {
+            class Point extends Base {
+                public x!: number = 0
+                public y!: number = 0
+            }
+
+            return Point.new({ x: 3, y: 4 })
+        }
+
+        export const point = build()
+    `)
+
+    t.eq(imported.point, { x: 3, y: 4 }, "the nested construction class built through its generated .new(...)")
+})

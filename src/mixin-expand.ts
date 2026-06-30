@@ -32,7 +32,6 @@ import {
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
     createLinearizationPlanLiteral,
-    createMixinDeclarationDiagnosticAliases,
     createSourceViewConsumerBaseHeadType,
     heritageTypeToTypeReference,
     linearizationMode,
@@ -113,11 +112,11 @@ function mixinExtendsMixinDiagnostic(
     const start = base.expression.getStart(sourceFile)
 
     return {
-        fileName    : sourceFile.fileName,
+        fileName : sourceFile.fileName,
         start,
-        length      : base.expression.getEnd() - start,
-        code        : mixinDiagnosticCode.MixinExtendsMixin,
-        category    : tsInstance.DiagnosticCategory.Error,
+        length   : base.expression.getEnd() - start,
+        code     : mixinDiagnosticCode.MixinExtendsMixin,
+        category : tsInstance.DiagnosticCategory.Error,
         messageText :
             `Invalid mixin class declaration. Mixin class ${ref.className} cannot extend another mixin class (${baseName}). ` +
             "A mixin consumes other mixins through `implements` (which builds the runtime chain); " +
@@ -177,13 +176,22 @@ export function expandMixinClass(
     const factoryExportModifiers = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
         ? [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ]
         : undefined
-    const diagnostics            = collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)
-    const diagnosticAliases      = createMixinDeclarationDiagnosticAliases(
-        tsInstance,
-        ref.className,
-        diagnostics,
-        declaration
-    )
+    // Invalid mixin members/modifiers (abstract / constructor / private / #private / abstract
+    // member / missing type annotations / unsupported member): NATIVE diagnostics (one per finding,
+    // family code TS990004), drained by `wrapProgramDiagnostics`. Each is spanned on its offending
+    // node, pushed before the source-view/emit split so it surfaces identically in both.
+    for (const diagnostic of collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)) {
+        const start = diagnostic.node.getStart(sourceFile)
+
+        context.nativeDiagnostics.push({
+            fileName    : sourceFile.fileName,
+            start,
+            length      : diagnostic.node.getEnd() - start,
+            code        : mixinDiagnosticCode.MixinInvalidDeclaration,
+            category    : tsInstance.DiagnosticCategory.Error,
+            messageText : diagnostic.message
+        })
+    }
 
     // A `@mixin` must not `extends` another mixin (that consumes it as a required base, which is
     // reserved for non-mixin bases) — it should `implements` it. This is a NATIVE diagnostic
@@ -208,7 +216,6 @@ export function expandMixinClass(
 
     if (options.sourceView) {
         return [
-            ...diagnosticAliases,
             ...expandSourceViewMixinClass(tsInstance, sourceFile, declaration, context, options, linearizationMessage)
         ]
     }
@@ -338,7 +345,6 @@ export function expandMixinClass(
 
     return [
         interfaceDeclaration,
-        ...diagnosticAliases,
         factoryStatement,
         valueStatement,
         ...defaultExportStatement,

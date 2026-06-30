@@ -37,76 +37,95 @@ it("transformed required-base mixin rejects unrelated consumer bases at typechec
     ])
 })
 
-it("reports unsupported mixin class declarations", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { mixin } from "ts-mixin-class"
+// Migrated to NATIVE `ts.Diagnostic`s (the whole invalid-mixin-declaration family shares code
+// TS990004); run through the real patched `tsc` so the diagnostic wrap surfaces them.
+it("reports unsupported mixin class declarations with native diagnostics", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
 
-        @mixin()
-        abstract class AbstractMixin {
-        }
+                @mixin()
+                abstract class AbstractMixin {
+                }
 
-        @mixin()
-        class ConstructorMixin {
-            constructor () {}
-        }
+                @mixin()
+                class ConstructorMixin {
+                    constructor () {}
+                }
 
-        @mixin()
-        class PrivateMixin {
-            private value: string = "x"
-        }
+                @mixin()
+                class PrivateMixin {
+                    private value: string = "x"
+                }
 
-        @mixin()
-        class HashPrivateMixin {
-            #value: string = "x"
-        }
+                @mixin()
+                class HashPrivateMixin {
+                    #value: string = "x"
+                }
 
-        @mixin()
-        class AbstractMemberMixin {
-            abstract value: string
-        }
+                @mixin()
+                class AbstractMemberMixin {
+                    abstract value: string
+                }
 
-        @mixin()
-        class MissingPropertyTypeMixin {
-            value = "x"
-        }
+                @mixin()
+                class MissingPropertyTypeMixin {
+                    value = "x"
+                }
 
-        @mixin()
-        class MissingMethodReturnTypeMixin {
-            method () {
-                return "x"
-            }
-        }
+                @mixin()
+                class MissingMethodReturnTypeMixin {
+                    method () {
+                        return "x"
+                    }
+                }
 
-        @mixin()
-        class MissingParameterTypeMixin {
-            method (value): string {
-                return String(value)
-            }
-        }
+                @mixin()
+                class MissingParameterTypeMixin {
+                    method (value): string {
+                        return String(value)
+                    }
+                }
 
-        @mixin()
-        class MissingAccessorTypeMixin {
-            get value () {
-                return "x"
-            }
-        }
-    `))
+                @mixin()
+                class MissingAccessorTypeMixin {
+                    get value () {
+                        return "x"
+                    }
+                }
 
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-    const messages    = diagnostics.join("\n")
+                @mixin()
+                class StaticBlockMixin {
+                    static {
+                    }
+                }
+            `
+        } ]
+    })
 
-    assertMessageParts(t, messages, [
-        "Invalid mixin class declaration",
-        "Mixin class AbstractMixin cannot be abstract",
-        "Mixin class ConstructorMixin cannot declare a constructor",
-        "Mixin class PrivateMixin member value cannot be private or protected",
-        "Mixin class HashPrivateMixin member #value cannot use ECMAScript private names",
-        "Mixin class AbstractMemberMixin member value cannot be abstract",
-        "Mixin class MissingPropertyTypeMixin property value must have an explicit type annotation",
-        "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
-        "Mixin class MissingParameterTypeMixin method parameter value must have an explicit type annotation",
-        "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation"
-    ])
+    try {
+        const output = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, output, [
+            "TS990004",
+            "Invalid mixin class declaration",
+            "Mixin class AbstractMixin cannot be abstract",
+            "Mixin class ConstructorMixin cannot declare a constructor",
+            "Mixin class PrivateMixin member value cannot be private or protected",
+            "Mixin class HashPrivateMixin member #value cannot use ECMAScript private names",
+            "Mixin class AbstractMemberMixin member value cannot be abstract",
+            "Mixin class MissingPropertyTypeMixin property value must have an explicit type annotation",
+            "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
+            "Mixin class MissingParameterTypeMixin method parameter value must have an explicit type annotation",
+            "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation",
+            "is not supported by the mixin transformer"
+        ])
+    } finally {
+        await fixture.dispose()
+    }
 })
 
 // Migrated to a NATIVE `ts.Diagnostic` (code TS990002): run through the real patched `tsc` so the

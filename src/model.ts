@@ -92,9 +92,10 @@ export type NativeMixinDiagnostic = {
 // Native diagnostic codes — outside TypeScript's own numeric range so they are unmistakably ours
 // and stable across versions (they surface as `TS990001`, …).
 export const mixinDiagnosticCode = {
-    MixinExtendsMixin      : 990001,
-    AnonymousDefaultMixin  : 990002,
-    AnonymousMixinConsumer : 990003
+    MixinExtendsMixin       : 990001,
+    AnonymousDefaultMixin   : 990002,
+    AnonymousMixinConsumer  : 990003,
+    MixinInvalidDeclaration : 990004
 } as const
 
 export type ImportedNameBinding = {

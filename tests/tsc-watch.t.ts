@@ -48,8 +48,8 @@ it("reports and clears a cross-file mixin error across tsc --watch rebuilds", as
         experimentalDecorators : false,
         compilerOptions        : { noEmit: true },
         sourceFiles            : [
-            { fileName : "mixin.ts", text : greeterMixin("greet") },
-            { fileName : "consumer.ts", text : greeterConsumer }
+            { fileName: "mixin.ts", text: greeterMixin("greet") },
+            { fileName: "consumer.ts", text: greeterConsumer }
         ]
     })
 

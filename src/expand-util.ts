@@ -2,8 +2,6 @@ import type * as ts from "typescript"
 import {
     anyConstructorName,
     classStaticsName,
-    generatedName,
-    type MixinDeclarationDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -23,7 +21,6 @@ export function linearizationMode(options: TransformOptions): "verify" | "replay
 }
 import {
     deepCloneNode,
-    preserveGeneratedDeclarationRange,
     preserveSubtreeTextRange,
     preserveTextRange,
     zeroWidthRange
@@ -48,29 +45,6 @@ function nodePosition(sourceFile: ts.SourceFile, node: ts.Node): string {
     const { line, character } = sourceFile.getLineAndCharacterOfPosition(start)
 
     return `(${line + 1},${character + 1})`
-}
-
-export function createMixinDeclarationDiagnosticAliases(
-    tsInstance: TypeScript,
-    className: string,
-    diagnostics: MixinDeclarationDiagnostic[],
-    original: ts.ClassDeclaration
-): ts.TypeAliasDeclaration[] {
-    const factory = tsInstance.factory
-
-    return diagnostics.map((diagnostic, index) => {
-        return preserveGeneratedDeclarationRange(tsInstance, factory.createTypeAliasDeclaration(
-            undefined,
-            generatedName(className, `$mixinDeclarationError${index}`),
-            [ factory.createTypeParameterDeclaration(
-                undefined,
-                "__mixinDeclarationError",
-                factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
-                factory.createLiteralTypeNode(factory.createStringLiteral(diagnostic.message))
-            ) ],
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
-        ), diagnostic.node, original)
-    })
 }
 
 export function cloneExpressionWithTypeArguments(

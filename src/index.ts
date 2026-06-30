@@ -509,7 +509,7 @@ export default function transformProgram(
     // Per-program sink the transform pushes native diagnostics into and the diagnostic wrap
     // drains. Shared by reference with `crossFile` (where the transform reaches it) below.
     const nativeDiagnostics: NativeMixinDiagnostic[] = []
-    const crossFile         = registry.size === 0 && constructionBases.size === 0
+    const crossFile                                  = registry.size === 0 && constructionBases.size === 0
         ? undefined
         : {
             registry,
@@ -519,7 +519,7 @@ export default function transformProgram(
             canImportRuntimeValue,
             linearizationCache : new Map<string, string[]>()
         }
-    const nextHost          = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program, nativeDiagnostics)
+    const nextHost                                   = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program, nativeDiagnostics)
 
     return wrapProgramDiagnostics(tsInstance, tsInstance.createProgram(
         program.getRootFileNames(),

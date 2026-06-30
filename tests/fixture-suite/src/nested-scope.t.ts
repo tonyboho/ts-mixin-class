@@ -67,6 +67,39 @@ function buildWidgetB(): string {
     return new UseB().b()
 }
 
+// A nested `@mixin` shadowing a top-level one of the same name: the nested consumer resolves
+// the nested mixin (lexical), the top-level consumer keeps the top-level mixin.
+@mixin()
+class Shadowed {
+    top(): string {
+        return "top"
+    }
+}
+
+function makeShadowingConsumer(): string {
+    @mixin()
+    class Shadowed {
+        inner(): string {
+            return "inner"
+        }
+    }
+
+    class ShadowUser implements Shadowed {
+    }
+
+    const user = new ShadowUser()
+
+    // Type-level proof that the nested `Shadowed` is a DIFFERENT class than the top-level one:
+    // it has `inner` but not the top-level `top`, so reaching for `top` here is a type error.
+    // @ts-expect-error nested Shadowed has no `top` member (that belongs to the shadowed top-level mixin)
+    void user.top
+
+    return user.inner()
+}
+
+class TopShadowConsumer implements Shadowed {
+}
+
 // A consumer nested inside a plain block (not a function body).
 function makeBlockConsumer(): string {
     {
@@ -82,5 +115,7 @@ it("nested-scope mixin and consumer declarations work at runtime", async (t: Tes
     t.equal(makeLocalMixinConsumer(), "hi", "nested mixin consumed locally")
     t.equal(buildWidgetA(), "A", "first same-named nested mixin")
     t.equal(buildWidgetB(), "B", "second same-named nested mixin from its own declaration")
+    t.equal(makeShadowingConsumer(), "inner", "nested mixin shadowing a top-level name")
+    t.equal(new TopShadowConsumer().top(), "top", "top-level mixin keeps its own member under shadowing")
     t.equal(makeBlockConsumer(), "labeled", "nested consumer inside a plain block")
 })

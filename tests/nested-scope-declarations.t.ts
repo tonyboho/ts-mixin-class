@@ -165,3 +165,36 @@ it("expands two same-named nested mixins in sibling scopes independently", async
     t.equal(imported.ra, "A", "the first nested Widget mixin expanded and ran")
     t.equal(imported.rb, "B", "the second same-named nested Widget mixin also expanded from its own declaration")
 })
+
+// M5 — a nested `@mixin` shadowing a top-level one of the same name. The nested consumer's
+// generated `$base extends M` references `M` by name, which resolves lexically to the nested
+// mixin, so the consumer gets the nested member — while the top-level mixin keeps its own.
+it("resolves a nested mixin that shadows a top-level name", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class M {
+            top (): string { return "top" }
+        }
+
+        function f (): string {
+            @mixin()
+            class M {
+                nested (): string { return "nested" }
+            }
+
+            class U implements M {}
+
+            return new U().nested()
+        }
+
+        class TopConsumer implements M {}
+
+        export const fromNested = f()
+        export const fromTop = new TopConsumer().top()
+    `)
+
+    t.equal(imported.fromNested, "nested", "the nested consumer resolved the shadowing nested mixin")
+    t.equal(imported.fromTop, "top", "the top-level consumer still resolves the top-level mixin")
+})

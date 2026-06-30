@@ -64,8 +64,18 @@ it("transform survives randomized editor-like edits across the fixture corpus", 
     const apply = (buffer: Buffer, start: number, removeLength: number, insertText: string, nextText: string): void => {
         const range = ts.createTextChangeRange(ts.createTextSpan(start, removeLength), insertText.length)
 
-        buffer.sourceFile = ts.updateSourceFile(buffer.sourceFile, nextText, range)
-        buffer.text       = nextText
+        // `ts.updateSourceFile` (TS's incremental parser) can itself throw on some transient,
+        // syntactically broken states — e.g. an unterminated string literal that swallows a `}` —
+        // a TS-parser fragility independent of this package (the buffer is raw text; the transform
+        // is not in it). A real editor / tsserver recovers by re-parsing the whole file, so mirror
+        // that here: the transform is still exercised on the recovered state below.
+        try {
+            buffer.sourceFile = ts.updateSourceFile(buffer.sourceFile, nextText, range)
+        } catch {
+            buffer.sourceFile = ts.createSourceFile(buffer.sourceFile.fileName, nextText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+        }
+
+        buffer.text = nextText
     }
 
     const runStep = (

@@ -253,6 +253,41 @@ Violating any of these produces confusing tsserver errors or crashes.
     poison its parameter — visible text — which only emit tolerates; the no-constructor case brands
     `$base` off-screen and holds in both planes). See Construction invariant #5.
 
+12. **A nested `@mixin` / consumer (declared in a function body or block) expands by recursing
+    into nested statement lists; SOURCE VIEW must MUTATE the containing block's `statements` IN
+    PLACE, never rebuild the ancestors.** The driver (`transformSourceFile`) walks into `Block` /
+    `ModuleBlock` and splices the generated siblings into the SAME block (`expandStatementList` +
+    `mutateNestedStatementLists`), so they share the nested scope and never hoist to module scope.
+    The catch is HOW the changed block flows back. Rebuilding the user's ancestors (function /
+    block on the path to the nested class) with `visitEachChild` / `factory.update*` sets
+    `.original` on those rebuilt USER nodes → pointing at the pre-transform node, which is **not in
+    the bound tree**. TS's syntactic node builder then follows `.original` to that un-bound node and
+    throws `getSymbolOfDeclaration(...) === undefined → getSymbolId(undefined)` — in **both**
+    display-part serialization (`serializeReturnTypeForSignature`, every quickinfo/references on the
+    enclosing function) AND declaration emit (`isDeclarationAndNotVisible`). Clearing `.original`
+    fixes display but re-breaks declaration emit (#9), so neither rebuild-variant works. **Mutate
+    the block in place** instead: the function/block nodes keep their identity — bound, `.original`-
+    free — and both planes work. EMIT cannot mutate (its input is the shared host file and it never
+    reaches the syntactic node builder), so emit keeps the `visitEachChild` rebuild. Reproduce the
+    crash in-process via `ts.SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind` (a plain
+    `createProgram` + `checker.typeToString` does NOT hit it — the tsserver display path does).
+    - **`transformSourceFile` must NOT mutate its input.** Because source view mutates in place, it
+      re-parses a PRIVATE clone first (`cloneSourceFileForTransform`) and re-derives facts on it,
+      scoped to `sourceView && facts.hasNestedClasses`. The compiler host already passes a per-call
+      clone, but a direct caller may pass a live, reused source file — e.g. `stress-edit`'s
+      incrementally-updated buffer; mutating *that* corrupted its tree and then crashed TS's
+      incremental parser (`extendToAffectedRange`) on a later edit (a ~66% flake; the harness
+      `try/catch` that "fixed" it was masking THIS bug, not a TS fragility).
+    - **Detect a local mixin by its DECLARATION node, not its name** (`context.byDeclaration`).
+      `byLocalName` / `byKey` stay first-name-wins (a same-file by-name reference resolves only one),
+      but two same-named nested mixins in sibling scopes each expand from their own node. A nested
+      mixin shadowing a top-level one resolves correctly because the generated `$base extends M`
+      names `M`, lexically the nested one.
+    - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
+      diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
+    - Covered by `tests/nested-scope-declarations.t.ts` (emit/runtime/d.ts/diagnostics) and the
+      `tests/fixture-suite/src/nested-scope.t.ts` corpus entry (all three planes via the stress sweep).
+
 ### Background: an upstream-TypeScript shortcut (not done)
 
 Most of #4/#5/#8 exist only because tsserver **crashes** on a position-imperfect synthetic AST.

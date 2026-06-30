@@ -231,3 +231,24 @@ diagnostics stay correct across edits.
 |---|----------|--------|-------|
 | 15.1 | A cross-file mixin edit breaks the consumer on the next rebuild and reverting clears it (the initial clean build already proves the transform ran — without it `implements Mixin` would not be satisfied); proves the transform re-runs each rebuild and facts/registry invalidate for the edited file | ✅ | `tsc-watch.t.ts` |
 | 15.2 | Randomized break/revert round-trips: a minimal edit (delete/insert an identifier char, delete/insert a bracket) breaks compilation on rebuild and the verbatim revert returns to zero errors — over many seeded edits | ✅ | `stress-tsc-watch.t.ts` (seeded), shared driver `tsc-watch-util.ts` |
+
+## 16. Nested-scope declarations (mixin / consumer in a function body or block)
+
+A `@mixin` or a mixin consumer may be a named class declaration **anywhere a class can be
+declared** — top level, a function body, or a plain block — not only top level. The generated
+siblings are spliced into the SAME block (never hoisted to module scope); a nested class is a
+local (cannot be exported, never leaks its name into the `.d.ts`). Works on emit AND source view
+(the source-view path mutates the block in place — see AGENTS.md source-view invariant #12).
+
+| # | Scenario | Status | Tests |
+|---|----------|--------|-------|
+| 16.1 | Consumer of a top-level mixin, declared inside a function body | ✅ | `nested-scope-declarations.t.ts`, `fixture-suite/src/nested-scope.t.ts` |
+| 16.2 | `@mixin` declared inside a function body, consumed locally (consumer == mixin: both relax together) | ✅ | `nested-scope-declarations.t.ts`, `fixture-suite/src/nested-scope.t.ts` |
+| 16.3 | Generated siblings land in the containing block, not module scope | ✅ | `nested-scope-declarations.t.ts` |
+| 16.4 | Two same-named nested mixins in sibling scopes each expand from their OWN declaration (detection by node, not name) | ✅ | `nested-scope-declarations.t.ts`, `fixture-suite/src/nested-scope.t.ts` |
+| 16.5 | A nested mixin SHADOWING a top-level name resolves to the nested one at the consumer; the top-level consumer keeps the top-level mixin | ✅ | `nested-scope-declarations.t.ts`, `fixture-suite/src/nested-scope.t.ts` |
+| 16.6 | Consumer nested inside a plain block (not a function body) | ✅ | `fixture-suite/src/nested-scope.t.ts` |
+| 16.7 | Nested CONSTRUCTION class (`extends Base`): generated `.new(...)` + `<Name>Config` alias in the same block; constructs through inherited `Base.new` (in-block alias keeps the §12.9 hover cosmetic) | ✅ | `nested-scope-declarations.t.ts`, `fixture-suite/src/nested-scope.t.ts` |
+| 16.8 | Nested classes (and generated siblings) never leak NAMES into the `.d.ts`; an escaping nested instance widens to its structural shape | ✅ | `nested-scope-declarations.t.ts` |
+| 16.9 | Source-view: nested classes navigate / quickinfo / diagnostics with no tsserver crash | ✅ | `fixture-suite/src/nested-scope.t.ts` (stress sweep) |
+| 16.10 | A mixin / consumer **class expression** (`const C = class implements M {}`, anonymous or named) is rejected with a clean native diagnostic (TS990002 / TS990003), not a bare TS2420 | ✅ | `nested-scope-declarations.t.ts` |

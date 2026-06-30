@@ -445,9 +445,10 @@ A few things the library does not support yet.
   method parameters. The library needs to know a mixin's public shape up front, where
   TypeScript would otherwise infer it.
 
-- **Mixin consumers must be named, top-level classes.** Anonymous classes, class expressions,
-  and classes nested inside something else are rejected, because the library has nowhere
-  stable to attach the helpers it generates.
+- **Mixin consumers and `@mixin`es must be named class declarations**, at the top level or
+  nested in a function or block. Anonymous classes and class expressions are rejected — the
+  library has nowhere stable to attach the helpers it generates. A nested class is a local: it
+  can't be exported.
 
 - **A consumer's base can't be a dynamic expression** such as `extends makeBase()`. Use a
   named base class for now.

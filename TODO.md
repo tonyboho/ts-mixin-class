@@ -54,13 +54,26 @@ before relying on inferred implementation details. In ordinary classes TypeScrip
 public member types from initializers and method bodies, but mixins need a stable AST-level
 public surface that can be copied into generated declarations.
 
-### 3. Consumers must be named top-level class declarations
+### 3. Named mixin / consumer declarations at any nesting level — RESOLVED
 
-The transformer inserts sibling declarations such as `__User$empty` and `__User$base`, then
-rewrites the consumer to extend the generated base. Anonymous classes, class expressions,
-and nested class declarations do not have a stable place where these helper declarations can
-be emitted without changing runtime scoping or evaluation order, so they are rejected with
-custom diagnostics.
+A `@mixin` or a mixin consumer may be declared at the top level OR inside a function body /
+block. The generated siblings (`__User$base`, the merged interface, the `defineMixinClass`
+call, a construction `<Name>Config` alias) are spliced into the SAME block, never hoisted to
+module scope. A nested class is a local: it cannot be exported, and never leaks its name into
+the `.d.ts` (an escaping instance widens to its structural shape). Works on both planes — emit
+(`tsc`) and source view (tsserver navigation / quickinfo / diagnostics).
+
+Residuals:
+- **Anonymous classes / class expressions** (`const C = class implements M {}`) stay
+  unsupported — no stable statement slot for the siblings — but are now flagged with a clean
+  native diagnostic (TS990002 for a `@mixin`, TS990003 for a consumer) instead of a bare TS2420.
+- **Per-call runtime cost.** A nested mixin/consumer's `defineMixinClass` / chain assembly runs
+  on every call of its enclosing function — no global registry leak (metadata rides on the
+  fresh constructor), just not memoized across calls. Same as any class declared in a function.
+- **Nested construction config-alias hover** keeps the §12.9 cosmetic (the alias name renders
+  as `}` in the editor hover): its `<Name>Config` alias lives in the block, not appended past
+  the document end where the name would read natively. Cosmetic only — `.new(...)` type-checks
+  and constructs correctly.
 
 ### 4. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
 

@@ -211,6 +211,7 @@ export function buildFileMixinContext(
     const context: FileMixinContext = {
         byLocalName        : new Map(),
         byKey              : new Map(),
+        byDeclaration      : new Map(),
         usedFactoryImports : new Map(),
         crossFile,
         // Share the program-wide linearization index when cross-file context is
@@ -246,7 +247,7 @@ function addLocalMixinRefs(
     }
 
     const register = (classFacts: ClassFacts): void => {
-        if (!classFacts.hasMixinDecorator || classFacts.name === undefined || context.byLocalName.has(classFacts.name)) {
+        if (!classFacts.hasMixinDecorator || classFacts.name === undefined) {
             return
         }
 
@@ -264,8 +265,15 @@ function addLocalMixinRefs(
             missingRuntimeImport : undefined
         }
 
-        context.byLocalName.set(name, ref)
-        context.byKey.set(ref.key, ref)
+        // Always keyed by its own declaration, so a nested mixin is detected and expanded from
+        // ITS node even when a same-named mixin already claimed `byLocalName` / `byKey` (which
+        // stay first-name-wins, since a same-file by-name reference can only resolve one).
+        context.byDeclaration.set(classFacts.declaration, ref)
+
+        if (!context.byLocalName.has(name)) {
+            context.byLocalName.set(name, ref)
+            context.byKey.set(ref.key, ref)
+        }
     }
 
     for (const classFacts of facts.classes) {

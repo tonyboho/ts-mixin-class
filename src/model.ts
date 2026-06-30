@@ -135,6 +135,11 @@ export type ResolvedMixinRef = {
 export type FileMixinContext = {
     byLocalName        : Map<string, ResolvedMixinRef>,
     byKey              : Map<string, ResolvedMixinRef>,
+    // Every LOCALLY-declared `@mixin` keyed by its own declaration node, so a mixin is detected
+    // for expansion by identity rather than by name. Unlike `byLocalName` (flat, first-name-wins),
+    // this holds a distinct ref for every nested mixin even when two share a name across sibling
+    // scopes — each expands from its OWN declaration.
+    byDeclaration      : Map<ts.ClassDeclaration, ResolvedMixinRef>,
     // Program-wide cross-file context, when the program contains mixins or
     // construction bases. Used to resolve imported/required construction bases.
     crossFile?         : CrossFileContext,

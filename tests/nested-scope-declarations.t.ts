@@ -129,3 +129,39 @@ it("emits generated siblings into the containing block, not module scope", async
     t.ok(blockClassNames.includes("LocalConsumer"),
         "the rewritten consumer stays inside the function block")
 })
+
+// M4 — two same-named nested `@mixin`s in sibling scopes both expand from their OWN declaration.
+// The flat by-name registry resolves only one; detection by declaration node fixes the second.
+it("expands two same-named nested mixins in sibling scopes independently", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { mixin } from "ts-mixin-class"
+
+        function buildA (): string {
+            @mixin()
+            class Widget {
+                a (): string { return "A" }
+            }
+
+            class UseA implements Widget {}
+
+            return new UseA().a()
+        }
+
+        function buildB (): string {
+            @mixin()
+            class Widget {
+                b (): string { return "B" }
+            }
+
+            class UseB implements Widget {}
+
+            return new UseB().b()
+        }
+
+        export const ra = buildA()
+        export const rb = buildB()
+    `)
+
+    t.equal(imported.ra, "A", "the first nested Widget mixin expanded and ran")
+    t.equal(imported.rb, "B", "the second same-named nested Widget mixin also expanded from its own declaration")
+})

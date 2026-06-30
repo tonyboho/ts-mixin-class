@@ -819,9 +819,9 @@ export function transformSourceFile(
         }
 
         if (classFacts !== undefined && classFacts.name !== undefined) {
-            const ref = context.byLocalName.get(classFacts.name)
+            const ref = context.byDeclaration.get(classFacts.declaration)
 
-            if (ref !== undefined && ref.declaration === statement) {
+            if (ref !== undefined) {
                 expandedAnything      = true
                 needsGeneratedImports = true
                 return expandMixinClass(tsInstance, sourceFile, ref, context, resolvedOptions)
@@ -928,7 +928,14 @@ export function transformSourceFile(
         nullTransformationContext : ts.TransformationContext
     }).nullTransformationContext
 
-    const expandedStatements = facts.hasNestedClasses
+    // Nested expansion is enabled on the EMIT plane (the reprint path: `tsc` build and
+    // `tsc --noEmit`). The position-preserving SOURCE-VIEW plane (tsserver) is held back: a
+    // generated `$base` declared inside a block binds as a block-local synthetic symbol that
+    // crashes tsserver's display-part node-builder (`getSymbolDisplayPartsDocumentationAndSymbolKind`
+    // -> `serializeReturnTypeForSignature` -> `getSymbolId(undefined)`) even though the program
+    // itself type-checks cleanly — the §5/§12.9 source-view fragility family. Until that is
+    // solved, source view leaves a nested class unexpanded (a fixable editor error, never a crash).
+    const expandedStatements = facts.hasNestedClasses && !resolvedOptions.sourceView
         ? [ ...expandStatementList(sourceFile.statements) ]
         : sourceFile.statements.flatMap(expandClassStatement)
 

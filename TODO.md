@@ -62,6 +62,49 @@ an `xit` test in `tests/construction-composition.t.ts`. Support needs: recognizi
 typing), aggregating config from the base identifier AND the mixed mixin(s), and generating the
 class's own `.new`/`<Name>Config` in both planes.
 
+### Check: PARTIAL accessor overrides across the chain (suspected silent runtime traps)
+
+JS prototype shadowing is per-NAME, not per-half: a nearer accessor descriptor replaces the
+deeper one entirely. Suspected uncovered cases (each needs a test; the hazard does NOT depend
+on define/set semantics, unlike §2.14):
+
+- a consumer's GET-ONLY accessor over a mixin's full get/set pair — the mixin's SETTER dies
+  (strict-mode TypeError on write through the mixin-typed view);
+- a consumer's SET-ONLY accessor over a mixin's full pair — the GETTER dies (reads → undefined);
+- the nastiest: "adding the missing half" — mixin declares `get x`, consumer adds only `set x`
+  → the mixin's getter silently disappears while the merged TYPE looks like a full pair;
+- the same three shapes mixin-vs-mixin within one `implements` list (first-listed = nearest);
+- a half-override over a mixin's AUTO-ACCESSOR (`accessor x`).
+
+The checker's own guards can't see any of this through the generated interface (same reason
+as TS990010). If the tests confirm the traps, likely resolution: a new native diagnostic
+(TS990011, "partial accessor override") — decide semantics by looking at the red tests.
+
+### Check: `override` modifier on a mixin member overriding its DEPENDENCY's member
+
+`@mixin() class B implements A { override method() {} }` — plain TS rejects this (TS4112: the
+class has no `extends` clause), but semantically it IS an override through the chain. After the
+transform both planes DO have a base (`extends base` in the factory / `extends __B$base` in
+source view), so the modifier may become legal, may diverge between planes, or may interact
+with `noImplicitOverride` (which a consumer already passes for chain members — pinned in
+`member-kind-collisions.t.ts`). Pin the actual behavior in both planes; decide whether the
+mixin-declaration form should be accepted (rewrite/strip the modifier?) or diagnosed.
+
+### `isolatedDeclarations` compatibility — the `tsc` layer
+
+People enable the option without sharing its actual goal (external declaration emitters), and a
+broken build is a broken build — so the `tsc` layer must work: a program with the transformer
+and `isolatedDeclarations: true` should build cleanly. Suspected offender: the exported mixin
+factory (`export const __X$mixin = function (base) { return class … }`) has an INFERRED return
+type → TS9007-family error on the transformed tree; audit every generated export for explicit
+annotations (value casts / interfaces / config aliases look fine already). Pin with a build
+test first (emit + `--noEmit`).
+
+Scope note: the FULL scenario of the option — generating `.d.ts` with an external no-typecheck
+emitter (oxc etc.) — is out of reach BY DESIGN: an external emitter does not run ts-patch, so it
+would emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
+Declarations must come from the patched `tsc`; document that as a limitation.
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

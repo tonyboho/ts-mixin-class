@@ -314,6 +314,17 @@ Violating any of these produces confusing tsserver errors or crashes.
       deeper field's constructor assignment fires the generated setter before the slot exists
       (a guaranteed TypeError at construction). Guard: `member-kind-collisions.t.ts`,
       `fixture-suite/src/mixin-auto-accessor.t.ts`.
+    - **`this`-typed accessors fall back to a PROPERTY signature in the generated interface**
+      (`containsThisType` in `interface-members.ts`): a `this` type anywhere inside an
+      INTERFACE accessor's annotation crashes plain TypeScript 6.0's checker (a regression —
+      5.9.3 clean; 6.0.3 and nightly crash; TODO.md "Upstream"). Narrowing at the consumer is
+      identical through the property form. Remove the fallback when the pinned TS ships a fix.
+    - **A mixin's MEMBER decorators are STANDARD-mode only**: they ride inside the factory
+      class expression, and legacy (`experimentalDecorators`) decorators are invalid on
+      class-EXPRESSION members (TS1206, spanned on the decorator — position-preserved). In
+      standard mode they run PER APPLICATION (canonical + each base-less consumer), the §1.18
+      static-block semantics. Consumer member decorators run once and work in both modes.
+      The runtime fixture is excluded from `tsconfig.legacy.json`.
     - **Variance annotations (`in`/`out`) on a mixin's type parameters are stripped when the
       parameters are cloned into SIGNATURE positions** (the factory function expression, the
       generic value-cast constructor type, the `.mix` apply function type) — TS1274 allows them

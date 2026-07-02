@@ -22,11 +22,14 @@ import {
     defaultTransformOptions,
     implementsTypes,
     defineMixinClassName,
+    defineMixinClassLocalName,
     metadataBaseImportName,
     metadataBaseLocalName,
     mixinApplicationName,
     mixinChainName,
+    mixinChainLocalName,
     mixinChainLinearizedName,
+    mixinChainLinearizedLocalName,
     constructionMixinClassValueName,
     mixinClassValueName,
     mixinDiagnosticCode,
@@ -48,6 +51,7 @@ import { buildConstructionBaseRegistry, buildMixinRegistry, hasRuntimeModuleForD
 import {
     cloneLayeredSourceFileForTransform,
     alignGeneratedNavigableNodesWithParseTree,
+    hasModifier,
     cloneSourceFileForTransform,
     deepCloneNode,
     generatedTextRange,
@@ -415,11 +419,22 @@ function stripGeneratedStaticNew(tsInstance: TypeScript): ts.TransformerFactory<
     }
 }
 
-function resolveTransformOptions(config: MixinClassTransformerConfig): TransformOptions {
+// The compilation's EFFECTIVE `useDefineForClassFields`: the explicit option, or TypeScript's
+// own default of `target >= ES2022`.
+function effectiveUseDefineForClassFields(tsInstance: TypeScript, compilerOptions: ts.CompilerOptions): boolean {
+    return compilerOptions.useDefineForClassFields ??
+        (compilerOptions.target ?? tsInstance.ScriptTarget.ES3) >= tsInstance.ScriptTarget.ES2022
+}
+
+function resolveTransformOptions(
+    config: MixinClassTransformerConfig,
+    useDefineForClassFields?: boolean
+): TransformOptions {
     return {
         packageName                : config.packageName ?? defaultTransformOptions.packageName,
         decoratorName              : config.decoratorName ?? defaultTransformOptions.decoratorName,
         sourceView                 : false,
+        useDefineForClassFields    : useDefineForClassFields ?? defaultTransformOptions.useDefineForClassFields,
         staticCollisionCheck       : normalizeStaticCollisionCheck(config.staticCollisionCheck),
         fillMissedInitializersWith : normalizeFillMissedInitializers(config.fillMissedInitializersWith),
         // Read at build time (the transformer runs under tsc in Node) and baked into the emit
@@ -476,7 +491,7 @@ export default function transformProgram(
 ): ts.Program {
     const compilerOptions           = program.getCompilerOptions()
     const compilerHost              = host ?? tsInstance.createCompilerHost(compilerOptions)
-    const options                   = resolveTransformOptions(config)
+    const options                   = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions))
     const resolvedModuleFileNames   = new Map<string, string | undefined>()
     const runtimeModuleAvailability = new Map<string, boolean>()
 
@@ -542,7 +557,7 @@ export function createMixinClassCompilerHost(
     baseProgram?: ts.Program,
     nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): ts.CompilerHost {
-    const options              = resolveTransformOptions(config)
+    const options              = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions))
     const sourceCache          = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
     const usePrintedSourceFile = resolveUsePrintedSourceFile(config, compilerOptions)
 
@@ -913,6 +928,165 @@ export function transformSourceFile(
         }
     }
 
+    // Instance member KINDS of a mixin class: accessor names vs data-field names (including
+    // constructor parameter properties). Used to mirror TypeScript's own TS2610/TS2611
+    // kind-mismatch override guards, which the generated interface cannot carry (the checker
+    // only applies them when the base member is declared in a CLASS).
+    const mixinInstanceMemberKinds = (declaration: ts.ClassDeclaration): { accessors: Set<string>, fields: Set<string> } => {
+        const accessors = new Set<string>()
+        const fields    = new Set<string>()
+
+        for (const member of declaration.members) {
+            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)) {
+                continue
+            }
+
+            if (tsInstance.isConstructorDeclaration(member)) {
+                for (const parameter of member.parameters) {
+                    if (tsInstance.isParameterPropertyDeclaration(parameter, member) &&
+                        tsInstance.isIdentifier(parameter.name)
+                    ) {
+                        fields.add(parameter.name.text)
+                    }
+                }
+                continue
+            }
+
+            if (member.name === undefined || tsInstance.isPrivateIdentifier(member.name)) {
+                continue
+            }
+
+            const name = tsInstance.isIdentifier(member.name) || tsInstance.isStringLiteral(member.name)
+                ? member.name.text
+                : undefined
+
+            if (name === undefined) {
+                continue
+            }
+
+            if (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) {
+                accessors.add(name)
+            } else if (tsInstance.isPropertyDeclaration(member)) {
+                fields.add(name)
+            }
+        }
+
+        return { accessors, fields }
+    }
+
+    // Mirrors plain TypeScript's TS2610/TS2611: overriding an ACCESSOR with an instance FIELD
+    // (or a field with an accessor) is rejected for ordinary class bases, unconditionally —
+    // but the checker only fires those when the base member is declared in a class, and a
+    // mixin's members reach the consumer through the generated INTERFACE, where accessor-ness
+    // does not count. Re-created here on the native channel, covering:
+    // - the class's OWN members against every applied mixin (incl. transitively through a
+    //   LOCAL `extends` chain of consumers),
+    // - mixin-vs-mixin overlaps in one `implements` list (the FIRST-listed mixin is the
+    //   nearest layer — §2.6 — so it is the overriding side).
+    // A ref without a program-local declaration (a `.d.ts` mixin) cannot be inspected — skipped.
+    const pushMixinMemberKindOverrideDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
+        const appliedRefs: { name: string, declaration: ts.ClassDeclaration }[] = []
+        const seen                                                              = new Set<string>()
+        let cursor: ClassFacts | undefined                                      = classFacts
+
+        while (cursor !== undefined) {
+            for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, cursor, context)) {
+                const expression = heritageType.expression as ts.Identifier
+                const applied    = context.byLocalName.get(expression.text)?.declaration
+
+                if (applied !== undefined && !seen.has(expression.text)) {
+                    seen.add(expression.text)
+                    appliedRefs.push({ name: expression.text, declaration: applied })
+                }
+            }
+
+            const baseExpression: ts.Expression | undefined = cursor.extendsType?.expression
+
+            cursor = undefined
+
+            if (baseExpression !== undefined && tsInstance.isIdentifier(baseExpression) &&
+                !seen.has("extends:" + baseExpression.text)
+            ) {
+                seen.add("extends:" + baseExpression.text)
+                cursor = facts.classesByName.get(baseExpression.text)
+            }
+        }
+
+        if (appliedRefs.length === 0) {
+            return
+        }
+
+        const kindsOf   = appliedRefs.map((ref) => mixinInstanceMemberKinds(ref.declaration))
+        const className = classFacts.name ?? "<anonymous>"
+
+        const push = (node: ts.Node, message: string): void => {
+            const start = node.getStart(sourceFile)
+
+            context.nativeDiagnostics.push({
+                fileName    : sourceFile.fileName,
+                start,
+                length      : node.getEnd() - start,
+                code        : mixinDiagnosticCode.MixinMemberKindOverride,
+                category    : tsInstance.DiagnosticCategory.Error,
+                messageText : message
+            })
+        }
+
+        // The class's OWN members against every applied mixin.
+        for (const member of (tsInstance.isClassDeclaration(statement) ? statement.members : [])) {
+            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
+                member.name === undefined ||
+                !(tsInstance.isIdentifier(member.name) || tsInstance.isStringLiteral(member.name))
+            ) {
+                continue
+            }
+
+            const name = member.name.text
+
+            for (const [ index, ref ] of appliedRefs.entries()) {
+                if (tsInstance.isPropertyDeclaration(member) && kindsOf[index].accessors.has(name)) {
+                    push(member.name, `Invalid mixin member override. '${name}' is defined as an accessor ` +
+                        `in mixin ${ref.name}, but is overridden in ${className} as an instance property. ` +
+                        "An instance field would bury the mixin's accessor; declare a get/set pair instead.")
+                }
+
+                // Accessor-over-field is gated on DEFINE semantics: under set semantics the
+                // deeper field's `this.x = …` assignment fires the overriding setter, so the
+                // pattern is sound and stays legal (deliberate deviation from plain TS2611).
+                if (resolvedOptions.useDefineForClassFields &&
+                    (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) &&
+                    kindsOf[index].fields.has(name)
+                ) {
+                    push(member.name, `Invalid mixin member override. '${name}' is defined as a property ` +
+                        `in mixin ${ref.name}, but is overridden in ${className} as an accessor. ` +
+                        "The mixin's field initializer would bury the accessor; declare a field instead.")
+                }
+            }
+        }
+
+        // Mixin-vs-mixin overlaps: the FIRST-listed mixin is the nearest (overriding) layer.
+        for (let near = 0; near < appliedRefs.length; near++) {
+            for (let deep = near + 1; deep < appliedRefs.length; deep++) {
+                for (const name of kindsOf[near].fields) {
+                    if (kindsOf[deep].accessors.has(name)) {
+                        push(statement, `Invalid mixin member override. '${name}' is defined as an accessor ` +
+                            `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
+                            `layer of ${className}) re-declares it as an instance property, which would bury the accessor.`)
+                    }
+                }
+
+                for (const name of kindsOf[near].accessors) {
+                    if (resolvedOptions.useDefineForClassFields && kindsOf[deep].fields.has(name)) {
+                        push(statement, `Invalid mixin member override. '${name}' is defined as a property ` +
+                            `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
+                            `layer of ${className}) re-declares it as an accessor, which the deeper field ` +
+                            "initializer would bury at construction time.")
+                    }
+                }
+            }
+        }
+    }
+
     const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
@@ -920,6 +1094,7 @@ export function transformSourceFile(
 
         if (classFacts !== undefined) {
             pushMixinUsedBeforeDeclarationDiagnostics(classFacts, statement)
+            pushMixinMemberKindOverrideDiagnostics(classFacts, statement)
         }
 
         // Anonymous `@mixin` / anonymous mixin consumer: a NATIVE diagnostic (drained by the
@@ -1493,9 +1668,9 @@ function createHelperTypeImport(
     // file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error). When
     // nothing is referenced (no helper import needed), the whole declaration is dropped.
     const candidates: NamedImportElement[] = [
-        { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassName },
-        { typeOnly: false, importedName: mixinChainName,           localName: mixinChainName },
-        { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedName },
+        { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassLocalName },
+        { typeOnly: false, importedName: mixinChainName,           localName: mixinChainLocalName },
+        { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedLocalName },
         { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },
         { typeOnly: true,  importedName: classStaticsName,     localName: classStaticsName },
         { typeOnly: true,  importedName: mixinApplicationName, localName: mixinApplicationName },

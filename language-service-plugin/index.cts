@@ -170,11 +170,14 @@ function init(modules: { typescript: typeof import("typescript") }): ts.server.P
         // --- completions: drop the generated helper names from identifier lists ---
         //
         // The source-view transform splices real declarations (`__X$base`, `__X$empty`, the
-        // `__X$mixin` factory) into the scope of the class they expand. They are bound, so
-        // scope-level identifier completions offer them as phantom entries the user can neither
-        // read nor meaningfully use. Same policy as the navigation-span filtering above: what the
-        // transform generates never surfaces in the editor UI.
-        const isGeneratedHelperName = (name: string): boolean => /^__.+\$(base|empty|mixin)$/.test(name)
+        // `__X$mixin` factory) into the scope of the class they expand, and imports the runtime
+        // value helpers under reserved local aliases (`__defineMixinClass__`, …). They are bound,
+        // so scope-level identifier completions offer them as phantom entries the user can
+        // neither read nor meaningfully use. Same policy as the navigation-span filtering above:
+        // what the transform generates never surfaces in the editor UI.
+        const isGeneratedHelperName = (name: string): boolean =>
+            /^__.+\$(base|empty|mixin)$/.test(name) ||
+            /^(__defineMixinClass__|__mixinChain__|__mixinChainLinearized__|__mixinBase)$/.test(name)
 
         const baseGetCompletionsAtPosition = ls.getCompletionsAtPosition.bind(ls)
         ls.getCompletionsAtPosition = (fileName, position, options, formattingSettings) => {

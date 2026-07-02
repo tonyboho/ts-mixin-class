@@ -122,7 +122,7 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     t.notMatch(printed, "@mixin", "Marker decorator is removed")
     t.match(
         printed,
-        "import { defineMixinClass, type AnyConstructor, type ClassStatics, " +
+        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor, type ClassStatics, " +
             "type MixinApplication, type MixinFactory, type RuntimeMixinClass } from \"ts-mixin-class\"",
         "Helper import is added (pruned to the helpers this file references)"
     )
@@ -134,7 +134,7 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     t.notMatch(printedInterface(printed), "staticHelper", "Static members are not in the interface")
     t.match(
         printed,
-        "defineMixinClass(\"SourceClass\", __SourceClass$mixin as unknown as MixinFactory, []) as unknown as " +
+        "__defineMixinClass__(\"SourceClass\", __SourceClass$mixin as unknown as MixinFactory, []) as unknown as " +
             "(new <T>(...args: any[]) => SourceClass<T>) & " +
             "ClassStatics<ReturnType<typeof __SourceClass$mixin>> & {\n" +
             "    readonly mix: <T, __MixinBase extends AnyConstructor<any>>(base: __MixinBase) => " +
@@ -161,7 +161,7 @@ it("expands a named default-exported mixin class", async (t: Test) => {
 
     t.match(printed, "interface DefaultMixin", "Default mixin interface is generated")
     t.match(printed, "export const __DefaultMixin$mixin", "Default mixin factory is exported for generated imports")
-    t.match(printed, "const DefaultMixin = defineMixinClass", "Default mixin value stays local")
+    t.match(printed, "const DefaultMixin = __defineMixinClass__", "Default mixin value stays local")
     t.match(printed, "export default DefaultMixin", "Default export points at the generated runtime value")
     t.notMatch(printed, "export const DefaultMixin =", "Default mixin is not accidentally exported as a named value")
     t.expect(typecheckText(printed)).toEqual([])
@@ -207,7 +207,7 @@ it("supports custom package and decorator options", async (t: Test) => {
     t.not.isStrict(findInterface(transformedFile, "SourceClass"), undefined, "Custom marker expands the class")
     t.match(
         printSourceFile(ts, transformedFile),
-        "import { defineMixinClass, type AnyConstructor, type MixinFactory, " +
+        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor, type MixinFactory, " +
             "type RuntimeMixinClass, type MixinClassValue } from \"custom-mixin-package\"",
         "Helper import uses the custom package name (pruned to referenced helpers)"
     )
@@ -233,7 +233,7 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
         "Dependent mixin base parameter is typed with the dependency")
     t.match(printed, "return class extends base",
         "Dependent mixin factory returns an anonymous class expression")
-    t.match(printed, "defineMixinClass(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
+    t.match(printed, "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
         "Value const registers the direct dependency with the runtime helper")
     t.match(printed, "interface ChildMixin<T> extends SourceClass1<T>",
         "Generated interface extends the dependency")
@@ -265,7 +265,7 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
         "Generated mixin interface keeps only the non-transitive type heritage")
     t.notMatch(printed, "interface LeafMixin extends ChildMixin, BaseMixin",
         "Generated mixin interface drops transitive type heritage")
-    t.match(printed, "defineMixinClass(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
+    t.match(printed, "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
         "Runtime dependency metadata keeps the direct dependency list")
     t.expect(typecheckText(printed)).toEqual([])
 })
@@ -289,9 +289,9 @@ it("keeps non-mixin implements entries on a mixin as type-only contracts", async
 
     t.match(printed, "interface SourceMixin extends PlainContract",
         "Generated mixin interface keeps the plain TypeScript contract")
-    t.match(printed, "defineMixinClass(\"SourceMixin\", __SourceMixin$mixin as unknown as MixinFactory, [])",
+    t.match(printed, "__defineMixinClass__(\"SourceMixin\", __SourceMixin$mixin as unknown as MixinFactory, [])",
         "Plain contract is not registered as a runtime mixin dependency")
-    t.notMatch(printed, "mixinChain(PlainContract",
+    t.notMatch(printed, "__mixinChain__(PlainContract",
         "Plain contract is not used in the runtime chain")
     t.expect(typecheckText(printed)).toEqual([])
 })
@@ -322,11 +322,11 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
         "Generated interface keeps the required base as an instance constraint")
     t.match(printed, "function (base: AnyConstructor<RequiredBase>)",
         "Mixin factory parameter is constrained to the required base")
-    t.match(printed, "defineMixinClass(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
+    t.match(printed, "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
         "Value const registers the required runtime base")
     t.match(printed, "class __Consumer$base<__mixinRequiredBase0 extends never>",
         "Consumer base carries a required-base constraint for diagnostics")
-    t.match(printed, "extends (mixinChainLinearized(RealBase, [RequiredMixin], [[0, 0, 1]], \"verify\")",
+    t.match(printed, "extends (__mixinChainLinearized__(RealBase, [RequiredMixin], [[0, 0, 1]], \"verify\")",
         "Consumer still supplies its concrete descendant base to the runtime chain")
     t.match(printed, "class Consumer extends __Consumer$base<RealBase extends RequiredBase ? never :",
         "Consumer maps required-base diagnostics to the original extends heritage")

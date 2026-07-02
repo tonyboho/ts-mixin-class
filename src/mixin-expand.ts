@@ -11,7 +11,7 @@ import {
     anyConstructorName,
     classStaticsName,
     consumerBaseSuffix,
-    defineMixinClassName,
+    defineMixinClassLocalName,
     DependencyLinearizationError,
     extendsClause,
     generatedName,
@@ -311,7 +311,7 @@ export function expandMixinClass(
                 factory.createAsExpression(
                     factory.createAsExpression(
                         factory.createCallExpression(
-                            factory.createIdentifier(defineMixinClassName),
+                            factory.createIdentifier(defineMixinClassLocalName),
                             undefined,
                             defineMixinClassArguments(
                                 tsInstance,

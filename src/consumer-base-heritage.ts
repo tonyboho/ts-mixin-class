@@ -14,8 +14,8 @@ import {
 import {
     anyConstructorName,
     classStaticsName,
-    mixinChainName,
-    mixinChainLinearizedName,
+    mixinChainLocalName,
+    mixinChainLinearizedLocalName,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -66,7 +66,7 @@ function createMixinChainExpression(
     // With no plan (a conflict -- reported elsewhere) keep the variadic `mixinChain`.
     if (linearizationPlan !== undefined) {
         return factory.createCallExpression(
-            factory.createIdentifier(mixinChainLinearizedName),
+            factory.createIdentifier(mixinChainLinearizedLocalName),
             undefined,
             [
                 baseExpression,
@@ -78,7 +78,7 @@ function createMixinChainExpression(
     }
 
     return factory.createCallExpression(
-        factory.createIdentifier(mixinChainName),
+        factory.createIdentifier(mixinChainLocalName),
         undefined,
         [
             baseExpression,

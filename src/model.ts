@@ -26,7 +26,12 @@ export type TransformOptions = {
     staticCollisionCheck       : StaticCollisionCheckMode,
     fillMissedInitializersWith : FillMissedInitializersWith,
     verifyLinearization        : boolean,
-    disableLinearizationPlan   : boolean
+    disableLinearizationPlan   : boolean,
+    // The EFFECTIVE `useDefineForClassFields` of the compilation (explicit option, or the
+    // target>=ES2022 default), threaded in by the host. Gates the accessor-over-field half of
+    // the TS990010 member-kind override guard: under SET semantics a base field assignment
+    // fires an overriding accessor's setter, so that override is sound and stays legal.
+    useDefineForClassFields    : boolean
 }
 
 export type MixinDecoratorImports = {
@@ -100,7 +105,8 @@ export const mixinDiagnosticCode = {
     MixinMissingRuntime        : 990006,
     MixinLinearizationConflict : 990007,
     MixinUsedBeforeDeclaration : 990008,
-    MixinNamespaceMerge        : 990009
+    MixinNamespaceMerge        : 990009,
+    MixinMemberKindOverride    : 990010
 } as const
 
 export type ImportedNameBinding = {
@@ -201,7 +207,11 @@ export const defaultTransformOptions: TransformOptions = {
     staticCollisionCheck       : "never",
     fillMissedInitializersWith : "undefined",
     verifyLinearization        : true,
-    disableLinearizationPlan   : false
+    disableLinearizationPlan   : false,
+    // Conservative default: define semantics is the modern (target>=ES2022) TS default, and
+    // over-diagnosing is safer than silently burying an accessor. Hosts overwrite it with the
+    // compilation's effective value.
+    useDefineForClassFields    : true
 }
 
 export const anyConstructorName = "AnyConstructor"
@@ -209,6 +219,11 @@ export const classStaticsName = "ClassStatics"
 export const defineMixinClassName = "defineMixinClass"
 export const mixinChainName = "mixinChain"
 export const mixinChainLinearizedName = "mixinChainLinearized"
+// The VALUE helpers are imported under reserved double-underscore LOCAL aliases so the injected
+// import can never collide with a user binding of the package name (TS2440).
+export const defineMixinClassLocalName = "__defineMixinClass__"
+export const mixinChainLocalName = "__mixinChain__"
+export const mixinChainLinearizedLocalName = "__mixinChainLinearized__"
 export const mixinApplicationName = "MixinApplication"
 export const mixinFactoryName = "MixinFactory"
 export const runtimeMixinClassName = "RuntimeMixinClass"

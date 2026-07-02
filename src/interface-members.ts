@@ -112,7 +112,7 @@ export function buildInterfaceMembers(
 
             emittedAccessors.add(name)
 
-            members.push(accessorSignature(tsInstance, sourceFile, member, getters.get(name), setters.get(name)))
+            members.push(...accessorSignatures(tsInstance, member, getters.get(name), setters.get(name)))
             continue
         }
 
@@ -187,25 +187,49 @@ export function interfaceDeclarationRange(
     }
 }
 
-function accessorSignature(
+// Real `get` / `set` signatures (TS 4.3+ interface accessors), NOT a property signature: the
+// accessor-ness must survive into the generated interface so the checker keeps the plain-TS
+// guards a class base would give — a consumer FIELD shadowing a mixin accessor is TS2610 under
+// define semantics (`useDefineForClassFields: true`), exactly as with ordinary inheritance —
+// and a SPLIT pair keeps its distinct read/write types.
+function accessorSignatures(
     tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
     member: ts.GetAccessorDeclaration | ts.SetAccessorDeclaration,
     getter: ts.GetAccessorDeclaration | undefined,
     setter: ts.SetAccessorDeclaration | undefined
-): ts.PropertySignature {
-    const factory = tsInstance.factory
+): ts.TypeElement[] {
+    const factory                      = tsInstance.factory
+    const signatures: ts.TypeElement[] = []
 
-    const type =
-        getter?.type ??
-        (setter !== undefined && setter.parameters.length > 0 ? setter.parameters[0].type : undefined)
+    if (getter !== undefined) {
+        signatures.push(preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
+            undefined,
+            cloneNode(tsInstance, member.name),
+            [],
+            clonedTypeOrAny(tsInstance, getter.type),
+            undefined
+        ) as ts.TypeElement, interfaceMemberRange(getter)))
+    }
 
-    return preserveTextRange(tsInstance, factory.createPropertySignature(
-        setter === undefined ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ] : undefined,
-        cloneNode(tsInstance, member.name),
-        undefined,
-        clonedTypeOrAny(tsInstance, type)
-    ), interfaceMemberRange(member))
+    if (setter !== undefined) {
+        // A setter without its parameter is already invalid TS — the `any` fallback only keeps
+        // a broken declaration from crashing the transform.
+        const parameter = setter.parameters[0] !== undefined
+            ? signatureParameter(tsInstance, setter.parameters[0])
+            : factory.createParameterDeclaration(
+                undefined, undefined, "value", undefined,
+                factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword), undefined
+            )
+
+        signatures.push(preserveTextRange(tsInstance, factory.createSetAccessorDeclaration(
+            undefined,
+            cloneNode(tsInstance, member.name),
+            [ parameter ],
+            undefined
+        ) as ts.TypeElement, interfaceMemberRange(setter)))
+    }
+
+    return signatures
 }
 
 // A cloned copy of `type`, or the `any` keyword when the source omitted it. The mixin

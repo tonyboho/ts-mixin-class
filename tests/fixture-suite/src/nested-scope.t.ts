@@ -122,6 +122,76 @@ function makeBlockConsumer(): string {
     }
 }
 
+// A consumer declared directly in a `switch` CASE CLAUSE (a statement list that is not a
+// `Block`), and a braced default clause with its own local mixin.
+function pickByKind(kind: number): string {
+    switch (kind) {
+        case 1:
+            class CaseConsumer implements Labeled {
+            }
+
+            return new CaseConsumer().label()
+        default: {
+            @mixin()
+            class DefaultMixin {
+                d(): string {
+                    return "default"
+                }
+            }
+
+            class DefaultConsumer implements DefaultMixin {
+            }
+
+            return new DefaultConsumer().d()
+        }
+    }
+}
+
+// A consumer declared in a class METHOD body and in a GETTER body.
+class NestingHost {
+    fromMethod(): string {
+        class MethodConsumer implements Labeled {
+        }
+
+        return new MethodConsumer().label()
+    }
+
+    get viaGetter(): string {
+        class GetterConsumer implements Labeled {
+        }
+
+        return new GetterConsumer().label()
+    }
+}
+
+// A mixin + consumer declared in an ARROW function body.
+const makeArrowConsumer = (): string => {
+    @mixin()
+    class ArrowMixin {
+        arrow(): string {
+            return "arrow"
+        }
+    }
+
+    class ArrowConsumer implements ArrowMixin {
+    }
+
+    return new ArrowConsumer().arrow()
+}
+
+// A mixin + consumer declared in a NAMESPACE (ModuleBlock).
+namespace nesting {
+    @mixin()
+    export class NsMixin {
+        ns(): string {
+            return "namespace"
+        }
+    }
+
+    export class NsConsumer implements NsMixin {
+    }
+}
+
 it("nested-scope mixin and consumer declarations work at runtime", async (t: Test) => {
     t.equal(makeLabeledConsumer(), "labeled", "nested consumer of a top-level mixin")
     t.equal(makeLocalMixinConsumer(), "hi", "nested mixin consumed locally")
@@ -134,4 +204,11 @@ it("nested-scope mixin and consumer declarations work at runtime", async (t: Tes
     const account = makeConstructed()
     t.equal(account.id, "a1", "nested construction class built its id through .new(...)")
     t.equal(account.balance, 100, "nested construction class built its balance through .new(...)")
+
+    t.equal(pickByKind(1), "labeled", "consumer declared in a switch case clause")
+    t.equal(pickByKind(0), "default", "mixin + consumer in a braced default clause")
+    t.equal(new NestingHost().fromMethod(), "labeled", "consumer declared in a class method body")
+    t.equal(new NestingHost().viaGetter, "labeled", "consumer declared in a getter body")
+    t.equal(makeArrowConsumer(), "arrow", "mixin + consumer in an arrow function body")
+    t.equal(new nesting.NsConsumer().ns(), "namespace", "mixin + consumer in a namespace")
 })

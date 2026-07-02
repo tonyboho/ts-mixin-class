@@ -108,7 +108,8 @@ function preserveStatementListRanges(
         }
 
         // A statement that IS a real block (a bare `{ … }`) owns its own list; otherwise descend
-        // to find blocks nested inside it (a function / method / accessor body, a namespace).
+        // to find statement lists nested inside it (a function / method / accessor body, a
+        // namespace, a `switch` case clause).
         if ((tsInstance.isBlock(statement) || tsInstance.isModuleBlock(statement)) && statement.pos >= 0) {
             preserveStatementListRanges(tsInstance, sourceFile, statement.statements, statement.pos)
         } else {
@@ -135,7 +136,7 @@ function preserveNestedBlockStatementRanges(
     node: ts.Node
 ): void {
     tsInstance.forEachChild(node, (child) => {
-        if ((tsInstance.isBlock(child) || tsInstance.isModuleBlock(child)) && child.pos >= 0) {
+        if (isRealStatementListOwner(tsInstance, child)) {
             preserveStatementListRanges(tsInstance, sourceFile, child.statements, child.pos)
         } else {
             preserveNestedBlockStatementRanges(tsInstance, sourceFile, child)
@@ -143,15 +144,29 @@ function preserveNestedBlockStatementRanges(
     })
 }
 
+// A node owning a statement list the transform may splice generated siblings into: a block, a
+// namespace body, or a `switch` case / default clause (whose list is NOT a `Block`). "Real"
+// means positioned — a synthetic one has no source gaps to place generated ranges into.
+function isRealStatementListOwner(
+    tsInstance: TypeScript,
+    node: ts.Node
+): node is ts.Node & { statements: ts.NodeArray<ts.Statement> } {
+    return (
+        tsInstance.isBlock(node) || tsInstance.isModuleBlock(node) ||
+        tsInstance.isCaseClause(node) || tsInstance.isDefaultClause(node)
+    ) && node.pos >= 0
+}
+
 function preserveSyntheticDescendantRangesAndGetRealRange(
     tsInstance: TypeScript,
     node: ts.Node,
     parentRange: ts.TextRange
 ): ts.TextRange | undefined {
-    // A REAL statement-list block owns its contents through `preserveStatementListRanges` (gap
-    // placement per its own start). Return its range without touching the statements, so a nested
-    // generated sibling is never collapsed onto the enclosing block's full span.
-    if ((tsInstance.isBlock(node) || tsInstance.isModuleBlock(node)) && node.pos >= 0) {
+    // A REAL statement-list owner (block, namespace body, `switch` case clause) owns its contents
+    // through `preserveStatementListRanges` (gap placement per its own start). Return its range
+    // without touching the statements, so a nested generated sibling is never collapsed onto the
+    // enclosing owner's full span.
+    if (isRealStatementListOwner(tsInstance, node)) {
         return { pos: node.pos, end: node.end }
     }
 

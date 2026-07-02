@@ -949,6 +949,24 @@ export function transformSourceFile(
                     : tsInstance.factory.updateModuleBlock(inner, statements)
             }
 
+            // A `switch` case / default clause owns a statement list that is NOT a `Block`;
+            // a class declared directly in the clause splices into that list the same way.
+            if (tsInstance.isCaseClause(inner)) {
+                const statements = expandStatementList(inner.statements)
+
+                return statements === inner.statements
+                    ? inner
+                    : tsInstance.factory.updateCaseClause(inner, inner.expression, statements)
+            }
+
+            if (tsInstance.isDefaultClause(inner)) {
+                const statements = expandStatementList(inner.statements)
+
+                return statements === inner.statements
+                    ? inner
+                    : tsInstance.factory.updateDefaultClause(inner, statements)
+            }
+
             return tsInstance.visitEachChild(inner, visit, nullTransformationContext)
         }
 
@@ -960,7 +978,11 @@ export function transformSourceFile(
     // result differs; any other node is descended for blocks nested inside it. The block node's
     // identity is preserved either way.
     const mutateNestedStatementLists = (node: ts.Node): void => {
-        if (tsInstance.isBlock(node) || tsInstance.isModuleBlock(node)) {
+        // A `switch` case / default clause carries a statement list without being a `Block`.
+        if (
+            tsInstance.isBlock(node) || tsInstance.isModuleBlock(node) ||
+            tsInstance.isCaseClause(node) || tsInstance.isDefaultClause(node)
+        ) {
             const statements = expandStatementList(node.statements)
 
             if (statements !== node.statements) {

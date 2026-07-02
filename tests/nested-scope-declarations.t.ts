@@ -323,3 +323,148 @@ it("keeps nested classes and their generated siblings out of the .d.ts", async (
         await fixture.dispose()
     }
 })
+
+// M12 — a consumer (or mixin) declared directly in a `switch` CASE CLAUSE. A case clause owns a
+// statement list that is NOT a `Block`, so the splice must handle `CaseClause`/`DefaultClause`
+// statement lists too — otherwise the class is indexed as nested but silently never expanded
+// (the user sees a bare TS2420 with no hint).
+it("expands a consumer declared in a switch case clause (emit + runtime)", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Tagger {
+            tag (value: string): string { return "[" + value + "]" }
+        }
+
+        function pick (kind: number): string {
+            switch (kind) {
+                case 1:
+                    class CaseConsumer implements Tagger {}
+                    return new CaseConsumer().tag("case")
+                default: {
+                    @mixin()
+                    class DefaultMixin {
+                        d (): string { return "default" }
+                    }
+
+                    class DefaultConsumer implements DefaultMixin {}
+
+                    return new DefaultConsumer().d()
+                }
+            }
+        }
+
+        export const fromCase = pick(1)
+        export const fromDefault = pick(0)
+    `)
+
+    t.equal(imported.fromCase, "[case]", "the case-clause consumer expanded and ran")
+    t.equal(imported.fromDefault, "default", "the default-clause (braced) nested mixin/consumer also ran")
+})
+
+// M12b — the generated siblings land inside the case clause's own statement list, not the
+// enclosing function/module scope.
+it("emits case-clause generated siblings into the clause statement list", async (t: Test) => {
+    const transformed = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Tagger {
+            tag (value: string): string { return value }
+        }
+
+        function pick (kind: number) {
+            switch (kind) {
+                case 1:
+                    class CaseConsumer implements Tagger {}
+                    return new CaseConsumer()
+                default:
+                    return undefined
+            }
+        }
+        void pick
+    `))
+
+    const topLevelClassNames = transformed.statements
+        .filter(ts.isClassDeclaration)
+        .map((declaration) => declaration.name?.text)
+
+    t.notOk(topLevelClassNames.includes("__CaseConsumer$base"),
+        "the generated base does not leak into module-level statements")
+
+    const pick = transformed.statements.find(
+        (statement): statement is ts.FunctionDeclaration =>
+            ts.isFunctionDeclaration(statement) && statement.name?.text === "pick"
+    )
+    const switchStatement = pick?.body?.statements.find(ts.isSwitchStatement)
+    const caseClause      = switchStatement?.caseBlock.clauses.find(ts.isCaseClause)
+
+    const clauseStatements: readonly ts.Statement[] = caseClause?.statements ?? []
+    const clauseClassNames                           = clauseStatements
+        .filter(ts.isClassDeclaration)
+        .map((declaration) => declaration.name?.text)
+
+    t.ok(clauseClassNames.includes("__CaseConsumer$base"),
+        "the generated intermediate base is emitted inside the case clause")
+    t.ok(clauseClassNames.includes("CaseConsumer"),
+        "the rewritten consumer stays inside the case clause")
+})
+
+// M13 — the remaining container kinds a class declaration is legal in: a class METHOD body, an
+// ARROW function body, a GETTER body, and a NAMESPACE (ModuleBlock). All expand like a function
+// body. One build covers all four.
+it("expands nested declarations in method / arrow / getter bodies and namespaces (emit + runtime)", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Tagger {
+            tag (value: string): string { return "[" + value + "]" }
+        }
+
+        class Host {
+            fromMethod (): string {
+                class MethodConsumer implements Tagger {}
+
+                return new MethodConsumer().tag("method")
+            }
+
+            get viaGetter (): string {
+                class GetterConsumer implements Tagger {}
+
+                return new GetterConsumer().tag("getter")
+            }
+        }
+
+        const fromArrow = (): string => {
+            @mixin()
+            class ArrowMixin {
+                a (): string { return "arrow" }
+            }
+
+            class ArrowConsumer implements ArrowMixin {}
+
+            return new ArrowConsumer().a()
+        }
+
+        namespace ns {
+            @mixin()
+            export class NsMixin {
+                n (): string { return "namespace" }
+            }
+
+            export class NsConsumer implements NsMixin {}
+        }
+
+        export const method = new Host().fromMethod()
+        export const getter = new Host().viaGetter
+        export const arrow = fromArrow()
+        export const namespaced = new ns.NsConsumer().n()
+    `)
+
+    t.equal(imported.method, "[method]", "a consumer in a class method body expanded")
+    t.equal(imported.getter, "[getter]", "a consumer in a getter body expanded")
+    t.equal(imported.arrow, "arrow", "a mixin + consumer in an arrow function body expanded")
+    t.equal(imported.namespaced, "namespace", "a mixin + consumer in a namespace (ModuleBlock) expanded")
+})

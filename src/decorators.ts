@@ -22,6 +22,20 @@ export function hasMixinDecorator(
     }) ?? false
 }
 
+// The USER decorators on a `@mixin` class — every decorator except the `@mixin(…)` marker
+// itself, in source order. The emit re-applies them to the generated value (they would
+// otherwise be silently lost with the erased class declaration).
+export function userClassDecorators(
+    tsInstance: TypeScript,
+    node: ts.HasDecorators,
+    imports: MixinDecoratorImports,
+    options: TransformOptions
+): ts.Decorator[] {
+    return (tsInstance.getDecorators(node) ?? []).filter((decorator) => {
+        return !isMixinDecorator(tsInstance, decorator, imports, options)
+    })
+}
+
 function isMixinDecorator(
     tsInstance: TypeScript,
     decorator: ts.Decorator,

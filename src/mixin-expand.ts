@@ -9,6 +9,7 @@ import {
 } from "./interface-members.js"
 import {
     anyConstructorName,
+    applyLegacyClassDecoratorsLocalName,
     classStaticsName,
     consumerBaseSuffix,
     defineMixinClassLocalName,
@@ -70,8 +71,10 @@ import {
 } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
+import { userClassDecorators } from "./decorators.js"
 import {
     cloneNode,
+    deepCloneNode,
     generatedTextRange,
     hasModifier,
     preserveSourceViewGeneratedClassLikeRange,
@@ -330,7 +333,8 @@ export function expandMixinClass(
                                 dependencyRefs,
                                 requiredBase,
                                 linearizationPlan,
-                                linearizationMode(options)
+                                linearizationMode(options),
+                                createMixinDecorateCallback(tsInstance, sourceFile, declaration, ref, options)
                             )
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
@@ -367,38 +371,40 @@ export function expandMixinClass(
     ]
 }
 
-// The `defineMixinClass(name, factory, [deps], requiredBase?, plan?, mode?)` arguments. The
-// plan is trailing, so when a mixin has a plan but no required base the `requiredBase` slot is
-// filled with an explicit `undefined` (which re-selects the runtime default `Object`); the
-// mode follows the plan.
+// The `defineMixinClass(name, factory, [deps], requiredBase?, plan?, mode?, decorate?)`
+// arguments. The optional slots are positional-trailing, so an absent one before a present one
+// is filled with an explicit `undefined` (which re-selects the runtime default); the argument
+// list is truncated after the last present slot.
 function defineMixinClassArguments(
     tsInstance: TypeScript,
     ref: ResolvedMixinRef,
     dependencyRefs: ResolvedMixinRef[],
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
     linearizationPlan: LinearizationPlanSlice[] | undefined,
-    mode: "verify" | "replay" | "c3"
+    mode: "verify" | "replay" | "c3",
+    decorateCallback: ts.Expression | undefined
 ): ts.Expression[] {
-    const factory = tsInstance.factory
-    const args    = [
+    const factory                                 = tsInstance.factory
+    const explicitUndefined                       = (): ts.Expression => factory.createIdentifier("undefined")
+    const trailing: (ts.Expression | undefined)[] = [
+        requiredBase === undefined ? undefined : cloneNode(tsInstance, requiredBase.expression),
+        linearizationPlan === undefined ? undefined : createLinearizationPlanLiteral(tsInstance, linearizationPlan),
+        linearizationPlan === undefined ? undefined : factory.createStringLiteral(mode),
+        decorateCallback
+    ]
+
+    while (trailing.length > 0 && trailing[trailing.length - 1] === undefined) {
+        trailing.pop()
+    }
+
+    return [
         factory.createStringLiteral(ref.className),
         asMixinFactory(tsInstance, factory.createIdentifier(ref.localFactoryName)),
         factory.createArrayLiteralExpression(
             dependencyRefs.map((dependencyRef) => mixinValueIdentifier(tsInstance, dependencyRef))
-        )
+        ),
+        ...trailing.map((argument) => argument ?? explicitUndefined())
     ]
-
-    if (linearizationPlan !== undefined) {
-        args.push(requiredBase === undefined
-            ? factory.createIdentifier("undefined")
-            : cloneNode(tsInstance, requiredBase.expression))
-        args.push(createLinearizationPlanLiteral(tsInstance, linearizationPlan))
-        args.push(factory.createStringLiteral(mode))
-    } else if (requiredBase !== undefined) {
-        args.push(cloneNode(tsInstance, requiredBase.expression))
-    }
-
-    return args
 }
 
 // The mixin's own requirement set cannot be C3-linearized: returns the error (so the caller
@@ -690,6 +696,116 @@ function createSourceViewMixinMetadataBase(
             )
         ),
         undefined
+    )
+}
+
+// The generated name of the `decorate` callback's parameter — the undecorated canonical class
+// handed in by `defineMixinClass`.
+const decorateValueParameterName = "__mixinValue"
+
+// The `decorate` CALLBACK for `defineMixinClass` that re-applies USER decorators from the
+// `@mixin` class (the class declaration itself is erased into the value cast, so the compiler
+// would silently drop them). Runs INSIDE `defineMixinClass`, before metadata attachment, so
+// the DECORATED class becomes the mixin's runtime identity — a post-hoc wrap would leave two
+// identities (wrapper vs canonical) and break the runtime C3/replay linearization cross-check.
+// The decorator MODE picks the shape:
+//
+// - STANDARD (TC39): `(__mixinValue) => { @dec class X extends (__mixinValue as unknown as
+//   AnyConstructor) {} return X }` — a REAL decorated class declaration, so the COMPILER emits
+//   the whole machinery (context, `Symbol.metadata`, `addInitializer`, replacement rebinding).
+//   The inner class is type-erased (its base is cast to `AnyConstructor`, it lives in the
+//   callback's own scope), so it neither merges with the generated `interface X` (no TS2310
+//   base-type cycle) nor needs the mixin's type parameters (TS2562 forbids them in base
+//   expressions) — the public value cast stays byte-identical. The inner class legally carries
+//   the mixin's own name: `context.name` and `X.name` read the real name, and what the
+//   callback returns IS the constructor the user holds.
+// - LEGACY (`experimentalDecorators`): a plain runtime fold, bottom-up `dec(value) ?? value` —
+//   `(__mixinValue) => __applyLegacyClassDecorators__(__mixinValue, [dec1, dec2])` (no extra
+//   class layer).
+//
+// Applied ONCE, to the mixin VALUE — consumers compose through the factory and are not
+// re-decorated (the §2.8 consumer parallel). Decorator signatures are type-checked on the
+// source-view plane, where the decorators stay on the real class. Returns undefined when the
+// class carries no user decorators (the `decorate` argument is omitted entirely).
+function createMixinDecorateCallback(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef,
+    options: TransformOptions
+): ts.Expression | undefined {
+    const factory    = tsInstance.factory
+    const decorators = userClassDecorators(
+        tsInstance,
+        declaration,
+        getSourceFileFacts(tsInstance, sourceFile, options).mixinDecoratorImports,
+        options
+    )
+
+    if (decorators.length === 0) {
+        return undefined
+    }
+
+    const valueParameter = factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        decorateValueParameterName
+    )
+
+    if (options.experimentalDecorators) {
+        return factory.createArrowFunction(
+            undefined,
+            undefined,
+            [ valueParameter ],
+            undefined,
+            undefined,
+            factory.createCallExpression(
+                factory.createIdentifier(applyLegacyClassDecoratorsLocalName),
+                undefined,
+                [
+                    factory.createIdentifier(decorateValueParameterName),
+                    // The decorator EXPRESSIONS (without `@`), in source order — the array
+                    // literal evaluates them top-down exactly as the compiler would; the
+                    // runtime fold then applies bottom-up.
+                    factory.createArrayLiteralExpression(
+                        decorators.map((decorator) => deepCloneNode(tsInstance, decorator.expression))
+                    )
+                ]
+            )
+        )
+    }
+
+    const decoratedClass = factory.createClassDeclaration(
+        decorators.map((decorator) => deepCloneNode(tsInstance, decorator)),
+        factory.createIdentifier(ref.className),
+        undefined,
+        [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+            factory.createExpressionWithTypeArguments(
+                factory.createParenthesizedExpression(
+                    factory.createAsExpression(
+                        factory.createAsExpression(
+                            factory.createIdentifier(decorateValueParameterName),
+                            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                        ),
+                        factory.createTypeReferenceNode(anyConstructorName, undefined)
+                    )
+                ),
+                undefined
+            )
+        ]) ],
+        []
+    )
+
+    return factory.createArrowFunction(
+        undefined,
+        undefined,
+        [ valueParameter ],
+        undefined,
+        undefined,
+        factory.createBlock([
+            decoratedClass,
+            factory.createReturnStatement(factory.createIdentifier(ref.className))
+        ], true)
     )
 }
 

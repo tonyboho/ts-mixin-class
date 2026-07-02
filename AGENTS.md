@@ -331,6 +331,19 @@ Violating any of these produces confusing tsserver errors or crashes.
       used to `return class extends base { … }`, which made a mixin's member decorators
       STANDARD-mode only and kept the runtime fixture excluded from `tsconfig.legacy.json`;
       the declaration shape replaced that, and the exclusion is gone.
+    - **USER decorators on a `@mixin` class are re-applied through `defineMixinClass`'s
+      `decorate` callback** (`createMixinDecorateCallback` in `mixin-expand.ts`), INSIDE the
+      runtime call, before metadata attachment — so the DECORATED class is the mixin's runtime
+      identity (metadata/statics/`.mix`/linearization attach to what the user holds; a post-hoc
+      wrap left two identities and broke the C3/replay verify). The UNDECORATED canonical stays
+      in `applications` — consumer layers are never decorated; the decorator applies ONCE per
+      value. Standard mode emits a REAL decorated class declaration in the callback (`@dec
+      class X extends (__mixinValue as unknown as AnyConstructor) {} return X`) so the COMPILER
+      emits the TC39 machinery; the inner class is type-erased and callback-scoped — naming it
+      `X` is legal (no merge with `interface X` → no TS2310 cycle) and generics never touch it
+      (TS2562 forbids type params in base expressions; the public cast is unchanged). Legacy
+      mode passes an `__applyLegacyClassDecorators__` fold. The canonical class is
+      `setClassName`d BEFORE decoration so decorators observe the real name.
     - **Variance annotations (`in`/`out`) on a mixin's type parameters are stripped when the
       parameters are cloned into SIGNATURE positions** (the factory function expression, the
       generic value-cast constructor type, the `.mix` apply function type) — TS1274 allows them

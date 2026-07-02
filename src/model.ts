@@ -31,7 +31,12 @@ export type TransformOptions = {
     // target>=ES2022 default), threaded in by the host. Gates the accessor-over-field half of
     // the TS990010 member-kind override guard: under SET semantics a base field assignment
     // fires an overriding accessor's setter, so that override is sound and stays legal.
-    useDefineForClassFields    : boolean
+    useDefineForClassFields    : boolean,
+    // The compilation's decorator mode, threaded in by the host. Selects the emit shape that
+    // preserves USER decorators on a `@mixin` class: standard (TC39) mode wraps the value in
+    // an IIFE holding a real decorated class declaration (the compiler emits the decorator
+    // machinery itself); legacy mode folds the decorators over the value.
+    experimentalDecorators     : boolean
 }
 
 export type MixinDecoratorImports = {
@@ -211,7 +216,10 @@ export const defaultTransformOptions: TransformOptions = {
     // Conservative default: define semantics is the modern (target>=ES2022) TS default, and
     // over-diagnosing is safer than silently burying an accessor. Hosts overwrite it with the
     // compilation's effective value.
-    useDefineForClassFields    : true
+    useDefineForClassFields    : true,
+    // Standard (TC39) decorators are TypeScript's default mode; hosts overwrite it with the
+    // compilation's option.
+    experimentalDecorators     : false
 }
 
 export const anyConstructorName = "AnyConstructor"
@@ -222,6 +230,8 @@ export const mixinChainLinearizedName = "mixinChainLinearized"
 // The VALUE helpers are imported under reserved double-underscore LOCAL aliases so the injected
 // import can never collide with a user binding of the package name (TS2440).
 export const defineMixinClassLocalName = "__defineMixinClass__"
+export const applyLegacyClassDecoratorsName = "applyLegacyClassDecorators"
+export const applyLegacyClassDecoratorsLocalName = "__applyLegacyClassDecorators__"
 export const mixinChainLocalName = "__mixinChain__"
 export const mixinChainLinearizedLocalName = "__mixinChainLinearized__"
 export const mixinApplicationName = "MixinApplication"

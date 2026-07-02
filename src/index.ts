@@ -18,6 +18,8 @@ import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
     anyConstructorName,
+    applyLegacyClassDecoratorsName,
+    applyLegacyClassDecoratorsLocalName,
     classStaticsName,
     defaultTransformOptions,
     implementsTypes,
@@ -428,13 +430,15 @@ function effectiveUseDefineForClassFields(tsInstance: TypeScript, compilerOption
 
 function resolveTransformOptions(
     config: MixinClassTransformerConfig,
-    useDefineForClassFields?: boolean
+    useDefineForClassFields?: boolean,
+    experimentalDecorators?: boolean
 ): TransformOptions {
     return {
         packageName                : config.packageName ?? defaultTransformOptions.packageName,
         decoratorName              : config.decoratorName ?? defaultTransformOptions.decoratorName,
         sourceView                 : false,
         useDefineForClassFields    : useDefineForClassFields ?? defaultTransformOptions.useDefineForClassFields,
+        experimentalDecorators     : experimentalDecorators ?? defaultTransformOptions.experimentalDecorators,
         staticCollisionCheck       : normalizeStaticCollisionCheck(config.staticCollisionCheck),
         fillMissedInitializersWith : normalizeFillMissedInitializers(config.fillMissedInitializersWith),
         // Read at build time (the transformer runs under tsc in Node) and baked into the emit
@@ -491,7 +495,9 @@ export default function transformProgram(
 ): ts.Program {
     const compilerOptions           = program.getCompilerOptions()
     const compilerHost              = host ?? tsInstance.createCompilerHost(compilerOptions)
-    const options                   = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions))
+    const options                   = resolveTransformOptions(
+        config, effectiveUseDefineForClassFields(tsInstance, compilerOptions), compilerOptions.experimentalDecorators === true
+    )
     const resolvedModuleFileNames   = new Map<string, string | undefined>()
     const runtimeModuleAvailability = new Map<string, boolean>()
 
@@ -557,7 +563,7 @@ export function createMixinClassCompilerHost(
     baseProgram?: ts.Program,
     nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): ts.CompilerHost {
-    const options              = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions))
+    const options              = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions), compilerOptions.experimentalDecorators === true)
     const sourceCache          = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
     const usePrintedSourceFile = resolveUsePrintedSourceFile(config, compilerOptions)
 
@@ -1718,6 +1724,7 @@ function createHelperTypeImport(
     // nothing is referenced (no helper import needed), the whole declaration is dropped.
     const candidates: NamedImportElement[] = [
         { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassLocalName },
+        { typeOnly: false, importedName: applyLegacyClassDecoratorsName, localName: applyLegacyClassDecoratorsLocalName },
         { typeOnly: false, importedName: mixinChainName,           localName: mixinChainLocalName },
         { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedLocalName },
         { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },

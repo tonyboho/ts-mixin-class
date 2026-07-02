@@ -109,7 +109,16 @@ export function defineMixinClass(
     linearizationPlan?: LinearizationPlan,
     // What to do with the plan, chosen by the compiler from the build environment (see
     // LinearizationMode). Default (undefined) replays it.
-    linearizationMode?: LinearizationMode
+    linearizationMode?: LinearizationMode,
+    // USER decorators from the `@mixin` class, applied by the emit through this callback so the
+    // DECORATED class becomes the mixin's runtime identity (metadata, statics, linearization all
+    // attach to what the user holds — a post-hoc wrap would leave two identities and break the
+    // C3/replay cross-check). Runs BEFORE metadata attachment; the UNDECORATED canonical class
+    // stays in `applications`, so consumer layers are never decorated (the decorator applies
+    // once, to the value). Standard (TC39) mode passes an IIFE-shaped callback whose decorated
+    // class declaration the COMPILER emits; legacy mode passes an `applyLegacyClassDecorators`
+    // fold.
+    decorate?: (value: AnyConstructor<any>) => AnyConstructor<any>
 ): RuntimeMixinClassValue {
     const requirementList          = [ ...mixinRequirements ]
     const requirementLinearization = resolveRequirementLinearization(
@@ -119,9 +128,17 @@ export function defineMixinClass(
     // base was given, so a base-less mixin instance descends from the library-owned `Empty` rather
     // than a bare `Object`. This is a runtime filler only — `Empty` is never stored as the
     // requirement `requiredBase` (which stays `Object`), so it imposes no constraint on consumers.
-    const seedBase                       = requiredBase === Object ? Empty : requiredBase
-    const canonicalBase                  = applyRuntimeMixins(seedBase, requirementLinearization.slice().reverse())
-    const mixinClass                     = mixinFactory(canonicalBase) as RuntimeMixinClassValue
+    const seedBase       = requiredBase === Object ? Empty : requiredBase
+    const canonicalBase  = applyRuntimeMixins(seedBase, requirementLinearization.slice().reverse())
+    const canonicalClass = mixinFactory(canonicalBase) as RuntimeMixinClassValue
+
+    // Named BEFORE decoration: the decorators observe the mixin's real name (the factory's
+    // inner class declaration carries a generated lexical name).
+    setClassName(canonicalClass, name)
+
+    const mixinClass                     = decorate === undefined
+        ? canonicalClass
+        : decorate(canonicalClass) as RuntimeMixinClassValue
     const applications                   = new WeakMap<AnyConstructor<any>, AnyConstructor<any>>()
     const marker                         = Symbol(name)
     const metadata: RuntimeMixinMetadata = {
@@ -133,8 +150,8 @@ export function defineMixinClass(
         marker
     }
 
-    applications.set(canonicalBase, mixinClass)
-    markRuntimeMixin(mixinClass, marker)
+    applications.set(canonicalBase, canonicalClass)
+    markRuntimeMixin(canonicalClass, marker)
 
     Object.defineProperty(mixinClass, mixinMetadata, { value: metadata })
     Object.defineProperty(mixinClass, factory, { value: mixinFactory })
@@ -365,6 +382,25 @@ function classExtends(base: AnyConstructor<any>, requiredBase: AnyConstructor<an
 // prototype chain.
 function markRuntimeMixin(appliedClass: AnyConstructor<any>, marker: symbol): void {
     ;(appliedClass.prototype as Record<symbol, unknown>)[marker] = true
+}
+
+// The LEGACY (`experimentalDecorators`) fold for USER decorators on a `@mixin` class: the
+// transform erases the class declaration into a value, so the compiler never emits its own
+// `__decorate` call — the emit wraps the value instead:
+// `__applyLegacyClassDecorators__(defineMixinClass(…), [dec1, dec2])`. Applies bottom-up with
+// the standard legacy semantics (`dec(value) ?? value`). Decorator typing is checked on the
+// source-view plane, where the decorators stay on the real class — hence the loose signature.
+// (Standard TC39 decorators never come here: their emit shape is a real decorated class
+// declaration inside an IIFE, so the compiler emits the whole machinery itself.)
+export function applyLegacyClassDecorators<T>(
+    value: T,
+    decorators: ReadonlyArray<(target: any) => any>
+): T {
+    for (let index = decorators.length - 1; index >= 0; index--) {
+        value = (decorators[index](value) ?? value) as T
+    }
+
+    return value
 }
 
 function setClassName(classConstructor: AnyConstructor<any>, name: string): void {

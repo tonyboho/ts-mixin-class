@@ -138,7 +138,10 @@ function memberNameForDiagnostic(
     const name = member.name
 
     if (name === undefined) {
-        return "constructor"
+        // The nameless members: a constructor and a `static {}` initialization block. The latter
+        // is rejected by `isSupportedMixinClassMember` (its side effects would re-run for every
+        // chain application of the mixin factory), so its diagnostic must name it properly.
+        return tsInstance.isClassStaticBlockDeclaration(member) ? "static initialization block" : "constructor"
     }
 
     if (tsInstance.isPrivateIdentifier(name)) {

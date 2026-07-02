@@ -115,7 +115,9 @@ it("reports unsupported mixin class declarations with native diagnostics", async
             "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
             "Mixin class MissingParameterTypeMixin method parameter value must have an explicit type annotation",
             "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation",
-            "is not supported by the mixin transformer"
+            // A `static {}` block is nameless — the diagnostic must name it properly, not fall
+            // back to "constructor" (which IS a supported member).
+            "Mixin class StaticBlockMixin member static initialization block is not supported by the mixin transformer"
         ])
     } finally {
         await fixture.dispose()

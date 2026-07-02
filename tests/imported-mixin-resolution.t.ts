@@ -154,3 +154,96 @@ it("resolves a mixin imported through a nested (two-level) barrel", async (t: Te
         { fileName: "consumer.ts", text: consumerUsing("./outer", "Logger") }
     ])
 })
+
+it("resolves two SAME-NAMED mixins from different files consumed in one file", async (t: Test) => {
+    // Registry keys are per declaring file, but the consumer-side lookup must follow each import
+    // binding to ITS declaring module — two same-named mixins must not collapse into one
+    // (first-name-wins would apply the wrong mixin to one of the consumers). Each consumer uses a
+    // member only its own mixin has, so a crossed application fails to compile.
+    const widgetA  = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        export class Widget {
+            a(): string { return "A" }
+        }
+    `)
+    const widgetB  = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        export class Widget {
+            b(): string { return "B" }
+        }
+    `)
+    const consumer = trimIndent(`
+        import { Widget as WidgetA } from "./widget-a"
+        import { Widget as WidgetB } from "./widget-b"
+
+        export class UsesA implements WidgetA {
+            ownA(): string { return super.a() }
+        }
+
+        export class UsesB implements WidgetB {
+            ownB(): string { return super.b() }
+        }
+    `)
+
+    const { result, consumerJs } = await build([
+        { fileName: "widget-a.ts", text: widgetA },
+        { fileName: "widget-b.ts", text: widgetB },
+        { fileName: "consumer.ts", text: consumer }
+    ])
+
+    t.equal(result.exitCode, 0, `same-named mixins from two files compile.\n${commandOutput(result)}`)
+    t.match(consumerJs, "mixinChainLinearized(__UsesA$empty, [WidgetA]",
+        `the first consumer applies the first file's mixin.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(consumerJs, "mixinChainLinearized(__UsesB$empty, [WidgetB]",
+        "the second consumer applies the second file's mixin")
+})
+
+it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
+    // Two mixin files importing each other (a type-level cycle a real project hits): the
+    // registry build must not loop or drop either mixin, and consumers on both sides must
+    // resolve their imported mixin.
+    const alpha    = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+        import type { Beta } from "./beta"
+
+        @mixin()
+        export class Alpha {
+            describeOther(other: Beta): string {
+                return "alpha-sees:" + other.beta()
+            }
+        }
+    `)
+    const beta     = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+        import { Alpha } from "./alpha"
+
+        @mixin()
+        export class Beta {
+            beta(): string { return "beta" }
+        }
+
+        export class BetaSideConsumer implements Alpha {
+        }
+    `)
+    const consumer = trimIndent(`
+        import { Alpha } from "./alpha"
+        import { Beta } from "./beta"
+
+        export class Service implements Alpha, Beta {
+        }
+    `)
+
+    const { result, consumerJs } = await build([
+        { fileName: "alpha.ts", text: alpha },
+        { fileName: "beta.ts", text: beta },
+        { fileName: "consumer.ts", text: consumer }
+    ])
+
+    t.equal(result.exitCode, 0, `circularly importing mixin files compile.\n${commandOutput(result)}`)
+    t.match(consumerJs, "mixinChainLinearized(__Service$empty, [Alpha, Beta]",
+        `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`)
+})

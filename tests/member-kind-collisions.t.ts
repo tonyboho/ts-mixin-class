@@ -261,6 +261,46 @@ it("a consumer AUTO-ACCESSOR over a mixin FIELD is rejected under BOTH semantics
     t.match(setOutput, "TS990010", `the native guard fires under set semantics.\n${setOutput}`)
 })
 
+it("a @mixin FIELD over its DEPENDENCY's accessor is rejected under define semantics (parity with consumers)", async (t: Test) => {
+    // The overriding class is itself a @mixin implementing the accessor-carrying one — the
+    // mixin-expand path, not consumer-expand. The §2.14 guard must hold identically.
+    const mixinOverDependency = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Measured {
+            stored: number = 0
+
+            get value(): number {
+                return this.stored
+            }
+
+            set value(input: number) {
+                this.stored = input
+            }
+        }
+
+        @mixin()
+        class Flat implements Measured {
+            value: number = 5
+        }
+
+        void Flat
+    `)
+
+    const rejected = await build(mixinOverDependency, { useDefineForClassFields: true })
+    const output   = commandOutput(rejected)
+
+    t.ne(rejected.exitCode, 0, "define semantics: rejected on the mixin declaration too")
+    t.match(output, "TS990010", `the native guard fires for a mixin-as-consumer.\n${output}`)
+    t.match(output, "'value' is defined as an accessor in mixin Measured", "the message names the buried accessor")
+
+    const legal = await build(mixinOverDependency, { useDefineForClassFields: false })
+
+    t.equal(legal.exitCode, 0,
+        `set semantics: legal, exactly like the consumer case.\n${commandOutput(legal)}`)
+})
+
 it("a consumer overriding a mixin METHOD with a narrowed return still chains through super", async (t: Test) => {
     const result = await build(trimIndent(`
         import { mixin } from "ts-mixin-class"

@@ -167,6 +167,24 @@ function init(modules: { typescript: typeof import("typescript") }): ts.server.P
                 }))
                 .filter((entry) => entry.highlightSpans.length > 0)
 
+        // --- completions: drop the generated helper names from identifier lists ---
+        //
+        // The source-view transform splices real declarations (`__X$base`, `__X$empty`, the
+        // `__X$mixin` factory) into the scope of the class they expand. They are bound, so
+        // scope-level identifier completions offer them as phantom entries the user can neither
+        // read nor meaningfully use. Same policy as the navigation-span filtering above: what the
+        // transform generates never surfaces in the editor UI.
+        const isGeneratedHelperName = (name: string): boolean => /^__.+\$(base|empty|mixin)$/.test(name)
+
+        const baseGetCompletionsAtPosition = ls.getCompletionsAtPosition.bind(ls)
+        ls.getCompletionsAtPosition = (fileName, position, options, formattingSettings) => {
+            const result = baseGetCompletionsAtPosition(fileName, position, options, formattingSettings)
+
+            return result === undefined
+                ? result
+                : { ...result, entries: result.entries.filter((entry) => !isGeneratedHelperName(entry.name)) }
+        }
+
         return ls
     }
 

@@ -296,6 +296,19 @@ Violating any of these produces confusing tsserver errors or crashes.
       offer them** (`__X$base/$empty/$mixin`); the `language-service-plugin` filters them out of
       `getCompletionsAtPosition` (same policy as its navigation-span filtering). Guard:
       `tsserver-completions.t.ts`.
+    - **The generated mixin interface carries REAL `get`/`set` signatures** for accessor
+      members (TS 4.3 interface accessors) — a split pair keeps distinct read/write types. The
+      checker's own TS2610/TS2611 kind-override guards still do NOT fire through an interface
+      (they need the base member declared in a CLASS), so `TS990010` re-creates them on the
+      native channel (`pushMixinMemberKindOverrideDiagnostics`): field-over-accessor always;
+      accessor-over-field only under DEFINE semantics (`useDefineForClassFields`, threaded into
+      `TransformOptions` by the hosts) — a deliberate deviation from plain TS, since set
+      semantics fires the overriding setter. Covers mixin-vs-mixin pairs in one `implements`
+      list and transitive local `extends` chains; `.d.ts` mixins are skipped.
+    - **Runtime value helpers are imported under reserved local aliases**
+      (`defineMixinClass as __defineMixinClass__`, `__mixinChain__`, `__mixinChainLinearized__`)
+      so the injected import can never collide with a user binding (TS2440); the
+      `language-service-plugin` filters the aliases from completions.
     - **An INSTANTIATED namespace merged with a `@mixin` class** gets a native diagnostic
       (`TS990009`, on the namespace name): the class is rewritten into a `const`, which a
       namespace cannot merge with — the merge would silently lose the namespace exports from the

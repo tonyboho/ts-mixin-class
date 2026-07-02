@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 
-import { it } from "@bryntum/siesta/nodejs.js"
+import { it, xit } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, trimIndent } from "./util.js"
@@ -246,4 +246,51 @@ it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
     t.equal(result.exitCode, 0, `circularly importing mixin files compile.\n${commandOutput(result)}`)
     t.match(consumerJs, "mixinChainLinearized(__Service$empty, [Alpha, Beta]",
         `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`)
+})
+
+// SKIPPED (xit) — decided-deferred spec point (see TODO.md "Qualified mixin references").
+// A QUALIFIED heritage reference (`implements lib.Logger` via `import * as lib`) is not
+// resolved: the consumer is left untransformed and fails with a bare TS2420. Resolution keys
+// heritage references by identifier; supporting PropertyAccess needs facts + registry +
+// two-plane emission work.
+xit("resolves a mixin referenced through a NAMESPACE import (implements lib.Logger)", async (t: Test) => {
+    const { result, consumerJs } = await build([
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import * as lib from "./logger"
+
+            export class Service implements lib.Logger {
+                record(): void { super.log("a") }
+                get count(): number { return this.logged.length }
+            }
+        `) }
+    ])
+
+    t.equal(result.exitCode, 0, `namespace-qualified mixin reference compiles (mixin resolved).\n${commandOutput(result)}`)
+    t.match(consumerJs, "mixinChainLinearized(__Service$empty, [lib.Logger]",
+        `the qualified mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`)
+})
+
+// SKIPPED (xit) — same deferred spec point as above, the local-namespace form.
+xit("resolves a mixin declared in a local NAMESPACE (implements NS.Tagger)", async (t: Test) => {
+    const { result } = await build([
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import { mixin } from "ts-mixin-class"
+
+            namespace NS {
+                @mixin()
+                export class Tagger {
+                    tag(): string {
+                        return "tagged"
+                    }
+                }
+            }
+
+            export class Service implements NS.Tagger {
+                use(): string { return this.tag() }
+            }
+        `) }
+    ])
+
+    t.equal(result.exitCode, 0, `local-namespace-qualified mixin reference compiles (mixin resolved).\n${commandOutput(result)}`)
 })

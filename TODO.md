@@ -35,6 +35,22 @@ cannot reproduce faithfully — needs a design pass (emit a compiler-decorated t
 restrict to legacy mode with a diagnostic in standard mode?). Until then this stays a documented
 gap; revisit after the current coverage pass.
 
+### Qualified mixin references (`implements lib.Logger` / `implements NS.Tagger`)
+
+A consumer referencing a mixin through a QUALIFIED name is not resolved — the consumer is left
+untransformed and fails with a bare TS2420. Two forms, both pinned as `xit` tests in
+`tests/imported-mixin-resolution.t.ts`:
+
+- a namespace import: `import * as lib from "./logger"` + `class C implements lib.Logger`
+- a local namespace member: `namespace NS { @mixin() export class Tagger }` + `implements NS.Tagger`
+
+Resolution keys heritage references by identifier text (`byLocalName`), so a
+`PropertyAccessExpression` reference never matches. Supporting it needs: facts collection for
+qualified heritage expressions, registry lookup through the checker's alias chain (similar to
+`addReExportAliasKeys`), and both planes' emission (`lib.Logger` as the chain value expression
+and in the generated `$base` interface heritage). Alternative fallback if support stays out:
+a native diagnostic ("qualified mixin reference is not supported — import the mixin by name").
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

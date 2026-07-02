@@ -179,6 +179,56 @@ const makeArrowConsumer = (): string => {
     return new ArrowConsumer().arrow()
 }
 
+// A consumer declared inside a `static {}` INITIALIZATION BLOCK — a Block owned by a class
+// member, composing the nested-scope splice with static-block support (§1.18/§2.9).
+class StaticBlockHost {
+    static built: string = ""
+
+    static {
+        class StaticBlockConsumer implements Labeled {
+        }
+
+        StaticBlockHost.built = new StaticBlockConsumer().label()
+    }
+}
+
+// Consumers declared in TRY / CATCH / FINALLY blocks (each is a plain Block with a distinct
+// parent kind).
+function makeTryCatchConsumers(): string {
+    let out = ""
+
+    try {
+        class InTry implements Labeled {
+        }
+
+        out = new InTry().label()
+        throw new Error("reach the catch")
+    } catch {
+        class InCatch implements Labeled {
+        }
+
+        out += "+" + new InCatch().label()
+    } finally {
+        class InFinally implements Labeled {
+        }
+
+        out += "+" + new InFinally().label()
+    }
+
+    return out
+}
+
+// A nested consumer with its OWN constructor using a PARAMETER PROPERTY.
+function makeParamPropertyConsumer(): string {
+    class Tagged implements Labeled {
+        constructor(public tag: string) {}
+    }
+
+    const tagged = new Tagged("t1")
+
+    return tagged.label() + ":" + tagged.tag
+}
+
 // A mixin + consumer declared in a NAMESPACE (ModuleBlock).
 namespace nesting {
     @mixin()
@@ -211,4 +261,7 @@ it("nested-scope mixin and consumer declarations work at runtime", async (t: Tes
     t.equal(new NestingHost().viaGetter, "labeled", "consumer declared in a getter body")
     t.equal(makeArrowConsumer(), "arrow", "mixin + consumer in an arrow function body")
     t.equal(new nesting.NsConsumer().ns(), "namespace", "mixin + consumer in a namespace")
+    t.equal(StaticBlockHost.built, "labeled", "consumer declared inside a static initialization block")
+    t.equal(makeTryCatchConsumers(), "labeled+labeled+labeled", "consumers in try / catch / finally blocks")
+    t.equal(makeParamPropertyConsumer(), "labeled:t1", "nested consumer with a parameter-property constructor")
 })

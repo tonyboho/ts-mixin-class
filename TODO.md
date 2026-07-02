@@ -134,6 +134,18 @@ the user's own base name (or the mixin's name for a mixin-contributed layer). Ne
 REWRITE (string surgery on `messageText`), not just a span fix, so keep it conservative:
 substitute only exact generated-name matches.
 
+### `@ts-expect-error` on an erroring mixin heritage suppresses only ONE of the duplicates
+
+Found in pass 9: a consumer with a constraint-violating mixin argument
+(`class Broken implements Sorter<number>` where `Sorter<T extends Comparable<T>>`) reports
+TS2344 — correct — but the heritage type argument is CLONED into generated nodes
+(`$base` heritage, value cast), each carrying the same preserved position, so the checker
+emits the SAME diagnostic more than once from one source line. A user's `@ts-expect-error`
+directive eats exactly one occurrence and the build stays red (no "unused directive" either —
+the directive DID match). Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`.
+Likely resolution: dedupe program diagnostics by (file, start, code, messageText) in the
+diagnostic-wrapping channel — position-identical duplicates carry no information.
+
 ### Required-base statics inside a mixin's own static (`super.new` / `super.<baseStatic>`)
 
 On the EMIT plane a mixin's static method cannot reach the required base's statics through

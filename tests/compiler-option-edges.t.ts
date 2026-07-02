@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { it } from "@bryntum/siesta/nodejs.js"
@@ -163,4 +164,60 @@ it("`override` on a mixin-member override is legal in the DEFAULT config too", a
     const sourceView = await build(markedOverrides, { noEmit: true })
 
     t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
+})
+
+// ---------------------------------------------------------------------------
+// module: CommonJS
+
+it("a CommonJS project compiles and RUNS (require() of the ESM package)", async (t: Test) => {
+    // The package itself is ESM (`type: module`, `exports` without a `require` branch), but a
+    // CJS project still works end to end: the transform is module-format-agnostic on the emit
+    // plane, and modern Node (≥ 20.19) supports require() of an ESM module — which is what the
+    // suite's Node runs. `ignoreDeprecations` only silences TS 6.0's own CommonJS-era warnings.
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { module: "CommonJS", ignoreDeprecations: "6.0" },
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : trimIndent(`
+                import { mixin } from "ts-mixin-class"
+
+                @mixin()
+                class Greeter {
+                    greet(): string {
+                        return "hi"
+                    }
+                }
+
+                class Worker implements Greeter {
+                }
+
+                console.log("out=" + new Worker().greet())
+            `)
+        } ]
+    })
+
+    try {
+        const emit = await runCommand(
+            "node",
+            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
+            fixture.directory
+        )
+
+        t.equal(emit.exitCode, 0, `the CommonJS emit compiles.\n${commandOutput(emit)}`)
+
+        // A real CommonJS project is not `type: module` — replace the harness default so the
+        // emitted CJS is executed as CJS.
+        await writeFile(
+            path.join(fixture.directory, "package.json"),
+            JSON.stringify({ private: true, type: "commonjs" })
+        )
+
+        const run = await runCommand("node", [ path.join("dist", "source.js") ], fixture.directory)
+
+        t.equal(run.exitCode, 0, `the CJS output runs.\n${commandOutput(run)}`)
+        t.equal(run.stdout.trim(), "out=hi", "the mixin chain works from CommonJS")
+    } finally {
+        await fixture.dispose()
+    }
 })

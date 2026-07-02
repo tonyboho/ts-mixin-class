@@ -1,9 +1,14 @@
+import path from "node:path"
+
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 import ts from "typescript"
 
 import { printSourceFile, transformSourceFile } from "../src/index.js"
-import { commandOutput, createSourceFile, createTypeScriptFixture, runFixtureTypecheck, typecheckText } from "./util.js"
+import {
+    commandOutput, createSourceFile, createTypeScriptFixture, packageRoot,
+    runCommand, runFixtureTypecheck, typecheckText
+} from "./util.js"
 
 it("transformed required-base mixin rejects unrelated consumer bases at typecheck time", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
@@ -355,3 +360,80 @@ function assertMessageParts(t: Test, messages: string, expectedParts: string[]):
         t.match(messages, expectedPart, `Diagnostics include ${expectedPart}`)
     }
 }
+
+// A consumer (or a dependent mixin) declared ABOVE the `@mixin` it applies, in the SAME scope:
+// plain TS allows it (`implements` is type-only), but the transform generates a VALUE reference
+// to the mixin, so module evaluation would hit the const TDZ. TypeScript's own TS2448 fires on
+// the generated line and remaps to a misleading position (the import line), so a NATIVE
+// diagnostic (TS990008) names the real fix, with its span on the consumer's heritage reference.
+// A use in a DIFFERENT (deferred) scope — a function body referencing a later top-level mixin —
+// is legal at runtime and must NOT be flagged.
+it("reports a consumer declared before its mixin in the same scope with a native diagnostic", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : [
+                'import { mixin } from "ts-mixin-class"',
+                "",
+                "export class Early implements Tagged {",
+                "}",
+                "",
+                "@mixin()",
+                "class DependentEarly implements Tagged {",
+                "    own(): string { return super.tag() }",
+                "}",
+                "",
+                "@mixin()",
+                "class Tagged {",
+                "    tag(): string { return \"t\" }",
+                "}",
+                "",
+                "export function deferred(): string {",
+                "    class LaterIsFine implements Late {}",
+                "",
+                "    return new LaterIsFine().late()",
+                "}",
+                "",
+                "@mixin()",
+                "class Late {",
+                "    late(): string { return \"l\" }",
+                "}",
+                ""
+            ].join("\n")
+        } ]
+    })
+
+    try {
+        const expectedParts = [
+            "TS990008",
+            "is declared later in the same scope",
+            "Declare the mixin before",
+            // The span lands on the consumer's heritage reference (`Tagged` on line 3), and on
+            // the dependent mixin's heritage reference (line 7).
+            "source.ts(3,31)",
+            "source.ts(7,33)"
+        ]
+
+        // Source-view plane (`--noEmit`) — TypeScript itself reports NOTHING here (the TDZ is in
+        // generated value code the source-view tree does not evaluate), so the native diagnostic
+        // is the only signal.
+        const sourceViewOutput = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, sourceViewOutput, expectedParts)
+        t.notMatch(sourceViewOutput, "source.ts(17", "a deferred-scope use of a later mixin is not flagged")
+        t.notMatch(sourceViewOutput, "LaterIsFine", "the legal nested consumer is not named in any diagnostic")
+
+        // Emit plane (plain `tsc`) — the same native diagnostic at the same position (TS2448
+        // also fires there, on its own remapped position).
+        const emitOutput = commandOutput(await runCommand(
+            "node",
+            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
+            fixture.directory
+        ))
+
+        assertMessageParts(t, emitOutput, expectedParts)
+    } finally {
+        await fixture.dispose()
+    }
+})

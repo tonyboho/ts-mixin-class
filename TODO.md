@@ -17,6 +17,24 @@ that emitted JavaScript source maps still point at useful user-source locations 
 helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
 and document or fix any positions that become misleading.
 
+### User decorators on a `@mixin` class (emit currently drops them)
+
+A user decorator on a `@mixin` class (`@mixin() @serializable() class W`) is silently LOST on
+the emit plane: the class becomes a value-cast `const W = defineMixinClass(...) …` with no
+decorator application, while the source-view plane keeps the decorator on its real class — a
+plane divergence plus a silent behavior loss. (On a CONSUMER user decorators work in both planes
+— pinned by `tests/fixture-suite/src/consumer-user-decorator.t.ts`.)
+
+Goal: SUPPORT them — a user may legitimately build on mixins alone, with no consumers, and still
+need `@serializable()`-style registration. Sketch: wrap the emitted value,
+`const W = serializable()(defineMixinClass(...)) as unknown as <type>` (apply the user decorators
+bottom-up, `@mixin` itself excluded). Straightforward for legacy decorators (the decorator
+receives the constructor). NONTRIVIAL for standard (TC39) decorators: the compiler synthesizes
+the `context` object (kind/name/`metadata` wired to `Symbol.metadata`), which hand-emitted code
+cannot reproduce faithfully — needs a design pass (emit a compiler-decorated thin wrapper class?
+restrict to legacy mode with a diagnostic in standard mode?). Until then this stays a documented
+gap; revisit after the current coverage pass.
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

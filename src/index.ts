@@ -15,7 +15,7 @@ import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
 import { hasMixinDecorator } from "./decorators.js"
-import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
     anyConstructorName,
     classStaticsName,
@@ -802,10 +802,59 @@ export function transformSourceFile(
     let expandedAnything      = false
     let needsGeneratedImports = false
 
+    // A class applying a local mixin DECLARED LATER IN THE SAME statement list: plain TS allows
+    // it (`implements` is type-only), but the expansion generates a VALUE reference to the mixin
+    // const, which module/block evaluation hits while still in the TDZ. TypeScript's own TS2448
+    // fires only on the emit plane and remaps to a misleading position (a fully-generated line
+    // falls back to the nearest preceding mapping — the import line), and the source-view plane
+    // reports nothing — so push a NATIVE diagnostic spanned on the heritage reference. A use from
+    // a DIFFERENT (deferred) scope — e.g. a function body applying a later top-level mixin — is
+    // legal at runtime (the parents differ), and an imported mixin has no declaration here.
+    // (Known lexical corner: `byLocalName` is first-name-wins, so a nested class shadowed by the
+    // resolved top-level name can slip through — the emit-plane TS2448 still catches it.)
+    const pushMixinUsedBeforeDeclarationDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
+        for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, classFacts, context)) {
+            const expression = heritageType.expression
+
+            if (!tsInstance.isIdentifier(expression)) {
+                continue
+            }
+
+            const appliedDeclaration = context.byLocalName.get(expression.text)?.declaration
+
+            if (
+                appliedDeclaration === undefined ||
+                appliedDeclaration.parent !== statement.parent ||
+                appliedDeclaration.pos <= statement.pos
+            ) {
+                continue
+            }
+
+            const start = expression.getStart(sourceFile)
+
+            context.nativeDiagnostics.push({
+                fileName    : sourceFile.fileName,
+                start,
+                length      : expression.getEnd() - start,
+                code        : mixinDiagnosticCode.MixinUsedBeforeDeclaration,
+                category    : tsInstance.DiagnosticCategory.Error,
+                messageText : "Mixin used before its declaration. " +
+                    `Class ${classFacts.name ?? "<anonymous>"} implements ${expression.text}, ` +
+                    `but @mixin ${expression.text} is declared later in the same scope, so the generated ` +
+                    "runtime reference would run before the mixin's definition. " +
+                    "Declare the mixin before the class that applies it."
+            })
+        }
+    }
+
     const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
             : undefined
+
+        if (classFacts !== undefined) {
+            pushMixinUsedBeforeDeclarationDiagnostics(classFacts, statement)
+        }
 
         // Anonymous `@mixin` / anonymous mixin consumer: a NATIVE diagnostic (drained by the
         // diagnostic wrap), pushed once and the class left in place — no `expandedAnything`, so a

@@ -45,6 +45,10 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 1.13 | A mixin's **static GET-ONLY accessor** (no setter), not the static get/set pair of §1.11: inherited onto the consumer's constructor as a **read-only** static (getter computes; assignment is a type error, on the consumer's own static type *and* through `typeof Mixin`) | ✅ | `fixture-suite/src/mixin-static-getonly-accessor.t.ts` |
 | 1.14 | A mixin method with a **polymorphic `this` return type** (`self(): this`): at the consumer call site `this` narrows to the **consumer** type, so a consumer-specific member chains off the inherited method (fluent/builder shape); the chain mutates state at runtime | ✅ | `fixture-suite/src/mixin-polymorphic-this-return.t.ts` |
 | 1.15 | A mixin contributing a **`readonly` data field** (not a get-only accessor): the `readonly` modifier survives into the consumer's generated interface member — present and initialized at runtime, immutable at type level (reassignment on the instance is a type error) | ✅ | `fixture-suite/src/mixin-readonly-field.t.ts` |
+| 1.16 | **Async / generator / async-generator** mixin methods: modifiers survive into the consumer's interface; `await`, `for..of`, `for await..of` work through them; an async override chains through `super` | ✅ | `fixture-suite/src/mixin-async-generator-methods.t.ts` |
+| 1.17 | **Computed symbol-named** members (`[Symbol.iterator]`, a module-level `unique symbol`): copied into the generated interface, making the consumer iterable and the unique-symbol method callable | ✅ | `fixture-suite/src/mixin-symbol-members.t.ts` |
+| 1.18 | A `static {}` block on a `@mixin` is **rejected** with a properly-named diagnostic (its side effects would re-run per chain application); a consumer's static block is supported (§2.9) | ✅ | `source-transform-diagnostics.t.ts` |
+| 1.19 | A class applying a local mixin **declared LATER in the same scope** is rejected with a native diagnostic (TS990008, spanned on the heritage reference) in both planes — plain TS allows the type-only `implements`, but the generated VALUE reference would hit the const TDZ; a **deferred-scope** use (function body applying a later top-level mixin) stays legal | ✅ | `source-transform-diagnostics.t.ts` |
 
 ## 2. Consumers (`implements`)
 
@@ -57,6 +61,8 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 2.5 | Consumer base statics inherited | ✅ | `mixin-statics.t.ts`, `consumer-inheritance.t.ts` |
 | 2.6 | **Two mixins declaring the SAME-named instance method** with a compatible signature (instance-member overlap, vs the diagnosed STATIC collision of §11.5): merges cleanly into the consumer's interface (no TS2320), stays callable, and the **first-listed mixin in `implements` wins deterministically** at runtime (C3 order) | ✅ | `fixture-suite/src/mixin-shared-instance-member.t.ts` |
 | 2.7 | **Abstract consumer** (`abstract class Task implements Mixin` with its own `abstract` method): stays abstract (`new Task()` rejected, the abstract method required of subclasses) while the mixin members are injected and usable from a concrete method; a concrete subclass carries the mixin members and matches `instanceof` | ✅ | `fixture-suite/src/mixin-abstract-consumer.t.ts` |
+| 2.8 | A **user decorator on a consumer** (the ts-serializable `@serializable()` pattern): runs once, receives the FINAL (transformed) constructor; a decorated construction consumer still builds through `.new` | ✅ | `fixture-suite/src/consumer-user-decorator.t.ts` |
+| 2.9 | A **`static {}` initialization block on a consumer**: survives the heritage rewrite and runs once on the final constructor (on a `@mixin` it is rejected — §1.18) | ✅ | `fixture-suite/src/mixin-static-block.t.ts` |
 
 ## 3. Linearization (C3)
 
@@ -89,6 +95,7 @@ configs). Transform/diagnostic/IDE tests live directly in `tests/*.t.ts`.
 | 5.4-sv | The same `extends Main.mix(Base)` (dependent mixin) type-checks in **source-view** (IDE) as it does in emit | ✅ | `tsserver-diagnostics.t.ts` → "a manual .mix of a dependent mixin is clean in source-view" (regression guard). Fixed: the dependency's framework `mix` was shadowing the mixin's own in the source-view value cast — now `Omit<ClassStatics<typeof Dep>, "mix">`. See Resolved. |
 | 5.5 | Manual `.mix(Base)` of a mixin with a **two-hop** dependency chain (`Top⇒Mid⇒Bottom`): `.mix` linearizes and applies both transitive dependencies; `super` threads all three; the instance type reaches `Bottom`'s members through two interface-extends hops; `instanceof` matches every layer | ✅ | `fixture-suite/src/manual-mix-two-hop-dependency.t.ts` |
 | 5.6 | **Stacking two INDEPENDENT mixins** by nesting `.mix` (`extends A.mix(B.mix(Base))`) — distinct from a single `.mix` (§5.1) and from a dependent mixin (§5.4): both mixins' members and statics layer onto the base, the base constructor signature is kept, and `instanceof` matches the base and **both** mixins | ✅ | `fixture-suite/src/manual-mix-stacked.t.ts` |
+| 5.7 | The documented dynamic-base workaround: **`const K = Mixin.mix(Base); class X extends K {}`** — behaves like the inline form (base ctor, members, `instanceof`), and the const is reusable by two subclasses | ✅ | `fixture-suite/src/manual-mix-const-base.t.ts` |
 
 ## 6. Generics
 
@@ -175,6 +182,9 @@ poisoning the constructor there would shift the position-preserved body. See §9
 | 10.11 | A **consumer** that `implements` an imported `.d.ts` construction-base mixin gets its own `.new` (with aggregated, transitive config) | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a consumer of a declaration (.d.ts) construction-base mixin construction-enabled") |
 | 10.12 | A **subclass** of an imported `.d.ts` construction base (`extends Base` published as declarations) gets its own `.new` aggregating inherited config | ✅ | `source-transform-cross-file-construction.t.ts` ("makes a subclass of an imported declaration (.d.ts) construction base construction-enabled") |
 | 10.13 | A **failing** `.new(...)` call (missing required field) across files reports a normal type error, never crashes the compiler | ✅ | `source-transform-cross-file-construction.t.ts` ("reports a failing cross-file `.new(...)` call as a type error without crashing the compiler") |
+| 10.14 | Two **SAME-NAMED mixins from different files** consumed in one file: each consumer resolves and applies ITS OWN imported declaration (no first-name-wins collapse) | ✅ | `imported-mixin-resolution.t.ts` ("two SAME-NAMED mixins…") |
+| 10.15 | Mixins across **circularly importing files** (a ⇄ b): the registry build neither loops nor drops either mixin; consumers on both sides resolve | ✅ | `imported-mixin-resolution.t.ts` ("CIRCULARLY importing files") |
+| 10.16 | A **NodeNext (`type: module`) package** with `.js` relative specifiers: builds (emit/printed path preserves `impliedNodeFormat`), type-checks under `--noEmit`, runs; the rest of the suite is Bundler-only | ✅ | `emit-nodenext.t.ts`, `tsserver-incremental-rebuild-crash.t.ts` (editor plane) |
 
 ## 11. Diagnostics (custom, friendly messages)
 
@@ -204,6 +214,8 @@ poisoning the constructor there would shift the position-preserved body. See §9
 | 12.7 | Diagnostics land on the same source line in emit vs source-view | ✅ | `emit-source-view-diagnostic-parity.t.ts` |
 | 12.8 | Base-name navigation limitation (generic / construction / qualified base) | ⚠️ | documented limitation; navigation correctness for the *supported* base shape is tested |
 | 12.9 | Definition / quickinfo / find-references / rename on a generated `<ClassName>Config` alias reference do not crash the server; definition lands in the owning class, quickinfo expands the config type (the synthetic alias *name* renders cosmetically as the class brace) | ✅ | `tsserver-construction-config-alias.t.ts`, `construction-config-alias-usage.t.ts` (corpus fixture → every `stress-*` probe) |
+| 12.10 | **Completions**: `this.` members carry the mixin's members; the `.new({ … })` config object is a real member completion naming the config keys; module- and nested-scope identifier lists carry NO generated phantom names (`__X$base/$empty/$mixin` — filtered by the language-service plugin) | ✅ | `tsserver-completions.t.ts` |
+| 12.11 | **Signature help** on the generated `.new(` names the `<Name>Config` alias; the **navigation tree** (outline) lists only real declarations; **outlining (folding) spans** respond over the transformed file | ✅ | `tsserver-editor-services.t.ts` |
 
 ## 13. Declaration emit (`.d.ts`)
 
@@ -252,3 +264,5 @@ local (cannot be exported, never leaks its name into the `.d.ts`). Works on emit
 | 16.8 | Nested classes (and generated siblings) never leak NAMES into the `.d.ts`; an escaping nested instance widens to its structural shape | ✅ | `nested-scope-declarations.t.ts` |
 | 16.9 | Source-view: nested classes navigate / quickinfo / diagnostics with no tsserver crash | ✅ | `fixture-suite/src/nested-scope.t.ts` (stress sweep) |
 | 16.10 | A mixin / consumer **class expression** (`const C = class implements M {}`, anonymous or named) is rejected with a clean native diagnostic (TS990002 / TS990003), not a bare TS2420 | ✅ | `nested-scope-declarations.t.ts` |
+| 16.11 | A consumer / mixin declared in a **`switch` case or default clause** (a statement list that is NOT a `Block`): splices into the clause's own list, both planes | ✅ | `nested-scope-declarations.t.ts` (M12/M12b), `fixture-suite/src/nested-scope.t.ts` |
+| 16.12 | The remaining container kinds: a class **method body**, a **getter body**, an **arrow function body**, a **namespace** (ModuleBlock) | ✅ | `nested-scope-declarations.t.ts` (M13), `fixture-suite/src/nested-scope.t.ts` |

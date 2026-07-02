@@ -105,6 +105,20 @@ it("reports unsupported mixin class declarations with native diagnostics", async
                     static {
                     }
                 }
+
+                // Parameter properties declare real instance members, so they follow the
+                // declared-field rules: public only, explicit type required.
+                @mixin()
+                class PrivateParamPropertyMixin {
+                    constructor(private secret: string = "s") {
+                    }
+                }
+
+                @mixin()
+                class UntypedParamPropertyMixin {
+                    constructor(public label = "l") {
+                    }
+                }
             `
         } ]
     })
@@ -122,7 +136,9 @@ it("reports unsupported mixin class declarations with native diagnostics", async
             "Mixin class MissingPropertyTypeMixin property value must have an explicit type annotation",
             "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
             "Mixin class MissingParameterTypeMixin method parameter value must have an explicit type annotation",
-            "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation"
+            "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation",
+            "Mixin class PrivateParamPropertyMixin parameter property secret cannot be private or protected",
+            "Mixin class UntypedParamPropertyMixin parameter property label must have an explicit type annotation"
         ])
 
         t.notMatch(output, "StaticBlockMixin", "a static initialization block on a mixin is supported")

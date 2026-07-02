@@ -44,8 +44,34 @@ export function buildInterfaceMembers(
             continue
         }
 
-        if (tsInstance.isConstructorDeclaration(member) ||
-            hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) ||
+        if (tsInstance.isConstructorDeclaration(member)) {
+            // A PARAMETER PROPERTY (`constructor(public label: string = …)`) declares a real
+            // instance member — surface it as a property signature like a declared field.
+            // Overload signatures cannot carry parameter properties, so only the
+            // implementation's parameters match.
+            for (const parameter of member.parameters) {
+                if (!tsInstance.isParameterPropertyDeclaration(parameter, member) ||
+                    hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.PrivateKeyword) ||
+                    hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.ProtectedKeyword) ||
+                    !tsInstance.isIdentifier(parameter.name)
+                ) {
+                    continue
+                }
+
+                members.push(preserveTextRange(tsInstance, factory.createPropertySignature(
+                    hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.ReadonlyKeyword)
+                        ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                        : undefined,
+                    cloneNode(tsInstance, parameter.name),
+                    cloneOptionalNode(tsInstance, parameter.questionToken),
+                    clonedTypeOrAny(tsInstance, parameter.type)
+                ), parameterSignatureRange(parameter)))
+            }
+
+            continue
+        }
+
+        if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AbstractKeyword) ||
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.PrivateKeyword) ||
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.ProtectedKeyword) ||
             isNamedClassElement(member) && tsInstance.isPrivateIdentifier(member.name)

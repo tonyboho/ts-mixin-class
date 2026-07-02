@@ -88,6 +88,36 @@ export function collectMixinClassDiagnostics(
             }
         }
 
+        if (tsInstance.isConstructorDeclaration(member)) {
+            // A parameter property declares a real instance member, so it follows the same
+            // rules as a declared field: public only, explicit type required.
+            for (const parameter of member.parameters) {
+                if (!tsInstance.isParameterPropertyDeclaration(parameter, member)) {
+                    continue
+                }
+
+                if (hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.PrivateKeyword) ||
+                    hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.ProtectedKeyword)
+                ) {
+                    diagnostics.push({
+                        node    : parameter,
+                        message : "Invalid mixin class declaration. " +
+                            `Mixin class ${className} parameter property ${parameterNameForDiagnostic(tsInstance, sourceFile, parameter)} ` +
+                            "cannot be private or protected. Mixin members must be public because they are copied into generated structural interfaces."
+                    })
+                }
+
+                if (parameter.type === undefined) {
+                    diagnostics.push({
+                        node    : parameter,
+                        message : "Invalid mixin class declaration. " +
+                            `Mixin class ${className} parameter property ${parameterNameForDiagnostic(tsInstance, sourceFile, parameter)} ` +
+                            "must have an explicit type annotation. The transformer needs an explicit type to generate the public mixin interface."
+                    })
+                }
+            }
+        }
+
         if (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) {
             const accessorType = tsInstance.isGetAccessorDeclaration(member)
                 ? member.type

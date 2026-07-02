@@ -985,6 +985,16 @@ export function transformSourceFile(
     //   nearest layer — §2.6 — so it is the overriding side).
     // A ref without a program-local declaration (a `.d.ts` mixin) cannot be inspected — skipped.
     const pushMixinMemberKindOverrideDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
+        // The guard exists ONLY under DEFINE semantics (useDefineForClassFields), where a field
+        // becomes an own property that buries a prototype accessor. Under SET semantics both
+        // directions are sound: a "field" over an accessor is just an initializing assignment
+        // through the setter (the accessor stays on the prototype), and a deeper field's
+        // constructor assignment fires an overriding accessor's setter. Deliberate deviation
+        // from plain TS2610/TS2611, which reject unconditionally.
+        if (!resolvedOptions.useDefineForClassFields) {
+            return
+        }
+
         const appliedRefs: { name: string, declaration: ts.ClassDeclaration }[] = []
         const seen                                                              = new Set<string>()
         let cursor: ClassFacts | undefined                                      = classFacts
@@ -1050,11 +1060,7 @@ export function transformSourceFile(
                         "An instance field would bury the mixin's accessor; declare a get/set pair instead.")
                 }
 
-                // Accessor-over-field is gated on DEFINE semantics: under set semantics the
-                // deeper field's `this.x = …` assignment fires the overriding setter, so the
-                // pattern is sound and stays legal (deliberate deviation from plain TS2611).
-                if (resolvedOptions.useDefineForClassFields &&
-                    (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) &&
+                if ((tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) &&
                     kindsOf[index].fields.has(name)
                 ) {
                     push(member.name, `Invalid mixin member override. '${name}' is defined as a property ` +
@@ -1076,7 +1082,7 @@ export function transformSourceFile(
                 }
 
                 for (const name of kindsOf[near].accessors) {
-                    if (resolvedOptions.useDefineForClassFields && kindsOf[deep].fields.has(name)) {
+                    if (kindsOf[deep].fields.has(name)) {
                         push(statement, `Invalid mixin member override. '${name}' is defined as a property ` +
                             `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
                             `layer of ${className}) re-declares it as an accessor, which the deeper field ` +

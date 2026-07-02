@@ -104,26 +104,30 @@ const mixinOverMixin = trimIndent(`
     void Both
 `)
 
-it("a consumer FIELD shadowing a mixin ACCESSOR is rejected (TS990010, both class-field semantics)", async (t: Test) => {
+it("a consumer FIELD shadowing a mixin ACCESSOR is rejected under define semantics only (TS990010)", async (t: Test) => {
     // The checker's own TS2610 cannot see the accessor through the generated interface (it
-    // only fires when the base member is declared in a CLASS) — TS990010 re-creates the guard.
-    // A field never usefully overrides an accessor, so this direction is diagnosed under BOTH
-    // class-field semantics, like plain TS does.
-    for (const useDefineForClassFields of [ true, false ]) {
-        const result = await build(fieldOverAccessor, { useDefineForClassFields })
-        const output = commandOutput(result)
+    // only fires when the base member is declared in a CLASS) — TS990010 re-creates the guard,
+    // but ONLY under define semantics, where the field becomes an own property that buries the
+    // prototype accessor. Under set semantics the "field" is just an initializing assignment
+    // THROUGH the setter (the accessor stays on the prototype) — sound, so legal: a deliberate
+    // deviation from plain TS2610, which rejects unconditionally.
+    const rejected = await build(fieldOverAccessor, { useDefineForClassFields: true })
+    const output   = commandOutput(rejected)
 
-        t.ne(result.exitCode, 0, `useDefineForClassFields=${String(useDefineForClassFields)}: rejected`)
-        t.match(output, "TS990010", `the native guard fires.\n${output}`)
-        t.match(output, "'value' is defined as an accessor in mixin Measured",
-            "the message names the buried accessor and its mixin")
-    }
+    t.ne(rejected.exitCode, 0, "define semantics: rejected")
+    t.match(output, "TS990010", `the native guard fires.\n${output}`)
+    t.match(output, "'value' is defined as an accessor in mixin Measured",
+        "the message names the buried accessor and its mixin")
+
+    const legal = await build(fieldOverAccessor, { useDefineForClassFields: false })
+
+    t.equal(legal.exitCode, 0,
+        `set semantics: the field initializer assigns through the mixin setter — legal.\n${commandOutput(legal)}`)
 })
 
 it("a consumer ACCESSOR over a mixin FIELD is rejected under define semantics only", async (t: Test) => {
-    // Deliberate deviation from plain TS2611: under SET semantics the mixin field emits as a
-    // constructor assignment, which FIRES the overriding setter — the classic reactive-property
-    // pattern — so it stays legal with useDefineForClassFields: false.
+    // Same gating, other direction: under SET semantics the mixin field emits as a constructor
+    // assignment, which FIRES the overriding setter — the classic reactive-property pattern.
     const rejected = await build(accessorOverField, { useDefineForClassFields: true })
     const output   = commandOutput(rejected)
 
@@ -138,13 +142,18 @@ it("a consumer ACCESSOR over a mixin FIELD is rejected under define semantics on
 })
 
 it("a nearer mixin FIELD over a deeper mixin ACCESSOR is rejected across one implements list", async (t: Test) => {
-    const result = await build(mixinOverMixin, { useDefineForClassFields: false })
-    const output = commandOutput(result)
+    const rejected = await build(mixinOverMixin, { useDefineForClassFields: true })
+    const output   = commandOutput(rejected)
 
-    t.ne(result.exitCode, 0, "the mixin-vs-mixin kind mismatch is rejected")
+    t.ne(rejected.exitCode, 0, "the mixin-vs-mixin kind mismatch is rejected under define semantics")
     t.match(output, "TS990010", `the native guard fires.\n${output}`)
     t.match(output, "mixin Flat", "the message names the overriding (nearer) mixin")
     t.match(output, "mixin Measured", "…and the buried (deeper) one")
+
+    const legal = await build(mixinOverMixin, { useDefineForClassFields: false })
+
+    t.equal(legal.exitCode, 0,
+        `set semantics: the nearer field initializes through the deeper setter — legal.\n${commandOutput(legal)}`)
 })
 
 it("a consumer overriding a mixin METHOD with a narrowed return still chains through super", async (t: Test) => {

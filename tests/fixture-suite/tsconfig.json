@@ -9,6 +9,11 @@
         ],
         "strict": true,
         "noUnusedLocals": true,
+        // Stricter import discipline for the whole corpus: type-only imports must be
+        // `import type`, everything else is emitted verbatim — this keeps the transform's
+        // own INJECTED helper import (`import { defineMixinClass as …, type AnyConstructor,
+        // … }`) honest about its type/value split on every fixture build.
+        "verbatimModuleSyntax": true,
         "useDefineForClassFields": false,
         "skipLibCheck": true,
         "rootDir": "src",

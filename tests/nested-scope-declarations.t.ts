@@ -393,7 +393,7 @@ it("emits case-clause generated siblings into the clause statement list", async 
     t.notOk(topLevelClassNames.includes("__CaseConsumer$base"),
         "the generated base does not leak into module-level statements")
 
-    const pick = transformed.statements.find(
+    const pick            = transformed.statements.find(
         (statement): statement is ts.FunctionDeclaration =>
             ts.isFunctionDeclaration(statement) && statement.name?.text === "pick"
     )
@@ -401,7 +401,7 @@ it("emits case-clause generated siblings into the clause statement list", async 
     const caseClause      = switchStatement?.caseBlock.clauses.find(ts.isCaseClause)
 
     const clauseStatements: readonly ts.Statement[] = caseClause?.statements ?? []
-    const clauseClassNames                           = clauseStatements
+    const clauseClassNames                          = clauseStatements
         .filter(ts.isClassDeclaration)
         .map((declaration) => declaration.name?.text)
 

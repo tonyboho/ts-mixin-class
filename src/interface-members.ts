@@ -80,6 +80,32 @@ export function buildInterfaceMembers(
         }
 
         if (tsInstance.isPropertyDeclaration(member)) {
+            // An AUTO-ACCESSOR (`accessor x: T`) is syntactically a PropertyDeclaration but at
+            // runtime a real get/set pair on the prototype — surface it as REAL signatures
+            // (§1.27), not a property signature, so its accessor-ness survives into the
+            // consumer's type (and the member-kind guard stays consistent — §2.14).
+            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword)) {
+                members.push(
+                    preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
+                        undefined,
+                        cloneNode(tsInstance, member.name),
+                        [],
+                        clonedTypeOrAny(tsInstance, member.type),
+                        undefined
+                    ) as ts.TypeElement, interfaceMemberRange(member)),
+                    preserveTextRange(tsInstance, factory.createSetAccessorDeclaration(
+                        undefined,
+                        cloneNode(tsInstance, member.name),
+                        [ factory.createParameterDeclaration(
+                            undefined, undefined, "value", undefined,
+                            clonedTypeOrAny(tsInstance, member.type), undefined
+                        ) ],
+                        undefined
+                    ) as ts.TypeElement, interfaceMemberRange(member))
+                )
+                continue
+            }
+
             members.push(preserveTextRange(tsInstance, factory.createPropertySignature(
                 hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
                     ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]

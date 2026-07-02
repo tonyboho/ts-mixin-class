@@ -932,9 +932,12 @@ export function transformSourceFile(
     // constructor parameter properties). Used to mirror TypeScript's own TS2610/TS2611
     // kind-mismatch override guards, which the generated interface cannot carry (the checker
     // only applies them when the base member is declared in a CLASS).
-    const mixinInstanceMemberKinds = (declaration: ts.ClassDeclaration): { accessors: Set<string>, fields: Set<string> } => {
-        const accessors = new Set<string>()
-        const fields    = new Set<string>()
+    const mixinInstanceMemberKinds = (
+        declaration: ts.ClassDeclaration
+    ): { accessors: Set<string>, fields: Set<string>, autoAccessors: Set<string> } => {
+        const accessors     = new Set<string>()
+        const fields        = new Set<string>()
+        const autoAccessors = new Set<string>()
 
         for (const member of declaration.members) {
             if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)) {
@@ -967,11 +970,17 @@ export function transformSourceFile(
             if (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) {
                 accessors.add(name)
             } else if (tsInstance.isPropertyDeclaration(member)) {
-                fields.add(name)
+                // An AUTO-ACCESSOR (`accessor x`) is syntactically a PropertyDeclaration but at
+                // runtime a get/set pair on the prototype — classify by the RUNTIME kind.
+                if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword)) {
+                    autoAccessors.add(name)
+                } else {
+                    fields.add(name)
+                }
             }
         }
 
-        return { accessors, fields }
+        return { accessors, fields, autoAccessors }
     }
 
     // Mirrors plain TypeScript's TS2610/TS2611: overriding an ACCESSOR with an instance FIELD
@@ -985,15 +994,19 @@ export function transformSourceFile(
     //   nearest layer — §2.6 — so it is the overriding side).
     // A ref without a program-local declaration (a `.d.ts` mixin) cannot be inspected — skipped.
     const pushMixinMemberKindOverrideDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
-        // The guard exists ONLY under DEFINE semantics (useDefineForClassFields), where a field
-        // becomes an own property that buries a prototype accessor. Under SET semantics both
-        // directions are sound: a "field" over an accessor is just an initializing assignment
-        // through the setter (the accessor stays on the prototype), and a deeper field's
-        // constructor assignment fires an overriding accessor's setter. Deliberate deviation
-        // from plain TS2610/TS2611, which reject unconditionally.
-        if (!resolvedOptions.useDefineForClassFields) {
-            return
-        }
+        // Declared-kind mismatches exist ONLY under DEFINE semantics (useDefineForClassFields),
+        // where a field becomes an own property that buries a prototype accessor. Under SET
+        // semantics both directions are sound: a "field" over an accessor is just an initializing
+        // assignment through the setter (the accessor stays on the prototype), and a deeper
+        // field's constructor assignment fires an overriding accessor's setter. Deliberate
+        // deviation from plain TS2610/TS2611, which reject unconditionally.
+        //
+        // The ONE exception is an AUTO-ACCESSOR (`accessor x`) overriding a deeper FIELD: its
+        // backing storage is a private slot installed only after super() returns, so under set
+        // semantics the deeper field's constructor assignment fires the generated setter BEFORE
+        // the slot exists — a guaranteed TypeError at construction time. That direction is
+        // rejected under BOTH semantics.
+        const defineSemantics = resolvedOptions.useDefineForClassFields
 
         const appliedRefs: { name: string, declaration: ts.ClassDeclaration }[] = []
         const seen                                                              = new Set<string>()
@@ -1053,19 +1066,34 @@ export function transformSourceFile(
 
             const name = member.name.text
 
+            const isAutoAccessor = tsInstance.isPropertyDeclaration(member) &&
+                hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword)
+            const isField        = tsInstance.isPropertyDeclaration(member) && !isAutoAccessor
+            const isAccessor     = tsInstance.isGetAccessorDeclaration(member) ||
+                tsInstance.isSetAccessorDeclaration(member)
+
             for (const [ index, ref ] of appliedRefs.entries()) {
-                if (tsInstance.isPropertyDeclaration(member) && kindsOf[index].accessors.has(name)) {
+                if (defineSemantics && isField &&
+                    (kindsOf[index].accessors.has(name) || kindsOf[index].autoAccessors.has(name))
+                ) {
                     push(member.name, `Invalid mixin member override. '${name}' is defined as an accessor ` +
                         `in mixin ${ref.name}, but is overridden in ${className} as an instance property. ` +
                         "An instance field would bury the mixin's accessor; declare a get/set pair instead.")
                 }
 
-                if ((tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) &&
-                    kindsOf[index].fields.has(name)
-                ) {
+                if (defineSemantics && isAccessor && kindsOf[index].fields.has(name)) {
                     push(member.name, `Invalid mixin member override. '${name}' is defined as a property ` +
                         `in mixin ${ref.name}, but is overridden in ${className} as an accessor. ` +
                         "The mixin's field initializer would bury the accessor; declare a field instead.")
+                }
+
+                if (isAutoAccessor && kindsOf[index].fields.has(name)) {
+                    push(member.name, `Invalid mixin member override. '${name}' is defined as a property ` +
+                        `in mixin ${ref.name}, but is overridden in ${className} as an auto-accessor ` +
+                        "('accessor'). The mixin's field would bury the accessor under define semantics, " +
+                        "and under set semantics its constructor assignment fires the generated setter " +
+                        "before the auto-accessor's private backing storage is installed — a TypeError at " +
+                        "construction time. Declare a field or a get/set pair over a public backing field instead.")
                 }
             }
         }
@@ -1073,20 +1101,35 @@ export function transformSourceFile(
         // Mixin-vs-mixin overlaps: the FIRST-listed mixin is the nearest (overriding) layer.
         for (let near = 0; near < appliedRefs.length; near++) {
             for (let deep = near + 1; deep < appliedRefs.length; deep++) {
-                for (const name of kindsOf[near].fields) {
-                    if (kindsOf[deep].accessors.has(name)) {
-                        push(statement, `Invalid mixin member override. '${name}' is defined as an accessor ` +
-                            `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
-                            `layer of ${className}) re-declares it as an instance property, which would bury the accessor.`)
+                if (defineSemantics) {
+                    for (const name of kindsOf[near].fields) {
+                        if (kindsOf[deep].accessors.has(name) || kindsOf[deep].autoAccessors.has(name)) {
+                            push(statement, `Invalid mixin member override. '${name}' is defined as an accessor ` +
+                                `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
+                                `layer of ${className}) re-declares it as an instance property, which would bury the accessor.`)
+                        }
+                    }
+
+                    for (const name of kindsOf[near].accessors) {
+                        if (kindsOf[deep].fields.has(name)) {
+                            push(statement, `Invalid mixin member override. '${name}' is defined as a property ` +
+                                `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
+                                `layer of ${className}) re-declares it as an accessor, which the deeper field ` +
+                                "initializer would bury at construction time.")
+                        }
                     }
                 }
 
-                for (const name of kindsOf[near].accessors) {
+                // A nearer AUTO-ACCESSOR over a deeper field: rejected under BOTH semantics
+                // (see the function comment — the private backing slot does not exist yet when
+                // the deeper field's constructor assignment fires the generated setter).
+                for (const name of kindsOf[near].autoAccessors) {
                     if (kindsOf[deep].fields.has(name)) {
                         push(statement, `Invalid mixin member override. '${name}' is defined as a property ` +
                             `in mixin ${appliedRefs[deep].name}, but mixin ${appliedRefs[near].name} (a nearer ` +
-                            `layer of ${className}) re-declares it as an accessor, which the deeper field ` +
-                            "initializer would bury at construction time.")
+                            `layer of ${className}) re-declares it as an auto-accessor ('accessor'), whose ` +
+                            "private backing storage is not installed yet when the deeper field's constructor " +
+                            "assignment fires the generated setter — a TypeError at construction time.")
                     }
                 }
             }

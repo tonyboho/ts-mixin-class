@@ -641,6 +641,31 @@ export function cloneOptionalNode<Node extends ts.Node>(tsInstance: TypeScript, 
     return node === undefined ? undefined : cloneNode(tsInstance, node)
 }
 
+// A type parameter re-targeted at a SIGNATURE position (function expression, function /
+// constructor type): variance annotations (`in` / `out`) are legal only on a class,
+// interface or type alias (TS1274), so they must not be cloned along. The `update` keeps
+// the original's source range, so position preservation is unchanged.
+export function stripVarianceAnnotations(
+    tsInstance: TypeScript,
+    typeParameter: ts.TypeParameterDeclaration
+): ts.TypeParameterDeclaration {
+    const modifiers = typeParameter.modifiers?.filter((modifier) =>
+        modifier.kind !== tsInstance.SyntaxKind.InKeyword &&
+        modifier.kind !== tsInstance.SyntaxKind.OutKeyword)
+
+    if (modifiers?.length === typeParameter.modifiers?.length) {
+        return typeParameter
+    }
+
+    return tsInstance.factory.updateTypeParameterDeclaration(
+        typeParameter,
+        modifiers !== undefined && modifiers.length > 0 ? modifiers : undefined,
+        typeParameter.name,
+        typeParameter.constraint,
+        typeParameter.default
+    )
+}
+
 export function cloneOptionalNodeArray<Node extends ts.Node>(
     tsInstance: TypeScript,
     nodes: ts.NodeArray<Node> | undefined

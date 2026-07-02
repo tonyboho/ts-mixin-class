@@ -74,7 +74,8 @@ import {
     generatedTextRange,
     hasModifier,
     preserveSourceViewGeneratedClassLikeRange,
-    preserveTextRange
+    preserveTextRange,
+    stripVarianceAnnotations
 } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -691,7 +692,7 @@ function createMixinFactoryExpression(
         undefined,
         undefined,
         undefined,
-        typeParameters,
+        typeParameters?.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter)),
         [ createBaseParameter(tsInstance, declaration, context) ],
         undefined,
         factory.createBlock([
@@ -815,7 +816,7 @@ function createMixinValueCastType(
         return factory.createIntersectionTypeNode([
             factory.createParenthesizedType(factory.createConstructorTypeNode(
                 undefined,
-                typeParameters,
+                typeParameters.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter)),
                 [ factory.createParameterDeclaration(
                     undefined,
                     factory.createToken(tsInstance.SyntaxKind.DotDotDotToken),

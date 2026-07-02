@@ -6,7 +6,7 @@ import {
     requiredBaseType
 } from "./model.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
-import { collapseSubtreeTextRange, deepCloneNode, hasModifier } from "./util.js"
+import { collapseSubtreeTextRange, deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 const manualMixinApplySyntaxCache = new WeakMap<ts.SourceFile, boolean>()
@@ -90,7 +90,8 @@ export function createMixinApplyType(
             factory.createFunctionTypeNode(
                 [
                     ...(typeParameters?.map((typeParameter) => {
-                        return deepCloneNode(tsInstance, typeParameter)
+                        // A function-type position: variance annotations must not ride along (TS1274).
+                        return stripVarianceAnnotations(tsInstance, deepCloneNode(tsInstance, typeParameter))
                     }) ?? []),
                     factory.createTypeParameterDeclaration(
                         undefined,

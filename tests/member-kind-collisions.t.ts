@@ -104,6 +104,59 @@ const mixinOverMixin = trimIndent(`
     void Both
 `)
 
+const fieldOverAutoAccessor = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Counted {
+        accessor count: number = 0
+    }
+
+    class Shadowing implements Counted {
+        count: number = 5
+    }
+
+    void Shadowing
+`)
+
+const pairOverAutoAccessor = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Counted {
+        accessor count: number = 0
+    }
+
+    class Wrapping implements Counted {
+        stored: number = 0
+
+        get count(): number {
+            return this.stored
+        }
+
+        set count(input: number) {
+            this.stored = input
+        }
+    }
+
+    void Wrapping
+`)
+
+const autoAccessorOverField = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class Fielded {
+        value: number = 1
+    }
+
+    class Wrapping implements Fielded {
+        accessor value: number = 0
+    }
+
+    void Wrapping
+`)
+
 it("a consumer FIELD shadowing a mixin ACCESSOR is rejected under define semantics only (TS990010)", async (t: Test) => {
     // The checker's own TS2610 cannot see the accessor through the generated interface (it
     // only fires when the base member is declared in a CLASS) — TS990010 re-creates the guard,
@@ -154,6 +207,58 @@ it("a nearer mixin FIELD over a deeper mixin ACCESSOR is rejected across one imp
 
     t.equal(legal.exitCode, 0,
         `set semantics: the nearer field initializes through the deeper setter — legal.\n${commandOutput(legal)}`)
+})
+
+it("a consumer FIELD shadowing a mixin AUTO-ACCESSOR is rejected under define semantics only", async (t: Test) => {
+    // The `accessor` keyword is syntactically a PropertyDeclaration, but at runtime a real
+    // get/set pair on the mixin layer's prototype — the kind classification must follow the
+    // RUNTIME kind, so this is the field-over-accessor hazard of §2.14, not field-over-field.
+    const rejected = await build(fieldOverAutoAccessor, { useDefineForClassFields: true })
+    const output   = commandOutput(rejected)
+
+    t.ne(rejected.exitCode, 0, "define semantics: rejected")
+    t.match(output, "TS990010", `the native guard fires.\n${output}`)
+    t.match(output, "'count' is defined as an accessor in mixin Counted",
+        "the auto-accessor classifies as an accessor in the message")
+
+    const legal = await build(fieldOverAutoAccessor, { useDefineForClassFields: false })
+
+    t.equal(legal.exitCode, 0,
+        `set semantics: the field initializer assigns through the generated setter — legal.\n${commandOutput(legal)}`)
+})
+
+it("a consumer get/set PAIR over a mixin AUTO-ACCESSOR is a legal accessor-over-accessor override", async (t: Test) => {
+    // Accessor over accessor is sound under both semantics (the auto-accessor's initializer
+    // writes its own backing slot directly, never through the override) — the guard must NOT
+    // misread the auto-accessor as a field and reject the pair.
+    const define = await build(pairOverAutoAccessor, { useDefineForClassFields: true })
+
+    t.equal(define.exitCode, 0,
+        `define semantics: accessor-over-accessor stays legal.\n${commandOutput(define)}`)
+
+    const set = await build(pairOverAutoAccessor, { useDefineForClassFields: false })
+
+    t.equal(set.exitCode, 0,
+        `set semantics: accessor-over-accessor stays legal.\n${commandOutput(set)}`)
+})
+
+it("a consumer AUTO-ACCESSOR over a mixin FIELD is rejected under BOTH semantics", async (t: Test) => {
+    // Under define semantics this is the ordinary §2.14 hazard (the deeper field's own-property
+    // define buries the accessor). Under SET semantics it is WORSE, unlike a hand-written pair:
+    // the mixin field's constructor assignment fires the overriding setter while the
+    // auto-accessor's private backing slot is not installed yet (that happens only after
+    // super() returns) — a guaranteed TypeError at construction time.
+    const define       = await build(autoAccessorOverField, { useDefineForClassFields: true })
+    const defineOutput = commandOutput(define)
+
+    t.ne(define.exitCode, 0, "define semantics: rejected")
+    t.match(defineOutput, "TS990010", `the native guard fires under define semantics.\n${defineOutput}`)
+
+    const set       = await build(autoAccessorOverField, { useDefineForClassFields: false })
+    const setOutput = commandOutput(set)
+
+    t.ne(set.exitCode, 0, "set semantics: rejected too — the private backing slot does not exist yet")
+    t.match(setOutput, "TS990010", `the native guard fires under set semantics.\n${setOutput}`)
 })
 
 it("a consumer overriding a mixin METHOD with a narrowed return still chains through super", async (t: Test) => {

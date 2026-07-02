@@ -99,7 +99,8 @@ export const mixinDiagnosticCode = {
     MixinUnsupportedBase       : 990005,
     MixinMissingRuntime        : 990006,
     MixinLinearizationConflict : 990007,
-    MixinUsedBeforeDeclaration : 990008
+    MixinUsedBeforeDeclaration : 990008,
+    MixinNamespaceMerge        : 990009
 } as const
 
 export type ImportedNameBinding = {

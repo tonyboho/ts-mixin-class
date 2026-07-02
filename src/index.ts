@@ -847,6 +847,72 @@ export function transformSourceFile(
         }
     }
 
+    // A namespace MERGED with a `@mixin` class (the static-helper pattern): plain TS allows the
+    // class+namespace merge, but the transformer rewrites the mixin class into a `const`, and a
+    // namespace cannot merge with a variable — the merge silently loses the namespace exports
+    // from the mixin's value type. A namespace whose body is TYPE-ONLY keeps working (qualified
+    // type access needs no value merge), so only an INSTANTIATED one is diagnosed.
+    const isTypeOnlyModuleBody = (body: ts.ModuleDeclaration["body"]): boolean => {
+        if (body === undefined) {
+            return true
+        }
+
+        if (tsInstance.isModuleBlock(body)) {
+            return body.statements.every((inner) =>
+                tsInstance.isInterfaceDeclaration(inner) ||
+                tsInstance.isTypeAliasDeclaration(inner) ||
+                tsInstance.isModuleDeclaration(inner) && isTypeOnlyModuleBody(inner.body))
+        }
+
+        return tsInstance.isModuleDeclaration(body) && isTypeOnlyModuleBody(body.body)
+    }
+
+    // A prescan over each statement LIST (merging is same-scope only, and namespaces live at
+    // the top level or in module blocks) — statement `parent` pointers are not reliable in the
+    // emit path, so the list itself is walked instead.
+    const pushMixinNamespaceMergeDiagnostics = (statements: readonly ts.Statement[]): void => {
+        for (const statement of statements) {
+            if (tsInstance.isModuleDeclaration(statement) &&
+                statement.body !== undefined && tsInstance.isModuleBlock(statement.body)
+            ) {
+                pushMixinNamespaceMergeDiagnostics(statement.body.statements)
+            }
+
+            if (!tsInstance.isClassDeclaration(statement)) {
+                continue
+            }
+
+            const classFacts = facts.classesByDeclaration.get(statement)
+
+            if (classFacts?.hasMixinDecorator !== true || classFacts.name === undefined) {
+                continue
+            }
+
+            for (const sibling of statements) {
+                if (!tsInstance.isModuleDeclaration(sibling) ||
+                    !tsInstance.isIdentifier(sibling.name) ||
+                    sibling.name.text !== classFacts.name ||
+                    isTypeOnlyModuleBody(sibling.body)
+                ) {
+                    continue
+                }
+
+                const start = sibling.name.getStart(sourceFile)
+
+                context.nativeDiagnostics.push({
+                    fileName    : sourceFile.fileName,
+                    start,
+                    length      : sibling.name.getEnd() - start,
+                    code        : mixinDiagnosticCode.MixinNamespaceMerge,
+                    category    : tsInstance.DiagnosticCategory.Error,
+                    messageText : `Namespace ${classFacts.name} merges with mixin class ${classFacts.name}, ` +
+                        "which is not supported: the transformer rewrites the mixin class into a const, and a " +
+                        "namespace cannot merge with it. Declare the helpers as static members of the mixin class instead."
+                })
+            }
+        }
+    }
+
     const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
@@ -1054,6 +1120,8 @@ export function transformSourceFile(
     const nullTransformationContext = (tsInstance as unknown as {
         nullTransformationContext : ts.TransformationContext
     }).nullTransformationContext
+
+    pushMixinNamespaceMergeDiagnostics(sourceFile.statements)
 
     // A mixin / consumer declared inside a function body or block expands too: walk into nested
     // statement lists and splice the generated siblings into the CONTAINING block (never module

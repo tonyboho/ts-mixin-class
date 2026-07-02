@@ -51,6 +51,17 @@ qualified heritage expressions, registry lookup through the checker's alias chai
 and in the generated `$base` interface heritage). Alternative fallback if support stays out:
 a native diagnostic ("qualified mixin reference is not supported — import the mixin by name").
 
+### Construction through a manual `.mix` heritage (`class X extends M.mix(BaseDescendant)`)
+
+A class extending a manual mix over a `Base` descendant is not construction-recognized:
+`isConstructionBaseOptIn` (`construction-config.ts`) bails on a non-Identifier extends
+expression, so the class keeps the inherited `BaseDescendant.new` — the mixin's config fields
+and the class's OWN fields never reach `.new`, and the return type stays the base. Pinned as
+an `xit` test in `tests/construction-composition.t.ts`. Support needs: recognizing the manual
+`.mix` call shape in construction detection (`hasManualMixinApplySyntax` already parses it for
+typing), aggregating config from the base identifier AND the mixed mixin(s), and generating the
+class's own `.new`/`<Name>Config` in both planes.
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

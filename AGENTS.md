@@ -296,6 +296,12 @@ Violating any of these produces confusing tsserver errors or crashes.
       offer them** (`__X$base/$empty/$mixin`); the `language-service-plugin` filters them out of
       `getCompletionsAtPosition` (same policy as its navigation-span filtering). Guard:
       `tsserver-completions.t.ts`.
+    - **An INSTANTIATED namespace merged with a `@mixin` class** gets a native diagnostic
+      (`TS990009`, on the namespace name): the class is rewritten into a `const`, which a
+      namespace cannot merge with — the merge would silently lose the namespace exports from the
+      mixin's value type. A type-only namespace merge stays legal. Detection is a per-list
+      prescan (`pushMixinNamespaceMergeDiagnostics`) — statement `parent` pointers are NOT
+      reliable in the emit path, so sibling lookup walks the list itself.
     - Covered by `tests/nested-scope-declarations.t.ts` (emit/runtime/d.ts/diagnostics) and the
       `tests/fixture-suite/src/nested-scope.t.ts` corpus entry (all three planes via the stress sweep).
 

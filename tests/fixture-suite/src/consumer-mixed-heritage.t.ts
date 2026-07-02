@@ -32,6 +32,22 @@ class Missing implements Greeter, Nameable {
 class Doubled implements Greeter, Greeter {
 }
 
+// The MIXIN-side twin: a `@mixin` with a mixin DEPENDENCY and a plain interface CONTRACT in
+// one `implements` list. The contract binds the mixin's own body; the dependency is applied.
+@mixin()
+class Loud implements Greeter, Nameable {
+    name(): string {
+        return "loud"
+    }
+
+    shout(): string {
+        return (this.greet() + "!").toUpperCase()
+    }
+}
+
+class LoudConsumer implements Loud {
+}
+
 const both = new Both()
 
 it("a consumer with a mixin and a plain interface side by side", async (t: Test) => {
@@ -45,6 +61,15 @@ it("the same mixin listed twice applies once", async (t: Test) => {
 
     t.equal(doubled.greet(), "hi", "the member is present")
     t.true(doubled instanceof Greeter, "instanceof matches")
+})
+
+it("a mixin with a dependency and a plain contract in one implements list", async (t: Test) => {
+    const loud = new LoudConsumer()
+
+    t.equal(loud.shout(), "HI!", "the mixin's own member composes with the applied dependency")
+    t.equal(loud.name(), "loud", "the contract member the mixin provides flows to the consumer")
+    t.true(loud instanceof Greeter, "instanceof matches the dependency")
+    t.true(loud instanceof Loud, "instanceof matches the mixin itself")
 })
 
 void Missing

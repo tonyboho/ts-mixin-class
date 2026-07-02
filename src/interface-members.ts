@@ -84,7 +84,11 @@ export function buildInterfaceMembers(
             // runtime a real get/set pair on the prototype — surface it as REAL signatures
             // (§1.27), not a property signature, so its accessor-ness survives into the
             // consumer's type (and the member-kind guard stays consistent — §2.14).
-            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword)) {
+            // A this-typed auto-accessor keeps the plain property signature below — the same
+            // upstream-crash workaround as accessorSignatures.
+            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword) &&
+                !containsThisType(tsInstance, member.type)
+            ) {
                 members.push(
                     preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
                         undefined,
@@ -227,6 +231,28 @@ function accessorSignatures(
     const factory                      = tsInstance.factory
     const signatures: ts.TypeElement[] = []
 
+    // WORKAROUND for an upstream TypeScript checker CRASH (verified on 6.0.3, plain TS — no
+    // transform involved): a `this` type anywhere inside an INTERFACE accessor's annotation
+    // (`interface I { get self(): this }`, nested positions included) makes
+    // `getTypeFromThisTypeNode` return undefined and `getConditionalFlowTypeOfType` throws.
+    // A method signature and a PROPERTY signature with the same `this` type are fine — so a
+    // this-typed accessor falls back to the pre-§1.27 property form (narrowing at the consumer
+    // is identical; only the accessor-ness and a split pair's write type are collapsed).
+    if (containsThisType(tsInstance, getter?.type) ||
+        containsThisType(tsInstance, setter?.parameters[0]?.type)
+    ) {
+        const propertyType = getter?.type ?? setter?.parameters[0]?.type
+
+        return [ preserveTextRange(tsInstance, factory.createPropertySignature(
+            getter !== undefined && setter === undefined
+                ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                : undefined,
+            cloneNode(tsInstance, member.name),
+            undefined,
+            clonedTypeOrAny(tsInstance, propertyType)
+        ), interfaceMemberRange(getter ?? member)) ]
+    }
+
     if (getter !== undefined) {
         signatures.push(preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
             undefined,
@@ -256,6 +282,37 @@ function accessorSignatures(
     }
 
     return signatures
+}
+
+// Whether a `this` type appears anywhere inside `type` (see the upstream-crash workaround in
+// `accessorSignatures`).
+function containsThisType(tsInstance: TypeScript, type: ts.TypeNode | undefined): boolean {
+    if (type === undefined) {
+        return false
+    }
+
+    if (type.kind === tsInstance.SyntaxKind.ThisType) {
+        return true
+    }
+
+    let found = false
+
+    const visit = (node: ts.Node): void => {
+        if (found) {
+            return
+        }
+
+        if (node.kind === tsInstance.SyntaxKind.ThisType) {
+            found = true
+            return
+        }
+
+        tsInstance.forEachChild(node, visit)
+    }
+
+    tsInstance.forEachChild(type, visit)
+
+    return found
 }
 
 // A cloned copy of `type`, or the `any` keyword when the source omitted it. The mixin

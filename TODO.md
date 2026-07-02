@@ -117,6 +117,19 @@ emitter (oxc etc.) — is out of reach BY DESIGN: an external emitter does not r
 would emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
 Declarations must come from the patched `tsc`; document that as a limitation.
 
+### Upstream: report the interface-accessor `this` crash (TypeScript 6.0 regression)
+
+Plain TS — no transform involved: `interface I { get self(): this }` crashes the checker with
+`TypeError: Cannot read properties of undefined (reading 'flags')` in
+`getConditionalFlowTypeOfType` (via `getAnnotatedAccessorType`; `getTypeFromTypeNodeWorker`
+returns undefined for the `this` node). Any `this` nested inside the accessor's annotation
+triggers it (`get pair(): [this, string]` too); a method or property signature with the same
+`this` type is fine. Verified: **5.9.3 clean; 6.0.3 (our pin) and nightly 6.0.0-dev.20260416
+crash** — a 6.0 regression, unfixed upstream as of 2026-07. File a TypeScript issue with the
+one-line repro. Our side is defended: the generated mixin interface falls back to a PROPERTY
+signature for this-typed accessors (`containsThisType` in `interface-members.ts`, pinned by
+`mixin-accessor-edges.t.ts`); remove the fallback once the fix ships in the pinned TS.
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

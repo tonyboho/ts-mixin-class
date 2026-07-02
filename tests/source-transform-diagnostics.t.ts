@@ -97,6 +97,9 @@ it("reports unsupported mixin class declarations with native diagnostics", async
                     }
                 }
 
+                // A static {} block on a mixin is SUPPORTED (it lands in the factory class
+                // expression and runs once per distinct base, like static field initializers) —
+                // it must NOT surface in the invalid-declaration family below.
                 @mixin()
                 class StaticBlockMixin {
                     static {
@@ -119,11 +122,10 @@ it("reports unsupported mixin class declarations with native diagnostics", async
             "Mixin class MissingPropertyTypeMixin property value must have an explicit type annotation",
             "Mixin class MissingMethodReturnTypeMixin method method must have an explicit return type annotation",
             "Mixin class MissingParameterTypeMixin method parameter value must have an explicit type annotation",
-            "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation",
-            // A `static {}` block is nameless — the diagnostic must name it properly, not fall
-            // back to "constructor" (which IS a supported member).
-            "Mixin class StaticBlockMixin member static initialization block is not supported by the mixin transformer"
+            "Mixin class MissingAccessorTypeMixin accessor value must have an explicit type annotation"
         ])
+
+        t.notMatch(output, "StaticBlockMixin", "a static initialization block on a mixin is supported")
     } finally {
         await fixture.dispose()
     }

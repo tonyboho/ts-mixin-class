@@ -127,6 +127,10 @@ export function isSupportedMixinClassMember(tsInstance: TypeScript, member: ts.C
         // member shape.
         tsInstance.isIndexSignatureDeclaration(member) ||
         tsInstance.isSemicolonClassElement(member) ||
+        // A `static {}` block stays in the factory class expression, so it runs once per
+        // distinct base the mixin is applied over (memoized) — the same per-application
+        // semantics static field initializers already have.
+        tsInstance.isClassStaticBlockDeclaration(member) ||
         hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)
 }
 

@@ -21,6 +21,7 @@ import {
     mixinClassValueName,
     mixinDiagnosticCode,
     mixinFactoryName,
+    mixinRuntimeClassSuffix,
     registryKey,
     requiredBaseType,
     runtimeMixinClassName,
@@ -85,7 +86,7 @@ import type { TypeScript } from "./util.js"
 // A mixin class expands into three declarations:
 //
 //     interface X<T> { ...instance member signatures... }
-//     const __X$mixin = <T>(base: AnyConstructor) => class extends base { ...body... }
+//     const __X$mixin = function <T>(base: AnyConstructor) { class __X$class extends base { ...body... } return __X$class }
 //     const X = __X$mixin(Object) as unknown as
 //         (new <T>(...args: any[]) => X<T>) & ClassStatics<ReturnType<typeof __X$mixin>>
 
@@ -298,7 +299,15 @@ export function expandMixinClass(
                 ref.localFactoryName,
                 undefined,
                 undefined,
-                createMixinFactoryExpression(tsInstance, sourceFile, declaration, typeParameters, context, options)
+                createMixinFactoryExpression(
+                    tsInstance,
+                    sourceFile,
+                    declaration,
+                    typeParameters,
+                    generatedName(ref.className, mixinRuntimeClassSuffix),
+                    context,
+                    options
+                )
             )
         ], tsInstance.NodeFlags.Const)
     ), generatedTextRange(sourceFile, declaration.end))
@@ -689,10 +698,39 @@ function createMixinFactoryExpression(
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     typeParameters: ts.TypeParameterDeclaration[] | undefined,
+    runtimeClassName: string,
     context: FileMixinContext,
     options: TransformOptions
 ): ts.FunctionExpression {
     const factory = tsInstance.factory
+
+    // The runtime class is a named DECLARATION (`class __X$class extends base { … }` +
+    // `return __X$class`), NOT a `return class …` expression: legacy `experimentalDecorators`
+    // are invalid on class-EXPRESSION members (TS1206), so a declaration is the only shape
+    // that keeps a mixin's member decorators legal in both decorator modes. The synthetic
+    // name never leaks — self-references inside the body still bind to the OUTER mixin const
+    // (no shadowing), and the runtime renames every application via `setClassName`.
+    //
+    // Both the declaration and its name are pinned to the mixin's source name: TS2420
+    // ("incorrectly implements") on a class declaration is reported at the class NAME, so the
+    // pin places it on the mixin's declaration line — without it the synthetic (pos -1) name
+    // has no real position for the diagnostic (and the emit source map would drift the class
+    // onto whatever entry happens to precede it).
+    const runtimeClass = preserveTextRange(
+        tsInstance,
+        factory.createClassDeclaration(
+            undefined,
+            preserveTextRange(
+                tsInstance,
+                factory.createIdentifier(runtimeClassName),
+                declaration.name ?? declaration
+            ),
+            undefined,
+            mixinFactoryHeritageClauses(tsInstance, declaration),
+            mixinRuntimeMembers(tsInstance, sourceFile, declaration, options)
+        ),
+        declaration.name ?? declaration
+    )
 
     return factory.createFunctionExpression(
         undefined,
@@ -702,26 +740,8 @@ function createMixinFactoryExpression(
         [ createBaseParameter(tsInstance, declaration, context) ],
         undefined,
         factory.createBlock([
-            factory.createReturnStatement(
-                // Pin the synthetic class expression's range to the mixin's source name.
-                // TS2420 ("incorrectly implements") on an anonymous class is reported at
-                // the `class` keyword; pinning the expression makes the emit source map
-                // place it on the mixin's declaration line, where the IDE / source-view
-                // path also reports TS2420 — without it the reprinted class keyword maps
-                // to whatever source-map entry happens to precede it (the class body's
-                // closing brace), drifting the diagnostic onto the wrong line.
-                preserveTextRange(
-                    tsInstance,
-                    factory.createClassExpression(
-                        undefined,
-                        undefined,
-                        undefined,
-                        mixinFactoryHeritageClauses(tsInstance, declaration),
-                        mixinRuntimeMembers(tsInstance, sourceFile, declaration, options)
-                    ),
-                    declaration.name ?? declaration
-                )
-            )
+            runtimeClass,
+            factory.createReturnStatement(factory.createIdentifier(runtimeClassName))
         ], true)
     )
 }

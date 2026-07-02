@@ -319,12 +319,18 @@ Violating any of these produces confusing tsserver errors or crashes.
       INTERFACE accessor's annotation crashes plain TypeScript 6.0's checker (a regression —
       5.9.3 clean; 6.0.3 and nightly crash; TODO.md "Upstream"). Narrowing at the consumer is
       identical through the property form. Remove the fallback when the pinned TS ships a fix.
-    - **A mixin's MEMBER decorators are STANDARD-mode only**: they ride inside the factory
-      class expression, and legacy (`experimentalDecorators`) decorators are invalid on
-      class-EXPRESSION members (TS1206, spanned on the decorator — position-preserved). In
-      standard mode they run PER APPLICATION (canonical + each base-less consumer), the §1.18
-      static-block semantics. Consumer member decorators run once and work in both modes.
-      The runtime fixture is excluded from `tsconfig.legacy.json`.
+    - **The factory's runtime class is a named DECLARATION, not a class expression**
+      (`class __X$class extends base { … } return __X$class` in
+      `createMixinFactoryExpression`), precisely so a mixin's MEMBER decorators are legal in
+      BOTH decorator modes — legacy (`experimentalDecorators`) decorators are TS1206 on
+      class-EXPRESSION members. They run PER APPLICATION (canonical + each base-less
+      consumer), the §1.18 static-block semantics, in both modes; consumer member decorators
+      run once. The synthetic name never leaks: self-references in the body bind to the OUTER
+      mixin const (no shadowing — the inner name is `__X$class`, not `X`), and the runtime
+      renames every application via `setClassName`. Superseded (kept for context): the factory
+      used to `return class extends base { … }`, which made a mixin's member decorators
+      STANDARD-mode only and kept the runtime fixture excluded from `tsconfig.legacy.json`;
+      the declaration shape replaced that, and the exclusion is gone.
     - **Variance annotations (`in`/`out`) on a mixin's type parameters are stripped when the
       parameters are cloned into SIGNATURE positions** (the factory function expression, the
       generic value-cast constructor type, the `.mix` apply function type) — TS1274 allows them
@@ -623,18 +629,19 @@ force-types the value, and the generated `interface X extends Contract` *inherit
 members rather than checking the class against them. So `tsc` stayed silent on a mixin missing a
 required member while `--noEmit`/the IDE flagged it (TS2420). **Resolution — carry the `implements`
 clause on the factory's inner runtime class, don't touch the value/emit.**
-`createMixinFactoryExpression` builds the body as `return class extends base implements
-Contract1, … {…}` (`mixinFactoryHeritageClauses` clones the mixin's own `implements` types onto
-the class expression). An `implements` clause is **type-only — erased in JS**, so runtime output
-is byte-identical, but it makes the checker verify the *real* body against each contract. `base` is
-typed `AnyConstructor<RequiredBase & deps>`, so members inherited from the required base / deps are
-satisfied through `extends base`. This works **uniformly for generic and non-generic mixins** — the
-type parameters are in scope inside the factory (`function <T>(base) { return class … implements
-Container<T> }`), which the earlier `interface extends` / top-level-alias forms could not express.
-**Position:** TS2420 on an anonymous class expression is reported at its `class` keyword (a
-generated position); the class expression's range is pinned to the mixin's source name
-(`preserveTextRange(…, declaration.name)`) so emit reports the **same TS2420 at the same line and
-column** as the IDE. Guards: `emit-contract-conformance.t.ts` (non-generic missing, generic
+`createMixinFactoryExpression` builds the body as `class __X$class extends base implements
+Contract1, … {…} return __X$class` (`mixinFactoryHeritageClauses` clones the mixin's own
+`implements` types onto the inner runtime class — a named DECLARATION, not an expression, so
+legacy member decorators stay legal). An `implements` clause is **type-only — erased in JS**, so
+runtime output is byte-identical, but it makes the checker verify the *real* body against each
+contract. `base` is typed `AnyConstructor<RequiredBase & deps>`, so members inherited from the
+required base / deps are satisfied through `extends base`. This works **uniformly for generic and
+non-generic mixins** — the type parameters are in scope inside the factory (`function <T>(base) {
+class __X$class … implements Container<T> {} … }`), which the earlier `interface extends` /
+top-level-alias forms could not express.
+**Position:** TS2420 on a class declaration is reported at its NAME; the synthetic name (and the
+declaration) are pinned to the mixin's source name (`preserveTextRange(…, declaration.name)`) so
+emit reports the **same TS2420 at the same line and column** as the IDE. Guards: `emit-contract-conformance.t.ts` (non-generic missing, generic
 missing, satisfied → no false positive) and the corpus parity sweep (33 seeds). The remaining
 downstream-*consumer* propagation is still open — see Current gaps.
 

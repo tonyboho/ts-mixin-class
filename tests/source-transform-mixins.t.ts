@@ -128,8 +128,10 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     )
     t.match(printed, "function <T>(base: AnyConstructor)",
         "Factory takes a typed base")
-    t.match(printed, "return class extends base",
-        "Factory takes a base and returns an anonymous class expression")
+    t.match(printed, "class __SourceClass$class extends base",
+        "Factory takes a base and declares the named runtime class (a DECLARATION, so legacy member decorators stay legal)")
+    t.match(printed, "return __SourceClass$class",
+        "…and returns it by name")
     t.match(printed, "static staticHelper", "Static members stay in the factory body")
     t.notMatch(printedInterface(printed), "staticHelper", "Static members are not in the interface")
     t.match(
@@ -231,8 +233,10 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
 
     t.match(printed, "function <T>(base: AnyConstructor<SourceClass1<T>>)",
         "Dependent mixin base parameter is typed with the dependency")
-    t.match(printed, "return class extends base",
-        "Dependent mixin factory returns an anonymous class expression")
+    t.match(printed, "class __ChildMixin$class extends base",
+        "Dependent mixin factory declares the named runtime class")
+    t.match(printed, "return __ChildMixin$class",
+        "…and returns it by name")
     t.match(printed, "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
         "Value const registers the direct dependency with the runtime helper")
     t.match(printed, "interface ChildMixin<T> extends SourceClass1<T>",

@@ -5,16 +5,16 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 
 // MEMBER decorators (§2.8's member-level sibling). A consumer's decorated members are
 // preserved through the heritage rewrite and their decorators run ONCE; a MIXIN's member
-// decorators ride inside the factory class expression, so they run PER APPLICATION —
+// decorators ride inside the factory's class declaration, so they run PER APPLICATION —
 // canonical class + each base-less consumer's own empty base — the §1.18 static-block
 // semantics. In the fixture corpus this file also feeds the stress sweep (navigation,
 // quickinfo, rename over decorated members).
 //
-// STANDARD-plane only (excluded from tsconfig.legacy.json): a mixin's member decorators are
-// impossible under LEGACY decorators — the factory turns the mixin into a class EXPRESSION,
-// and legacy decorators are not valid on class-expression members (TS1206, correctly spanned
-// on the decorator). Rest-args + void return keeps the decorator shape valid for the standard
-// mode's method AND field positions; they only count calls.
+// Builds under BOTH decorator modes: the factory emits a named class DECLARATION
+// (`class __X$class extends base { … } return __X$class`), so legacy decorators are legal on
+// the mixin's members too (they are TS1206 on class-EXPRESSION members). Rest-args + void
+// return keeps the decorator shape valid for both modes' method AND field positions; they
+// only count calls.
 let mixinMethodDecorated = 0
 let mixinFieldDecorated  = 0
 let consumerDecorated    = 0

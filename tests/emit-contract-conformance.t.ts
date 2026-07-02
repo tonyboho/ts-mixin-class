@@ -15,7 +15,7 @@ import type { CommandResult, TypeScriptFixture } from "./util.js"
 // `interface X extends Contract` *inherits* the contract's members instead of checking
 // the class against them — so `tsc` stayed green while the IDE reported the violation
 // (the documented "coverage gap"). The fix puts the mixin's `implements` clause on the
-// factory's inner runtime class (`return class extends base implements Contract {…}`),
+// factory's inner runtime class (`class __X$class extends base implements Contract {…}`),
 // which is type-only (erased in JS) but makes the checker verify the real body. It works
 // uniformly for generic and non-generic mixins, and lands the same TS2420 the IDE does,
 // on the same source line.

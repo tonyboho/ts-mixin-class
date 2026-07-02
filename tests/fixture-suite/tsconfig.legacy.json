@@ -3,5 +3,12 @@
     "compilerOptions": {
         "experimentalDecorators": true,
         "outDir": "dist/legacy"
-    }
+    },
+    // member-decorators: a MIXIN's member decorators are impossible under LEGACY decorators —
+    // the factory turns the mixin into a class EXPRESSION, and legacy decorators are not valid
+    // on class-expression members (TS1206, correctly spanned on the decorator). Standard
+    // decorators work (per-application semantics); the fixture is standard-plane only.
+    "exclude": [
+        "src/member-decorators.t.ts"
+    ]
 }

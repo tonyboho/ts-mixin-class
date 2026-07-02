@@ -306,6 +306,20 @@ Violating any of these produces confusing tsserver errors or crashes.
       prototype accessor) and stay legal — a deliberate deviation from plain TS, which rejects
       unconditionally. Covers mixin-vs-mixin pairs in one `implements` list and transitive
       local `extends` chains; `.d.ts` mixins are skipped.
+      An AUTO-ACCESSOR (`accessor x: T`, TS 4.9) is syntactically a PropertyDeclaration but is
+      classified by its RUNTIME kind: it surfaces as real get/set signatures in the generated
+      interface and counts as an ACCESSOR in the guard. The one exception to the define-only
+      gating: an auto-accessor overriding a DEEPER FIELD is rejected under BOTH semantics — its
+      private backing slot is installed only after `super()` returns, so under set semantics the
+      deeper field's constructor assignment fires the generated setter before the slot exists
+      (a guaranteed TypeError at construction). Guard: `member-kind-collisions.t.ts`,
+      `fixture-suite/src/mixin-auto-accessor.t.ts`.
+    - **Variance annotations (`in`/`out`) on a mixin's type parameters are stripped when the
+      parameters are cloned into SIGNATURE positions** (the factory function expression, the
+      generic value-cast constructor type, the `.mix` apply function type) — TS1274 allows them
+      only on a class/interface/type alias. The generated interface keeps them (the class
+      carrying the user's annotations is erased in emit, so the interface is their surviving
+      carrier). `stripVarianceAnnotations` in `util.ts`; guard: `mixin-variance-annotations.t.ts`.
     - **Runtime value helpers are imported under reserved local aliases**
       (`defineMixinClass as __defineMixinClass__`, `__mixinChain__`, `__mixinChainLinearized__`)
       so the injected import can never collide with a user binding (TS2440); the

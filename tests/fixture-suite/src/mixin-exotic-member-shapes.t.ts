@@ -10,9 +10,13 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 // - a SET-ONLY accessor — modeled as a writable property (native TS models it the same way)
 // - STRING-LITERAL ("my-method") and NUMERIC (0) member names
 // - OPTIONAL members (`hint?: string`, `maybe?(): string`)
+// - a `declare` field (ambient: type-only, never emitted, never filled by
+//   fillMissedInitializersWith — absent from the runtime instance)
 @mixin()
 class Exotic {
     hint?: string
+
+    declare tagged: string | undefined
 
     0: string = "zero"
 
@@ -46,6 +50,7 @@ const consumer = new Consumer()
 // member unions undefined, the exotic names exist on the type.
 const greeted: string           = consumer.greet()
 const hint: string | undefined  = consumer.hint
+const tagged: string | undefined = consumer.tagged
 const dashed: string            = consumer["my-method"]()
 const zero: string              = consumer[0]
 const maybe: string | undefined = consumer.maybe?.()
@@ -54,7 +59,7 @@ const maybe: string | undefined = consumer.maybe?.()
 // @ts-expect-error greet takes a string, not a number
 consumer.greet(42)
 
-void [ greeted, hint, dashed, zero, maybe ]
+void [ greeted, hint, tagged, dashed, zero, maybe ]
 
 it("exotic member shapes survive into the consumer", async (t: Test) => {
     t.equal(consumer.greet(), "hello world", "the default parameter value applies through the consumer")
@@ -68,4 +73,7 @@ it("exotic member shapes survive into the consumer", async (t: Test) => {
     t.equal(consumer["my-method"](), "dashed", "a string-literal-named method is callable")
     t.equal(consumer[0], "zero", "a numeric-named field is present")
     t.is(consumer.maybe, undefined, "the bodyless optional method stays absent at runtime")
+
+    t.equal("tagged" in consumer, false,
+        "the declare field is type-only: never emitted, never filled — absent from the instance")
 })

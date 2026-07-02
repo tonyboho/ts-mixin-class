@@ -59,6 +59,22 @@ export class RequiredBase {
     }
 }
 
+// A SPLIT accessor pair (read type ≠ write type), consumed through this package's emitted
+// declarations by the declaration-fixture-suite: the generated interface's REAL get/set
+// signatures (§1.27) must survive the `.d.ts` round trip with the distinct types intact.
+@mixin()
+export class Scaled {
+    height: number = 10
+
+    get scale(): number {
+        return this.height / 10
+    }
+
+    set scale(value: number | string) {
+        this.height = 10 * (typeof value === "string" ? Number(value) : value)
+    }
+}
+
 @mixin()
 export class RequiredMixin extends RequiredBase {
     requiredMixinValue: string = "requiredMixin"

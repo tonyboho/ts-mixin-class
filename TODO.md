@@ -90,6 +90,29 @@ with `noImplicitOverride` (which a consumer already passes for chain members —
 `member-kind-collisions.t.ts`). Pin the actual behavior in both planes; decide whether the
 mixin-declaration form should be accepted (rewrite/strip the modifier?) or diagnosed.
 
+### Generated base names leak into CHECKER diagnostic messages (found via `noImplicitOverride`)
+
+The checker names the base class in several of its own messages, and after the transform that
+name is a generated artifact, not what the user wrote. Observed on TS4114 ("must have an
+'override' modifier because it overrides a member in the base class '…'"), pass-8 probes:
+
+- **emit plane**: the base renders as the synthetic heritage — `'__Worker$base'`,
+  `'__Robot$base'` — even when the user's class has a REAL base (`class Robot extends Machine`
+  → the message should say `'Machine'`);
+- **source view**: worse — the `$base` interface's collapsed zero-width range makes the name
+  render as `'}'` (the character at the collapsed position), or as the intersection text
+  `'Machine & Greeter'`.
+
+The diagnostic is correct in substance (the member IS an override); only the NAME is wrong. Any
+other checker message that embeds the base-class name presumably leaks the same way (TS2415
+"incorrectly extends", TS2417 static-side, TS4113/4117 override family, …) — sweep for them
+when fixing. Likely resolution: rewrite the offending name in the diagnostic-wrapping channel
+(`wrapProgramDiagnostics` already intercepts program diagnostics) — map a generated heritage
+name (`__X$base`/`$empty`, the factory intersection text, the collapsed-range render) back to
+the user's own base name (or the mixin's name for a mixin-contributed layer). Needs a message
+REWRITE (string surgery on `messageText`), not just a span fix, so keep it conservative:
+substitute only exact generated-name matches.
+
 ### Required-base statics inside a mixin's own static (`super.new` / `super.<baseStatic>`)
 
 On the EMIT plane a mixin's static method cannot reach the required base's statics through

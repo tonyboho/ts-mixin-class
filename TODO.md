@@ -80,21 +80,42 @@ The checker's own guards can't see any of this through the generated interface (
 as TS990010). If the tests confirm the traps, likely resolution: a new native diagnostic
 (TS990011, "partial accessor override") — decide semantics by looking at the red tests.
 
-### Check: `override` modifier on a mixin member overriding its DEPENDENCY's member
+### ~~Check: `override` modifier on a mixin member overriding its DEPENDENCY's member~~ — RESOLVED (pass 8)
 
-`@mixin() class B implements A { override method() {} }` — plain TS rejects this (TS4112: the
-class has no `extends` clause), but semantically it IS an override through the chain. After the
-transform both planes DO have a base (`extends base` in the factory / `extends __B$base` in
-source view), so the modifier may become legal, may diverge between planes, or may interact
-with `noImplicitOverride` (which a consumer already passes for chain members — pinned in
-`member-kind-collisions.t.ts`). Pin the actual behavior in both planes; decide whether the
-mixin-declaration form should be accepted (rewrite/strip the modifier?) or diagnosed.
+Answered and pinned in `compiler-option-edges.t.ts` (§2.23): the modifier IS legal in both
+planes, on a consumer AND on a mixin over its dependency, in the default config and under
+`noImplicitOverride` (which — spec decision — extends to mixin-member overrides: unmarked →
+TS4114, marked → clean). No rewrite/strip needed; the remaining piece is the message's
+base-NAME cosmetics (previous section).
 
 ### Generated base names leak into CHECKER diagnostic messages (found via `noImplicitOverride`)
 
 The checker names the base class in several of its own messages, and after the transform that
-name is a generated artifact, not what the user wrote. Observed on TS4114 ("must have an
-'override' modifier because it overrides a member in the base class '…'"), pass-8 probes:
+name is a generated artifact, not what the user wrote. Minimal repro (`noImplicitOverride:
+true` in the compiler options):
+
+```ts
+import { mixin } from "ts-mixin-class"
+
+@mixin()
+class Greeter {
+    greet(): string { return "hi" }
+}
+
+class Worker implements Greeter {
+    greet(): string { return "hello" }   // ← the un-marked override
+}
+```
+
+- expected message: `…overrides a member in the base class 'Greeter'` (the mixin whose member
+  is overridden — the only base-ish name that exists in the user's source);
+- actual, emit plane (`tsc`): `…in the base class '__Worker$base'`;
+- actual, source view (`tsc --noEmit` / IDE): `…in the base class '}'`.
+
+And with a REAL base (`class Robot extends Machine implements Greeter` overriding `Machine`'s
+member): expected `'Machine'`, actual `'__Robot$base'` (emit) / `'Machine & Greeter'` (source
+view). Pass-8 probes; the code path is pinned in `compiler-option-edges.t.ts` (which asserts
+only the TS4114 code, not the message — tighten those pins when fixing this).
 
 - **emit plane**: the base renders as the synthetic heritage — `'__Worker$base'`,
   `'__Robot$base'` — even when the user's class has a REAL base (`class Robot extends Machine`

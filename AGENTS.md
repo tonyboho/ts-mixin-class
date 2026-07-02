@@ -320,17 +320,21 @@ Violating any of these produces confusing tsserver errors or crashes.
       only on a class/interface/type alias. The generated interface keeps them (the class
       carrying the user's annotations is erased in emit, so the interface is their surviving
       carrier). `stripVarianceAnnotations` in `util.ts`; guard: `mixin-variance-annotations.t.ts`.
-    - **Reserved statics on a `@mixin`: `mix` and `new`** — a user static under either name is
-      rejected in `collectMixinClassDiagnostics` (TS990004 family, both planes). The check must
-      skip position-less members (`member.pos >= 0`): the source-view path can RE-transform a
-      construction mixin whose body already carries the generated (synthetic) `static new`
-      overloads, and a synthetic node would both false-trigger the check and crash the
-      diagnostic span (`getStart` on pos −1). Consumers/plain classes stay unrestricted: a user
-      `static new` suppresses the generated factory (`hasStaticNew`, checked in BOTH
-      `createConstructionMembers` and `createMixinConstructionNewType`), and the consumer
-      statics bag is `Omit<typeof M, "prototype" | "new" | "mix">` — `mix` is excluded like
-      `new` (it lives on mixin VALUES only, never on consumers at runtime; carrying it was a
-      type lie and made a user `static mix` a TS2417 override conflict).
+    - **The ONE reserved static on a `@mixin` is `mix`** — a user `static mix` is rejected in
+      `collectMixinClassDiagnostics` (TS990004 family, both planes). The check must skip
+      position-less members (`member.pos >= 0`): the source-view path can RE-transform a class
+      whose body already carries generated (synthetic) members, and a synthetic node would both
+      false-trigger a name match and crash the diagnostic span (`getStart` on pos −1).
+      `static new` is NOT reserved anywhere: a user's own `static new` suppresses the generated
+      factory (`hasStaticNew`, checked in BOTH `createConstructionMembers` and
+      `createMixinConstructionNewType`) and on a construction MIXIN also lifts the
+      direct-`new` brand (`brandConstructionBase` excludes `hasStaticNew` — the emit value cast
+      falls back to the permissive `MixinClassValue` form, and the planes must agree). Known
+      emit gap: `super.new` inside a mixin's own static (TODO.md "Required-base statics inside
+      a mixin's own static"). The consumer statics bag is
+      `Omit<typeof M, "prototype" | "new" | "mix">` — `mix` is excluded like `new` (it lives on
+      mixin VALUES only, never on consumers at runtime; carrying it was a type lie and made a
+      user `static mix` a TS2417 override conflict).
     - **A GENERIC construction mixin gets the full construction surface** (was excluded): the
       emit value cast's generic branch prepends `"new"<T>(props?: <M>Config<T>): M<T>` (the
       method signature clones the class type parameters, variance-stripped) and swaps the

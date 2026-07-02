@@ -57,29 +57,25 @@ export function collectMixinClassDiagnostics(
             })
         }
 
-        // `mix` and `new` are the framework's own static surface on a mixin value: `.mix(base)`
-        // is installed on every mixin, `.new(...)` is the construction protocol (a mixin
-        // extending `Base`). A user static under either name would collide with them in the
-        // generated value type. Plain classes and consumers are NOT restricted — a consumer's
-        // own `static new` overrides the generated factory (`hasStaticNew`).
-        // `member.pos >= 0` skips the transform's OWN generated `static new` overloads: the
-        // source-view path can re-transform a construction mixin whose class body already
-        // carries them (synthetic, position-less — a user member always has a real position),
-        // and a position-less node would also crash the native-diagnostic span (`getStart`).
+        // `mix` is the ONLY reserved static on a mixin: `.mix(base)` is the framework's
+        // application method, installed on every mixin class value by `defineMixinClass`.
+        // `static new` is NOT reserved anywhere — a user's own `static new` OVERRIDES the
+        // generated construction factory (`hasStaticNew` suppresses generation), on a mixin
+        // exactly like on a plain construction class or a consumer.
+        // `member.pos >= 0` skips synthetic (generated, position-less) members: the source-view
+        // path can re-transform a class whose body already carries generated members, and a
+        // position-less node would also crash the native-diagnostic span (`getStart`).
         if (member.pos >= 0 &&
             hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) &&
             isNamedClassElement(member) &&
             (tsInstance.isIdentifier(member.name) || tsInstance.isStringLiteral(member.name)) &&
-            (member.name.text === "mix" || member.name.text === "new")
+            member.name.text === "mix"
         ) {
             diagnostics.push({
                 node    : member,
                 message : "Invalid mixin class declaration. " +
-                    `Mixin class ${className} static member '${member.name.text}' is reserved. ` +
-                    (member.name.text === "mix"
-                        ? "The framework installs the mixin application method '.mix(base)' on every mixin class value. Rename the static member."
-                        : "Construction goes through the generated static '.new(...)' protocol (a mixin extending Base). " +
-                            "Rename the static member, or declare the custom factory on a consumer class instead.")
+                    `Mixin class ${className} static member 'mix' is reserved. ` +
+                    "The framework installs the mixin application method '.mix(base)' on every mixin class value. Rename the static member."
             })
         }
 

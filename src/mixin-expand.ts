@@ -526,11 +526,15 @@ function expandSourceViewMixinClass(
     // shifts the position-preserved constructor body and breaks navigation. So source view leaves
     // the with-constructor case unbranded (its `super()` stays valid); the EMIT plane still bans it
     // through the value cast, so a build (`tsc`) catches the stray `new` regardless.
-    const isConstructionMixin     = isConstructionBaseOptIn(
+    const isConstructionMixin = isConstructionBaseOptIn(
         tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
     )
-    const hasOwnConstructor       = declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
-    const brandConstructionBase   = isConstructionMixin && !hasOwnConstructor
+    const hasOwnConstructor   = declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
+    // A mixin with its OWN `static new` owns construction (the generated factory is suppressed —
+    // `hasStaticNew`), so the direct-`new` brand is lifted here too: the emit value cast falls
+    // back to the permissive `MixinClassValue` form in that case, and the planes must agree.
+    const hasOwnStaticNew         = facts.classesByDeclaration.get(declaration)?.hasStaticNew === true
+    const brandConstructionBase   = isConstructionMixin && !hasOwnConstructor && !hasOwnStaticNew
     const needsProtocolInitialize = dependencyRefs.length > 0 && isConstructionMixin
 
     const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(

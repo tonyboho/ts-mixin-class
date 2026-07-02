@@ -90,6 +90,18 @@ with `noImplicitOverride` (which a consumer already passes for chain members —
 `member-kind-collisions.t.ts`). Pin the actual behavior in both planes; decide whether the
 mixin-declaration form should be accepted (rewrite/strip the modifier?) or diagnosed.
 
+### Required-base statics inside a mixin's own static (`super.new` / `super.<baseStatic>`)
+
+On the EMIT plane a mixin's static method cannot reach the required base's statics through
+`super`: the factory's `base` parameter is typed bare `AnyConstructor<Base>` (instance side
+only), so `super.new(...)` / `super.staticRequired()` inside a `static` body is TS2339 — while
+the source-view plane (whose `$base` cast carries the base statics) accepts it: a plane
+divergence. Affects a mixin's own `static new` factory wanting to delegate to `Base.new`
+(workaround: build via `new ThisMixin()` — owning `static new` lifts the direct-`new` brand).
+Fix would type the base parameter as `AnyConstructor<X> & Omit<typeof RequiredBase,
+"prototype">` — a WIDE change (every mixin's static-side override checking against the base
+kicks in), needs its own careful pass.
+
 ### `isolatedDeclarations` compatibility — the `tsc` layer
 
 People enable the option without sharing its actual goal (external declaration emitters), and a

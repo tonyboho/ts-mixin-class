@@ -6,13 +6,14 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 import { commandOutput, createTypeScriptFixture, packageRoot, runCommand, trimIndent } from "./util.js"
 import type { CommandResult } from "./util.js"
 
-// RESERVED framework statics — on a `@mixin` ONLY. `static mix` collides with the framework's
-// mixin application method (`.mix(base)` installed on every mixin value), `static new` with the
-// construction protocol — both rejected with a clean native diagnostic on the mixin. Plain
-// classes and CONSUMERS are unrestricted: a consumer's own `static new` OVERRIDES the generated
-// factory (the transform skips generating its own — `hasStaticNew`), and a consumer's
-// `static mix` is an ordinary user static (the framework `.mix` lives on mixin values only and
-// is excluded from the consumer's inherited statics bag).
+// RESERVED framework statics. `static mix` on a `@mixin` collides with the framework's mixin
+// application method (`.mix(base)` installed on every mixin value) — rejected with a clean
+// native diagnostic. `static new` is NOT reserved ANYWHERE: a user's own factory OVERRIDES the
+// generated construction `.new` (the transform skips generating its own — `hasStaticNew`, and
+// on a mixin the direct-`new` brand is lifted with it), on a construction mixin exactly like
+// on a plain construction class or a consumer; on a non-construction mixin it is an ordinary
+// user static. A consumer's `static mix` is also an ordinary user static (the framework `.mix`
+// lives on mixin values only and is excluded from the consumer's inherited statics bag).
 
 async function build(text: string, compilerOptions?: Record<string, unknown>): Promise<CommandResult> {
     const fixture = await createTypeScriptFixture({
@@ -116,12 +117,11 @@ it("a user's own 'static new' on a construction CLASS overrides the generated fa
         `the user's positional factory wins; no generated duplicate.\n${commandOutput(result)}`)
 })
 
-it("a user 'static new' on a @mixin is rejected — mixins keep the framework construction protocol", async (t: Test) => {
-    // On a MIXIN the static surface is the framework's: fully supporting a user `static new`
-    // would need the factory's `base` parameter to carry the required base's statics
-    // (`super.new` inside a mixin static resolves against bare `AnyConstructor<Base>` in emit —
-    // a plane divergence). Mixin users are expected to stay off the system methods; the
-    // override capability lives on plain classes and consumers instead.
+it("a user's own 'static new' on a construction MIXIN overrides the generated factory in both planes", async (t: Test) => {
+    // Owning `static new` also lifts the direct-`new` brand (the user owns construction now) —
+    // so the factory body can build via `new Titled()`. NB `super.new(...)` inside a mixin
+    // STATIC is not available on the emit plane (the factory's `base` parameter carries no
+    // statics) — see TODO.md "Required-base statics inside a mixin's own static".
     const source = trimIndent(`
         import { Base, mixin } from "ts-mixin-class"
 
@@ -130,22 +130,63 @@ it("a user 'static new' on a @mixin is rejected — mixins keep the framework co
             public title: string = ""
 
             static new(title: string): Titled {
-                return { title } as Titled
+                const instance = new Titled()
+
+                instance.title = title
+
+                return instance
             }
         }
 
-        void Titled
+        const titled = Titled.new("spec")
+        const read: string = titled.title
+
+        function typeOnlyChecks(): void {
+            // @ts-expect-error the USER signature governs: the generated config object form is gone
+            Titled.new({ title: "spec" })
+        }
+
+        void typeOnlyChecks
+        void read
     `)
 
-    const emit       = await build(source)
-    const emitOutput = commandOutput(emit)
+    const emit = await build(source)
 
-    t.ne(emit.exitCode, 0, "emit: rejected")
-    t.match(emitOutput, "static member 'new' is reserved", `the message names the reserved static.\n${emitOutput}`)
+    t.equal(emit.exitCode, 0, `emit: the user's factory wins on the mixin value.\n${commandOutput(emit)}`)
 
-    const sourceView       = await build(source, { noEmit: true })
-    const sourceViewOutput = commandOutput(sourceView)
+    const sourceView = await build(source, { noEmit: true })
 
-    t.ne(sourceView.exitCode, 0, "source view: rejected identically")
-    t.match(sourceViewOutput, "static member 'new' is reserved", `both planes agree.\n${sourceViewOutput}`)
+    t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
+})
+
+it("a user 'static new' on a NON-construction mixin is an ordinary factory", async (t: Test) => {
+    const source = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Maker {
+            tag: string = ""
+
+            static new(tag: string): Maker {
+                const made = new Maker()
+
+                made.tag = tag
+
+                return made
+            }
+        }
+
+        const made = Maker.new("m")
+        const tag: string = made.tag
+
+        void tag
+    `)
+
+    const emit = await build(source)
+
+    t.equal(emit.exitCode, 0, `emit: no construction machinery, nothing reserved.\n${commandOutput(emit)}`)
+
+    const sourceView = await build(source, { noEmit: true })
+
+    t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
 })

@@ -268,19 +268,20 @@ export function expandMixinClass(
         ])
         : buildInterfaceMembers(tsInstance, sourceFile, declaration)
 
-    const constructionNew = typeParameters !== undefined
-        ? undefined
-        : createMixinConstructionNewType(
-            tsInstance,
-            sourceFile,
-            declaration,
-            requiredBase,
-            constructionDependencyRefs(context, dependencyRefs),
-            options,
-            facts,
-            context.crossFile,
-            baseImportMap
-        )
+    // Generic and non-generic mixins alike: the generic form gets `"new"<T>(props?:
+    // <Mixin>Config<T>): Mixin<T>` (the value cast's generic branch prepends it and swaps the
+    // permissive construct for the branded one).
+    const constructionNew = createMixinConstructionNewType(
+        tsInstance,
+        sourceFile,
+        declaration,
+        requiredBase,
+        constructionDependencyRefs(context, dependencyRefs),
+        options,
+        facts,
+        context.crossFile,
+        baseImportMap
+    )
 
     const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
         exportModifiers,
@@ -561,20 +562,21 @@ function expandSourceViewMixinClass(
     // (returning `Base`). Generate its own `static new` overloads so a standalone
     // `MyMixin.new(...)` resolves to the mixin's instance type, mirroring the
     // value-cast construction `new` the emit path prepends.
-    const construction        = declaration.typeParameters !== undefined
-        ? { members: [] as ts.ClassElement[], configAlias: undefined }
-        : createConstructionMembers(
-            tsInstance,
-            sourceFile,
-            declaration,
-            requiredBase,
-            undefined,
-            constructionDependencyRefs(context, dependencyRefs),
-            options,
-            generatedTextRange(sourceFile, declaration.members.end),
-            context.crossFile,
-            baseImportMap
-        )
+    // Generic mixins included: createConstructionMembers already clones the class's type
+    // parameters onto the generated `static new` (the same machinery generic construction
+    // CLASSES use — §7.10).
+    const construction        = createConstructionMembers(
+        tsInstance,
+        sourceFile,
+        declaration,
+        requiredBase,
+        undefined,
+        constructionDependencyRefs(context, dependencyRefs),
+        options,
+        generatedTextRange(sourceFile, declaration.members.end),
+        context.crossFile,
+        baseImportMap
+    )
     const constructionMembers = construction.members
     const updatedMembers      = fillMissedInitializers(tsInstance, addSyntheticSuperCallToConstructors(tsInstance, sourceFile, declaration.members, true), options)
     const mixinMembers        = constructionMembers.length === 0
@@ -813,8 +815,17 @@ function createMixinValueCastType(
     ])
 
     if (typeParameters !== undefined) {
-        return factory.createIntersectionTypeNode([
-            factory.createParenthesizedType(factory.createConstructorTypeNode(
+        // A generic CONSTRUCTION mixin: the generated `"new"<T>` comes first (so it wins over
+        // anything inherited), and the permissive construct is swapped for the branded one —
+        // direct `new Mixin<T>()` is a type error, exactly like the non-generic form below.
+        const constructSignature = constructionNewType !== undefined
+            ? factory.createParenthesizedType(brandedConstructSignatureType(
+                tsInstance,
+                ref.className,
+                instanceType,
+                typeParameters.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter))
+            ))
+            : factory.createParenthesizedType(factory.createConstructorTypeNode(
                 undefined,
                 typeParameters.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter)),
                 [ factory.createParameterDeclaration(
@@ -825,7 +836,11 @@ function createMixinValueCastType(
                     factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
                 ) ],
                 instanceType
-            )),
+            ))
+
+        return factory.createIntersectionTypeNode([
+            ...(constructionNewType !== undefined ? [ constructionNewType ] : []),
+            constructSignature,
             factory.createTypeReferenceNode(classStaticsName, [ factoryReturnType ]),
             createMixinApplyType(tsInstance, declaration, typeParameters, instanceType, factoryReturnType),
             createRuntimeMixinClassType(tsInstance, declaration)

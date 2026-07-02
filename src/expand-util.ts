@@ -282,11 +282,14 @@ export function constructionHeadType(
 }
 
 // `new (use_the_static_new_factory: { readonly "<guidance>": never }) => <returnType>`
-// when branded, else a permissive `new (...args: any[]) => <returnType>`.
+// when branded, else a permissive `new (...args: any[]) => <returnType>`. Optional
+// `typeParameters` make the construct signature generic (`new <T>(...) => Repo<T>` — a
+// generic construction mixin's poisoned construct must bind the instance type's parameter).
 function constructionConstructSignatureType(
     tsInstance: TypeScript,
     construction: ConstructionBrand,
-    returnType: ts.TypeNode
+    returnType: ts.TypeNode,
+    typeParameters?: readonly ts.TypeParameterDeclaration[]
 ): ts.TypeNode {
     const factory = tsInstance.factory
 
@@ -306,7 +309,7 @@ function constructionConstructSignatureType(
             factory.createArrayTypeNode(factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword))
         )
 
-    return factory.createConstructorTypeNode(undefined, undefined, [ parameter ], returnType)
+    return factory.createConstructorTypeNode(undefined, typeParameters, [ parameter ], returnType)
 }
 
 // The poisoned construct signature `new (use_the_static_new_factory: { readonly "<guidance>": never })
@@ -316,9 +319,10 @@ function constructionConstructSignatureType(
 export function brandedConstructSignatureType(
     tsInstance: TypeScript,
     name: string,
-    returnType: ts.TypeNode
+    returnType: ts.TypeNode,
+    typeParameters?: readonly ts.TypeParameterDeclaration[]
 ): ts.TypeNode {
-    return constructionConstructSignatureType(tsInstance, { consumerName: name, branded: true }, returnType)
+    return constructionConstructSignatureType(tsInstance, { consumerName: name, branded: true }, returnType, typeParameters)
 }
 
 // Prepend a poisoned, REQUIRED first parameter to a class's own constructor so an external

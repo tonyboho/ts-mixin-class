@@ -354,8 +354,13 @@ function createNavigableConsumerBaseCastType(
     return factory.createIntersectionTypeNode([ instanceConstructor, ...staticsTypes ])
 }
 
-// `Omit<typeof <entity>, "prototype" | "new">`: an entity's static side as a plain
+// `Omit<typeof <entity>, "prototype" | "new" | "mix">`: an entity's static side as a plain
 // property bag, with no construct signature (see createNavigableConsumerBaseCastType).
+// `mix` is excluded like `new`: it is installed on mixin VALUES only (`defineMixinClass`),
+// never inherited by consumers at runtime, so carrying it in the consumer's static type is a
+// type lie — and it blocks a consumer's own `static mix` with a TS2417 override conflict
+// (same failure mode the `new` exclusion prevents; a mixin's own dependency statics already
+// exclude `mix` — see the metadata-base `Omit` in mixin-expand).
 function createStaticsBag(tsInstance: TypeScript, entityName: ts.EntityName): ts.TypeNode {
     const factory = tsInstance.factory
 
@@ -363,7 +368,8 @@ function createStaticsBag(tsInstance: TypeScript, entityName: ts.EntityName): ts
         factory.createTypeQueryNode(entityName),
         factory.createUnionTypeNode([
             factory.createLiteralTypeNode(factory.createStringLiteral("prototype")),
-            factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+            factory.createLiteralTypeNode(factory.createStringLiteral("new")),
+            factory.createLiteralTypeNode(factory.createStringLiteral("mix"))
         ])
     ])
 }

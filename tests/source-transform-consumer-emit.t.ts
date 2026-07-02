@@ -33,7 +33,7 @@ it("expands a consumer class into a merged intermediate base", async (t: Test) =
     t.match(
         printed,
         "class __Consumer$base<A> extends (__mixinChainLinearized__(Base, [SourceClass1, SourceClass2], [[0, 0, 1], [1, 0, 1]], \"verify\") as unknown as " +
-            "typeof Base & Omit<typeof SourceClass1, \"prototype\" | \"new\"> & Omit<typeof SourceClass2, \"prototype\" | \"new\">)",
+            "typeof Base & Omit<typeof SourceClass1, \"prototype\" | \"new\" | \"mix\"> & Omit<typeof SourceClass2, \"prototype\" | \"new\" | \"mix\">)",
         "Intermediate base delegates the runtime chain to the helper with the statics cast"
     )
     t.match(printed, "class Consumer<A> extends __Consumer$base<A> implements SourceClass1<string>, SourceClass2<A>",
@@ -59,7 +59,7 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
     t.match(
         printed,
         "class __Consumer$base<T> extends (__mixinChainLinearized__(__Consumer$empty, [SourceClass1], [[0, 0, 1]], \"verify\") as unknown as " +
-            "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\">)",
+            "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\" | \"mix\">)",
         "Helper chain starts at the generated empty base and keeps mixin statics"
     )
     t.notMatch(printed, "__mixinChainLinearized__(Object, [SourceClass1]",

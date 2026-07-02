@@ -17,7 +17,8 @@ import {
     deepCloneNode,
     hasModifier,
     preserveGeneratedDeclarationRange,
-    preserveTextRange
+    preserveTextRange,
+    stripVarianceAnnotations
 } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -282,6 +283,7 @@ export function createMixinConstructionNewType(
     baseImportMap?: Map<string, ImportedNameBinding>
 ): MixinConstructionNew | undefined {
     if (declaration.name === undefined ||
+        facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
         !isConstructionBaseOptIn(tsInstance, sourceFile, extendsType, options, facts, new Set(), crossFile, baseImportMap)
     ) {
         return undefined
@@ -303,13 +305,18 @@ export function createMixinConstructionNewType(
     // contravariantly under `strictFunctionTypes`, which rejects it - TS2417). The name
     // must be a string literal because a bare `new(...)` in a type literal parses as a
     // construct signature; `"new"(...)` parses as a callable `.new` method.
+    // A GENERIC mixin's `.new` declares its OWN type parameters mirroring the class's
+    // (`"new"<T>(props?: RepoConfig<T>): Repo<T>` — explicit or inferred from props), cloned
+    // deep (no shared source positions) with variance annotations stripped (a signature
+    // position — TS1274).
     return {
         newType : factory.createTypeLiteralNode([
             factory.createMethodSignature(
                 undefined,
                 factory.createStringLiteral("new"),
                 undefined,
-                undefined,
+                declaration.typeParameters?.map((typeParameter) =>
+                    stripVarianceAnnotations(tsInstance, deepCloneNode(tsInstance, typeParameter))),
                 [ factory.createParameterDeclaration(
                     undefined,
                     undefined,

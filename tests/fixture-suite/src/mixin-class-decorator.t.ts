@@ -40,6 +40,42 @@ class Badge implements Stamped {
 const card  = new Card()
 const badge = new Badge()
 
+// The same decoration in NESTED scopes: a function-body mixin decorates once per enclosing
+// call (the documented per-call cost), a plain-block one once at module load.
+let nestedDecorated = 0
+
+function auditNested(..._args: unknown[]): void {
+    nestedDecorated += 1
+}
+
+function makeLocal(): string {
+    @mixin()
+    @auditNested
+    class Local {
+        label: string = "local"
+    }
+
+    class LocalUser implements Local {
+    }
+
+    return new LocalUser().label
+}
+
+let blockLabel = ""
+
+{
+    @mixin()
+    @auditNested
+    class Blocky {
+        label: string = "blocky"
+    }
+
+    class BlockUser implements Blocky {
+    }
+
+    blockLabel = new BlockUser().label
+}
+
 it("a user decorator on a @mixin class", (t: Test) => {
     t.equal(decorated, 1, "the class decorator runs ONCE — on the value, not per application")
     t.is(received, Stamped, "the decorator received the very constructor the user holds as `Stamped`")
@@ -50,4 +86,13 @@ it("a user decorator on a @mixin class", (t: Test) => {
 
     t.true(card instanceof Stamped, "instanceof rides the marker through the decorated value")
     t.equal(Stamped.name, "Stamped", "the user-held value keeps the real class name")
+})
+
+it("a user decorator on a @mixin class in NESTED scopes", (t: Test) => {
+    t.equal(blockLabel, "blocky", "the plain-block mixin decorated and composed at module load")
+    t.equal(nestedDecorated, 1, "…decorating once so far (the block ran once)")
+
+    t.equal(makeLocal(), "local", "the function-body mixin composes per call")
+    t.equal(makeLocal(), "local", "…repeatedly")
+    t.equal(nestedDecorated, 3, "the nested decorator ran once per enclosing run (block + 2 calls)")
 })

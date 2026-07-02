@@ -17,22 +17,6 @@ that emitted JavaScript source maps still point at useful user-source locations 
 helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
 and document or fix any positions that become misleading.
 
-### ~~User decorators on a `@mixin` class (emit currently drops them)~~ — RESOLVED
-
-Supported in BOTH decorator modes via the `decorate` callback argument of `defineMixinClass`
-(applied INSIDE, before metadata attachment, so the DECORATED class is the mixin's runtime
-identity — metadata, statics, `.mix`, linearization all live on what the user holds; the
-undecorated canonical stays in `applications`, so consumer layers are never decorated). Standard
-(TC39) mode passes `(__mixinValue) => { @dec class X extends (__mixinValue as unknown as
-AnyConstructor) {} return X }` — a REAL decorated class declaration, so the COMPILER emits the
-whole machinery (context/`Symbol.metadata`/`addInitializer`/replacement); the inner class is
-type-erased and scoped, dodging the TS2310 interface-merge cycle and the TS2562 generic-base
-wall. Legacy mode passes an `__applyLegacyClassDecorators__` fold (`dec(value) ?? value`,
-bottom-up). Applied ONCE per value (§2.8's consumer parallel); decorator signatures are
-type-checked on the source-view plane, where the decorators stay on the real class. Pinned by
-`tests/mixin-class-decorators.t.ts` (order, addInitializer, replacement, nested scopes, legacy)
-and `fixture-suite/src/mixin-class-decorator.t.ts` (dual-mode runtime + identity).
-
 ### Qualified mixin references (`implements lib.Logger` / `implements NS.Tagger`)
 
 A consumer referencing a mixin through a QUALIFIED name is not resolved — the consumer is left

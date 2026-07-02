@@ -134,17 +134,45 @@ the user's own base name (or the mixin's name for a mixin-contributed layer). Ne
 REWRITE (string surgery on `messageText`), not just a span fix, so keep it conservative:
 substitute only exact generated-name matches.
 
-### `@ts-expect-error` on an erroring mixin heritage suppresses only ONE of the duplicates
+### `@ts-expect-error` cannot shield an erroring mixin heritage (investigated — full mechanism)
 
-Found in pass 9: a consumer with a constraint-violating mixin argument
-(`class Broken implements Sorter<number>` where `Sorter<T extends Comparable<T>>`) reports
-TS2344 — correct — but the heritage type argument is CLONED into generated nodes
-(`$base` heritage, value cast), each carrying the same preserved position, so the checker
-emits the SAME diagnostic more than once from one source line. A user's `@ts-expect-error`
-directive eats exactly one occurrence and the build stays red (no "unused directive" either —
-the directive DID match). Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`.
-Likely resolution: dedupe program diagnostics by (file, start, code, messageText) in the
-diagnostic-wrapping channel — position-identical duplicates carry no information.
+Found in pass 9, root-caused afterwards. A consumer with a constraint-violating mixin argument
+(`class Broken implements Sorter<number>` where `Sorter<T extends Comparable<T>>`) is checked
+TWICE by construction: the user's `implements Sorter<number>` is KEPT on the rewritten class
+AND cloned into the generated `interface __Broken$base extends Sorter<number>` heritage — the
+checker constraint-checks each type-reference NODE independently, so two genuine TS2344s exist.
+The clone's check is REDUNDANT by construction (an identical reference — anything it reports is
+also reported on the user's node). Normally invisible: both remap to the user's span and tsc's
+output `sortAndDeduplicateDiagnostics` collapses them. `@ts-expect-error` exposes it, per plane:
+
+- **emit, top level**: TS's comment-directive filtering runs INSIDE the transformed program, by
+  REPRINTED-text geometry; the directive comment stays glued to the class line and shields only
+  the class's own TS2344 — the `$base` clone (a different reprinted line) escapes, and only
+  then is it remapped back onto the user's line for display. Result: red build, no TS2578.
+- **emit, nested scope — BONUS BUG**: the reprint CLONES the leading comment trivia (including
+  the directive) onto every spliced generated sibling — the reprinted text carries THREE
+  `@ts-expect-error` copies, two shielding error-free generated lines. Result: a SPURIOUS
+  TS2578 "unused directive" (remap-deduped to one) on top of the escaping TS2344 — a nested
+  consumer gets the spurious TS2578 even when its directive legitimately matches.
+- **source view**: the `$base` clone sits on a zero-width/collapsed generated range, so its
+  TS2344 surfaces at an ARTIFACT position (e.g. the mixin's closing brace — the `'}'` family),
+  which no user directive can reach.
+
+Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the directives):
+1. **Post-remap directive accounting at the `wrapProgramDiagnostics` seam**: after remapping to
+   original coordinates, re-apply the ORIGINAL file's `commentDirectives` — drop shielded
+   diagnostics, recompute used/unused ourselves, swallow the inner program's TS2578s and emit
+   our own for genuinely unused directives. Fixes both emit shapes (incl. the spurious TS2578).
+2. **Source view**: the seam filter can't reach the artifact-positioned clone diagnostic —
+   either drop diagnostics sitting on zero-width GENERATED ranges (safe: `$base` content is a
+   clone of user code, every real problem also fires on the user node), or pin the cloned
+   heritage type-argument subtree to the user's heritage range (native filtering then works,
+   but risks the navigation-hijack that motivated collapsing — stress arbitrates).
+3. Independently useful: stop cloning leading comment trivia onto spliced generated statements
+   (the nested-scope trivia duplication is a reprint-quality bug of its own).
+
+Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
+investigation live in the pass-9 session scratchpad.
 
 ### Required-base statics inside a mixin's own static (`super.new` / `super.<baseStatic>`)
 

@@ -256,8 +256,10 @@ Violating any of these produces confusing tsserver errors or crashes.
 12. **A nested `@mixin` / consumer (declared in a function body or block) expands by recursing
     into nested statement lists; SOURCE VIEW must MUTATE the containing block's `statements` IN
     PLACE, never rebuild the ancestors.** The driver (`transformSourceFile`) walks into `Block` /
-    `ModuleBlock` and splices the generated siblings into the SAME block (`expandStatementList` +
-    `mutateNestedStatementLists`), so they share the nested scope and never hoist to module scope.
+    `ModuleBlock` — and `CaseClause`/`DefaultClause`, whose statement lists are NOT blocks — and
+    splices the generated siblings into the SAME list (`expandStatementList` +
+    `mutateNestedStatementLists`; the range-preservation side is `isRealStatementListOwner` in
+    `util.ts`), so they share the nested scope and never hoist to module scope.
     The catch is HOW the changed block flows back. Rebuilding the user's ancestors (function /
     block on the path to the nested class) with `visitEachChild` / `factory.update*` sets
     `.original` on those rebuilt USER nodes → pointing at the pre-transform node, which is **not in
@@ -285,6 +287,15 @@ Violating any of these produces confusing tsserver errors or crashes.
       names `M`, lexically the nested one.
     - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
       diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
+    - **A class applying a local mixin declared LATER in the same statement list** gets a native
+      diagnostic (`TS990008`, spanned on the heritage reference): the generated VALUE reference
+      would hit the const TDZ. Emit-plane TS2448 remaps to the import line and source view reports
+      nothing, so the native channel is the only faithful signal. Deferred-scope uses stay legal
+      (`pushMixinUsedBeforeDeclarationDiagnostics` checks parent identity + position).
+    - **The generated siblings are bound declarations, so scope-level identifier COMPLETIONS would
+      offer them** (`__X$base/$empty/$mixin`); the `language-service-plugin` filters them out of
+      `getCompletionsAtPosition` (same policy as its navigation-span filtering). Guard:
+      `tsserver-completions.t.ts`.
     - Covered by `tests/nested-scope-declarations.t.ts` (emit/runtime/d.ts/diagnostics) and the
       `tests/fixture-suite/src/nested-scope.t.ts` corpus entry (all three planes via the stress sweep).
 

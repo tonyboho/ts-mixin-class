@@ -155,16 +155,24 @@ export type ResolvedMixinRef = {
     } | undefined
 }
 
+// One NAMED class declaration with the position range and nesting depth of its enclosing
+// statement-list scope (the whole file for a top-level class; a CaseBlock counts as ONE scope
+// — every clause of a `switch` shares it). Collected once during the facts pass; lexical
+// mixin resolution picks the deepest same-named entry whose scope contains the reference.
+export type ClassScopeEntry = {
+    declaration : ts.ClassDeclaration,
+    scopeStart  : number,
+    scopeEnd    : number,
+    depth       : number
+}
+
 export type FileMixinContext = {
-    // The transform-input source file the context was built from — the tree lexical mixin
-    // resolution walks (`resolveLexicalMixinRef` descends it by position containment, so it
-    // needs no parent pointers, which program-created files may lack).
-    sourceFile         : ts.SourceFile,
-    // Scope-precise resolution matters only when the file HAS nested classes: at the top
-    // level a same-named plain class and mixin (or import) would be a duplicate identifier,
-    // so the flat by-name lookup is already exact — and much cheaper (`resolveLexicalMixinRef`
-    // fast path).
-    hasNestedClasses   : boolean,
+    // Every NAMED class declaration in the file (top-level and nested), indexed by name with
+    // its enclosing-scope range — collected during the facts pass (`classScopesByName` on
+    // `SourceFileFacts`). Lexical mixin resolution (`resolveLexicalMixinRef`) answers from the
+    // deepest same-named entry whose scope contains the reference, in O(same-named entries)
+    // per lookup with no tree walk.
+    classScopesByName  : Map<string, ClassScopeEntry[]>,
     byLocalName        : Map<string, ResolvedMixinRef>,
     byKey              : Map<string, ResolvedMixinRef>,
     // Every LOCALLY-declared `@mixin` keyed by its own declaration node, so a mixin is detected

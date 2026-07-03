@@ -6,6 +6,7 @@ import {
     propertyNameText,
     requiredBaseIdentifierName,
     uniqueConfigProperties,
+    type ClassScopeEntry,
     type ConfigProperty,
     type MixinDecoratorImports,
     type TransformOptions
@@ -39,6 +40,11 @@ export type SourceFileFacts = {
     classes               : ClassFacts[],
     classesByName         : Map<string, ClassFacts>,
     classesByDeclaration  : Map<ts.ClassDeclaration, ClassFacts>,
+    // Every NAMED class declaration (top-level and nested) by name, each with its
+    // enclosing-scope range and depth — the index lexical mixin resolution
+    // (`resolveLexicalMixinRef`) answers from in O(same-named entries), no tree walk.
+    // Collected here because this pass already visits every class exactly once.
+    classScopesByName     : Map<string, ClassScopeEntry[]>,
     // True when at least one class is declared below the top level (inside a function body,
     // block, or namespace). The driver only walks into nested statement lists when this is set,
     // so a file with only top-level classes keeps the original flat, top-level-only pass.
@@ -78,6 +84,22 @@ function collectSourceFileFacts(
     const classes: ClassFacts[]  = []
     const classesByName          = new Map<string, ClassFacts>()
     const classesByDeclaration   = new Map<ts.ClassDeclaration, ClassFacts>()
+    const classScopesByName      = new Map<string, ClassScopeEntry[]>()
+
+    const addScopeEntry = (declaration: ts.ClassDeclaration, scope: ScopeRange): void => {
+        const name = declaration.name?.text
+
+        if (name === undefined) {
+            return
+        }
+
+        const entries = classScopesByName.get(name) ?? []
+
+        entries.push({ declaration, scopeStart: scope.start, scopeEnd: scope.end, depth: scope.depth })
+        classScopesByName.set(name, entries)
+    }
+
+    const topLevelScope: ScopeRange = { start: 0, end: sourceFile.end, depth: 0 }
 
     for (const statement of sourceFile.statements) {
         if (tsInstance.isImportDeclaration(statement) && tsInstance.isStringLiteral(statement.moduleSpecifier)) {
@@ -93,6 +115,7 @@ function collectSourceFileFacts(
 
         classes.push(facts)
         classesByDeclaration.set(statement, facts)
+        addScopeEntry(statement, topLevelScope)
 
         if (facts.name !== undefined) {
             classesByName.set(facts.name, facts)
@@ -104,22 +127,28 @@ function collectSourceFileFacts(
     // registry and base-name resolution iterate those two and must stay top-level-only (a nested
     // class is a local: it cannot be exported and must never enter the registry or shadow a
     // top-level base name by string). The driver still finds a nested class's facts through
-    // `classesByDeclaration` to expand it in place.
+    // `classesByDeclaration` to expand it in place. The same walk carries the current
+    // enclosing-scope range down, feeding `classScopesByName`.
     let hasNestedClasses = false
 
-    const indexNestedClasses = (node: ts.Node): void => {
+    const indexNestedClasses = (node: ts.Node, scope: ScopeRange): void => {
         tsInstance.forEachChild(node, (child) => {
+            const childScope = isScopeContainer(tsInstance, child)
+                ? { start: child.pos, end: child.end, depth: scope.depth + 1 }
+                : scope
+
             if (tsInstance.isClassDeclaration(child) && !classesByDeclaration.has(child)) {
                 hasNestedClasses = true
                 classesByDeclaration.set(child, classFacts(tsInstance, child, mixinDecoratorImports, options))
+                addScopeEntry(child, childScope)
             }
 
-            indexNestedClasses(child)
+            indexNestedClasses(child, childScope)
         })
     }
 
     for (const statement of sourceFile.statements) {
-        indexNestedClasses(statement)
+        indexNestedClasses(statement, topLevelScope)
     }
 
     return {
@@ -128,8 +157,18 @@ function collectSourceFileFacts(
         classes,
         classesByName,
         classesByDeclaration,
+        classScopesByName,
         hasNestedClasses
     }
+}
+
+type ScopeRange = { start: number, end: number, depth: number }
+
+// A node whose statement list is a lexical scope for class declarations. A CaseBlock is the
+// scope of a whole `switch` — its clauses share one block scope, so the clauses themselves
+// are NOT containers.
+function isScopeContainer(tsInstance: TypeScript, node: ts.Node): boolean {
+    return tsInstance.isBlock(node) || tsInstance.isModuleBlock(node) || tsInstance.isCaseBlock(node)
 }
 
 function importFacts(

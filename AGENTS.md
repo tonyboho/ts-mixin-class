@@ -297,14 +297,17 @@ Violating any of these produces confusing tsserver errors or crashes.
       lookup would expand its neighbour as a consumer and splice machinery referencing the
       plain class — an artifact TS2322 against `RuntimeMixinClassValue` at build and a
       linearization crash at runtime; stress seed 1119868945, pinned as M5b + a corpus case).
-      The walk descends `context.sourceFile` by POSITION containment (program-created files
-      may lack parent pointers), treats the whole CaseBlock as one scope, falls back through
-      `getOriginalNode` for in-place-updated declarations, and short-circuits to the by-name
-      entry for files without nested classes (a top-level double is a duplicate identifier
-      anyway) — that fast path is what keeps `bench:transform` at baseline. Every reference
-      site goes through it: consumer/dependency heritage (`localMixinHeritageTypes*`,
-      `localMixinRefs`), the TS990008 use-before-declaration guard, the transitive-heritage
-      reduction, the class-expression consumer diagnostic, and the manual-`.mix` ban.
+      Resolution is an O(same-named entries) lookup in `classScopesByName` — every named
+      class with its enclosing-scope range and depth, collected for free during the
+      `getSourceFileFacts` pass (which already visits every class once; positions, not
+      parent pointers, so program-created files work) — pick the deepest entry whose scope
+      contains the reference; a CaseBlock counts as ONE scope (all `switch` clauses share
+      it). No per-reference tree walk, which is what keeps `bench:transform` at baseline
+      (an earlier per-reference containment descent cost ~2× on the 160-mixin scenario).
+      Every reference site goes through it: consumer/dependency heritage
+      (`localMixinHeritageTypes*`, `localMixinRefs`), the TS990008 use-before-declaration
+      guard, the transitive-heritage reduction, the class-expression consumer diagnostic,
+      and the manual-`.mix` ban.
     - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
       diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
     - **A class applying a local mixin declared LATER in the same statement list** gets a native

@@ -200,9 +200,10 @@ persisted instanceof Persisted
 
 ## Manual application
 
-Mixin classes can also be applied manually. This is useful when a library publishes
+Mixin classes can also be applied manually. This is for the case when a library publishes
 classes created with this transformer, but the consuming project does not run the
-transformer itself:
+transformer itself. Inside a project that runs the transformer, manual application is
+rejected (error TS990012) — compose with `implements` instead:
 
 ```ts
 import { Named } from "library_providing_a_mixin"
@@ -227,11 +228,23 @@ arguments in the same call. Provide both the generic type arguments of the mixin
 type as the last type argument:
 
 ```ts
-@mixin()
-class StoredValue<T> {
-}
+import { StoredValue } from "library_providing_a_mixin"
 
 class StringBox extends StoredValue.mix<string, typeof UserBase>(UserBase) {
+}
+```
+
+If the consuming project enables `isolatedDeclarations`, an exported class cannot extend
+the `.mix(...)` expression directly (TS9021). Annotate the application with the `Mix`
+helper and extend the annotated constant:
+
+```ts
+import type { Mix } from "ts-mixin-class"
+import { Named } from "library_providing_a_mixin"
+
+const NamedUserBase: Mix<typeof Named, typeof UserBase> = Named.mix(UserBase)
+
+export class User extends NamedUserBase {
 }
 ```
 

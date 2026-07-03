@@ -1,57 +1,84 @@
 import type * as ts from "typescript"
 import {
     anyConstructorName,
-    implementsTypes,
+    isDeclarationFileName,
     mixinApplicationName,
-    requiredBaseType
+    mixinDiagnosticCode,
+    requiredBaseType,
+    type FileMixinContext,
+    type ResolvedMixinRef
 } from "./model.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
-import { collapseSubtreeTextRange, deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
+import { deepCloneNode, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"
 
-const manualMixinApplySyntaxCache = new WeakMap<ts.SourceFile, boolean>()
-
-// Result depends only on the (immutable) file text, but the source-view metadata
-// base is built once per mixin, so memoize per file to avoid rescanning the whole
-// text for every mixin declaration in the file.
-export function hasManualMixinApplySyntax(sourceFile: ts.SourceFile): boolean {
-    const cached = manualMixinApplySyntaxCache.get(sourceFile)
-
-    if (cached !== undefined) {
-        return cached
+// Manual `.mix(...)` on a PROGRAM-LOCAL mixin value is banned (native TS990012, both
+// planes): inside a transformer program mixins compose through the class heritage
+// (`extends Base implements Mixin`) — a manual application bypasses construction
+// tracking and used to ride on a synthetic source-view apply type that could not
+// support navigation (collapsed instance members; find-all-references crashed the
+// server). The `.mix` method itself stays on every EMITTED value: it is the
+// application path for external (non-transformer) consumers of the package's
+// declarations — which is why a mixin imported from a `.d.ts` is exempt.
+export function pushManualMixinApplicationDiagnostics(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext
+): void {
+    // Cheap prefilter: the walk only runs for files that both know some mixin by name
+    // and textually mention `.mix` at all.
+    if (context.byLocalName.size === 0 || !sourceFile.text.includes(".mix")) {
+        return
     }
 
-    const result = /\.mix\s*(?:<|\()/.test(sourceFile.text)
+    const visit = (node: ts.Node): void => {
+        if (tsInstance.isPropertyAccessExpression(node) &&
+            node.name.text === "mix" &&
+            tsInstance.isIdentifier(node.expression) &&
+            node.pos >= 0 && node.end >= 0
+        ) {
+            const ref = context.byLocalName.get(node.expression.text)
 
-    manualMixinApplySyntaxCache.set(sourceFile, result)
+            if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
+                const start = node.getStart(sourceFile)
 
-    return result
+                context.nativeDiagnostics.push({
+                    fileName    : sourceFile.fileName,
+                    start,
+                    length      : node.getEnd() - start,
+                    code        : mixinDiagnosticCode.MixinManualApplication,
+                    category    : tsInstance.DiagnosticCategory.Error,
+                    messageText : manualMixinApplicationMessage(ref)
+                })
+            }
+        }
+
+        tsInstance.forEachChild(node, visit)
+    }
+
+    tsInstance.forEachChild(sourceFile, visit)
 }
 
-export function createSourceViewMixinApplyType(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    typeParameters: ts.TypeParameterDeclaration[] | undefined
-): ts.TypeLiteralNode {
-    const applyType = createMixinApplyType(
-        tsInstance,
-        declaration,
-        typeParameters,
-        createSourceViewMixinInstanceType(tsInstance, declaration),
-        createSourceViewMixinStaticsType(tsInstance, declaration)
-    )
+// Program-local: declared in THIS file, or registered from another PROGRAM source
+// file. A mixin resolved from a `.d.ts` (an external package consumed through its
+// declarations) is not program-local — its `.mix` is the supported application path.
+function isProgramLocalMixinRef(ref: ResolvedMixinRef, context: FileMixinContext): boolean {
+    if (ref.declaration !== undefined) {
+        return true
+    }
 
-    // This `.mix` apply type only shapes `typeof MixinClass` for source view; it is
-    // never a navigation target. Its member signatures are `deepCloneNode`d from the
-    // mixin's own members, so they carry the originals' source positions. Embedded in
-    // the metadata-base cast (whose container the rich range mapping never descends
-    // into) those real-positioned identifiers strand in a SyntaxList trivia gap and
-    // crash tsserver's getChildren (source-view invariant #5). Collapse the whole
-    // subtree to a synthetic range so it owns no source position; the top-level
-    // statement range pass normalizes it to a contiguous gap-free span.
-    collapseSubtreeTextRange(tsInstance, applyType, { pos: -1, end: -1 })
+    const registered = context.crossFile?.registry.get(ref.key)
 
-    return applyType
+    return registered !== undefined && !isDeclarationFileName(registered.fileName)
+}
+
+function manualMixinApplicationMessage(ref: ResolvedMixinRef): string {
+    return "Manual mixin application inside a transformer program. " +
+        `${ref.className}.mix(...) is reserved for external (non-transformer) consumers of this ` +
+        "package's emitted declarations; in this program the transformer composes mixins from the " +
+        `class heritage. Fix: declare 'class X extends YourBase implements ${ref.className}' ` +
+        `(or just 'implements ${ref.className}' for a base-less class) instead of extending ` +
+        `${ref.className}.mix(...).`
 }
 
 export function createMixinApplyType(
@@ -117,144 +144,6 @@ export function createMixinApplyType(
             )
         )
     ])
-}
-
-function createSourceViewMixinInstanceType(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.TypeNode {
-    const factory        = tsInstance.factory
-    const ownType        = factory.createTypeLiteralNode(createSourceViewMixinInstanceMembers(tsInstance, declaration))
-    const requiredBase   = requiredBaseType(tsInstance, declaration)
-    const inheritedTypes = [
-        ...(requiredBase === undefined
-            ? []
-            : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]),
-        ...implementsTypes(tsInstance, declaration).map((heritageType) => {
-            return heritageTypeToTypeReference(tsInstance, heritageType)
-        })
-    ]
-
-    if (inheritedTypes.length === 0) {
-        return ownType
-    }
-
-    return factory.createIntersectionTypeNode([ ...inheritedTypes, ownType ])
-}
-
-function createSourceViewMixinInstanceMembers(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.TypeElement[] {
-    const factory = tsInstance.factory
-
-    return declaration.members.flatMap((member): ts.TypeElement[] => {
-        // Index signatures have no `.name`; handle them before the name-based skip below.
-        if (tsInstance.isIndexSignatureDeclaration(member)) {
-            return [ factory.createIndexSignature(
-                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
-                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-                    : undefined,
-                member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
-                deepCloneNode(tsInstance, member.type)
-            ) ]
-        }
-
-        if (
-            hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
-            member.name === undefined ||
-            tsInstance.isPrivateIdentifier(member.name)
-        ) {
-            return []
-        }
-
-        if (tsInstance.isPropertyDeclaration(member)) {
-            return [ createSourceViewPropertySignature(tsInstance, member, true) ]
-        }
-
-        if (tsInstance.isMethodDeclaration(member)) {
-            return [ createSourceViewMethodSignature(tsInstance, member) ]
-        }
-
-        return []
-    })
-}
-
-// Property/method signature builders shared by the instance and statics member
-// collectors. The instance side keeps a member's `readonly`; the statics side does
-// not model it, so it passes `includeReadonly: false`.
-function createSourceViewPropertySignature(
-    tsInstance: TypeScript,
-    member: ts.PropertyDeclaration,
-    includeReadonly: boolean
-): ts.PropertySignature {
-    const factory = tsInstance.factory
-
-    return factory.createPropertySignature(
-        includeReadonly && hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
-            ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-            : undefined,
-        deepCloneNode(tsInstance, member.name),
-        member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-        member.type === undefined
-            ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-            : deepCloneNode(tsInstance, member.type)
-    )
-}
-
-function createSourceViewMethodSignature(
-    tsInstance: TypeScript,
-    member: ts.MethodDeclaration
-): ts.MethodSignature {
-    const factory = tsInstance.factory
-
-    return factory.createMethodSignature(
-        undefined,
-        deepCloneNode(tsInstance, member.name),
-        member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
-        member.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
-        member.parameters.map((parameter) => createSourceViewSignatureParameter(tsInstance, parameter)),
-        member.type === undefined
-            ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-            : deepCloneNode(tsInstance, member.type)
-    )
-}
-
-function createSourceViewMixinStaticsType(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.TypeLiteralNode {
-    return tsInstance.factory.createTypeLiteralNode(declaration.members.flatMap((member): ts.TypeElement[] => {
-        if (!hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) || member.name === undefined) {
-            return []
-        }
-
-        if (tsInstance.isPropertyDeclaration(member) && !tsInstance.isPrivateIdentifier(member.name)) {
-            return [ createSourceViewPropertySignature(tsInstance, member, false) ]
-        }
-
-        if (tsInstance.isMethodDeclaration(member) && !tsInstance.isPrivateIdentifier(member.name)) {
-            return [ createSourceViewMethodSignature(tsInstance, member) ]
-        }
-
-        return []
-    }))
-}
-
-function createSourceViewSignatureParameter(
-    tsInstance: TypeScript,
-    parameter: ts.ParameterDeclaration
-): ts.ParameterDeclaration {
-    return tsInstance.factory.createParameterDeclaration(
-        undefined,
-        parameter.dotDotDotToken === undefined ? undefined : deepCloneNode(tsInstance, parameter.dotDotDotToken),
-        deepCloneNode(tsInstance, parameter.name),
-        parameter.questionToken === undefined ? undefined : deepCloneNode(tsInstance, parameter.questionToken),
-        parameter.type === undefined
-            ? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-            : deepCloneNode(tsInstance, parameter.type),
-        undefined
-    )
 }
 
 function mixinApplyBaseTypeParameterName(declaration: ts.ClassDeclaration): string {

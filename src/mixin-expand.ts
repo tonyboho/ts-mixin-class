@@ -49,11 +49,7 @@ import {
     linearizationDiagnosticMessage,
     pushLinearizationConflictDiagnostic
 } from "./consumer-diagnostics.js"
-import {
-    createMixinApplyType,
-    createSourceViewMixinApplyType,
-    hasManualMixinApplySyntax
-} from "./mixin-apply-type.js"
+import { createMixinApplyType } from "./mixin-apply-type.js"
 import {
     collectMixinClassDiagnostics,
     isSupportedMixinClassMember
@@ -489,7 +485,7 @@ function expandSourceViewMixinClass(
         const metadataExtendsClause = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
             preserveTextRange(
                 tsInstance,
-                createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, undefined, []),
+                createSourceViewMixinMetadataBase(tsInstance, declaration, undefined, []),
                 generatedHeritageRange
             )
         ]), generatedHeritageRange)
@@ -572,7 +568,7 @@ function expandSourceViewMixinClass(
         baseName,
         baseTypeParameters(),
         [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-            createSourceViewMixinMetadataBase(tsInstance, sourceFile, declaration, requiredBase, dependencyRefs, brandConstructionBase)
+            createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
         ]) ],
         []
     ), declaration)
@@ -638,7 +634,6 @@ function expandSourceViewMixinClass(
 // typeof MixinClass matches the runtime value.
 function createSourceViewMixinMetadataBase(
     tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
     dependencyRefs: ResolvedMixinRef[],
@@ -649,30 +644,23 @@ function createSourceViewMixinMetadataBase(
     // A construction mixin brands the `$base` head so the real class refuses a direct `new`, in
     // parity with the emit value cast; a base-less / custom-required-base mixin keeps the permissive
     // head, so its direct `new` stays allowed.
-    const construction          = isConstructionMixin && declaration.name !== undefined
+    const construction = isConstructionMixin && declaration.name !== undefined
         ? { consumerName: declaration.name.text, branded: true }
         : undefined
-    const headType              = requiredBase === undefined
+    const headType     = requiredBase === undefined
         ? factory.createTypeReferenceNode(anyConstructorName, undefined)
         : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined, construction)
-    const manualMixinApplyTypes = hasManualMixinApplySyntax(sourceFile)
-        ? [ createSourceViewMixinApplyType(
-            tsInstance,
-            declaration,
-            declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
-        ) ]
-        : []
-    const castType              = factory.createIntersectionTypeNode([
+    const castType     = factory.createIntersectionTypeNode([
         headType,
         ...dependencyRefs
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => {
                 // Exclude the dependency's own framework `mix` from the inherited statics.
-                // `.mix(base)` must resolve to THIS mixin's `mix` (which returns this mixin's
-                // instance shape); without the omit a dependency's `mix` (returning the
-                // dependency's narrower instance) is intersected before it and wins overload
-                // resolution, dropping this mixin's own members from `X.mix(Base)` in source
-                // view. The dependency's *user* statics are still inherited.
+                // On the source-view plane the mixin value carries NO `mix` of its own
+                // (program-local manual `.mix` is banned — TS990012), so an inherited
+                // dependency `mix` (returning the DEPENDENCY's narrower instance) would be
+                // both a type lie and a hole in the ban. The dependency's *user* statics
+                // are still inherited.
                 return factory.createTypeReferenceNode("Omit", [
                     factory.createTypeReferenceNode(classStaticsName, [
                         factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
@@ -680,7 +668,6 @@ function createSourceViewMixinMetadataBase(
                     factory.createLiteralTypeNode(factory.createStringLiteral("mix"))
                 ])
             }),
-        ...manualMixinApplyTypes,
         createRuntimeMixinClassType(tsInstance, declaration)
     ])
 

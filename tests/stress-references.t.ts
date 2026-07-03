@@ -75,21 +75,15 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
         let withSelf     = 0
         let emptyResults = 0
         let spanChecks   = 0
-        let toleratedMix = 0
 
         const describe = (site: SiteWithFile): string =>
             `${site.fileName} symbol ${JSON.stringify(site.name)} ` +
             `at ${site.start.line}:${site.start.offset}-${site.end.line}:${site.end.offset}`
 
-        // KNOWN, DEFERRED limitation (USE-CASES Open questions): find-all-references on the
-        // generated `.mix` method of a manual `Mixin.mix(Base)` apply crashes tsserver's type
-        // display (`writeType` -> node-reuse -> `resolveEntityName` on the scopeless synthetic
-        // `.mix` type). Same root as the deferred manual-`.mix` go-to-definition gap. Until
-        // that is fixed, a references request on a `.mix` member name is tolerated rather than
-        // failing the stress run. Every OTHER crash/failure is still a hard failure.
-        const isKnownMixApplyLimitation = (site: SiteWithFile): boolean =>
-            site.isMemberName && site.name === "mix"
-
+        // NOTE: the corpus can no longer contain a manual `Mixin.mix(Base)` apply — program-local
+        // `.mix` is banned (TS990012) and the crash-prone synthetic `.mix` apply type was deleted
+        // with it — so the old tolerated-`.mix` escape hatch is gone: EVERY crash/failure fails
+        // the stress run.
         const probe = async (site: SiteWithFile): Promise<void> => {
             let response
 
@@ -100,12 +94,6 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
                     offset : site.query.offset
                 })
             } catch (error) {
-                if (isKnownMixApplyLimitation(site)) {
-                    toleratedMix++
-
-                    return
-                }
-
                 failure = [
                     "References request threw during symbol stress.",
                     `seed=${seed}  (reproduce: MIXIN_STRESS_SEED=${seed} pnpm test)`,
@@ -117,12 +105,6 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
             }
 
             if (response.success === false) {
-                if (isKnownMixApplyLimitation(site)) {
-                    toleratedMix++
-
-                    return
-                }
-
                 failure = [
                     "References failed on a fixture symbol.",
                     `seed=${seed}  (reproduce: MIXIN_STRESS_SEED=${seed} pnpm test)`,
@@ -201,8 +183,7 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
 
         t.pass(
             `Ran ${iterations} references requests (${withSelf} included the query site, ` +
-                `${emptyResults} tolerated-empty heritage/member-name, ${spanChecks} reference spans checked, ` +
-                `${toleratedMix} tolerated known manual-.mix display limitation) ` +
+                `${emptyResults} tolerated-empty heritage/member-name, ${spanChecks} reference spans checked) ` +
                 `over ${sites.length} symbols in ${corpus.length} files, seed=${seed}, every span exact, ` +
                 `every non-empty result self-inclusive, and no unexpected empty result.`
         )

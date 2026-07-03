@@ -24,9 +24,10 @@ const unsupportedHeritage = [
 
 it("does not throw on a @mixin class with an unsupported (non-reference) implements entry", async (t: Test) => {
     for (const heritage of unsupportedHeritage) {
-        // The `.mix(...)` usage is load-bearing: it makes the source-view path build the
-        // mixin apply-type (`hasManualMixinApplySyntax`), which is what maps over the
-        // `implements` heritage and used to crash on the unsupported entry.
+        // The `.mix(...)` usage stays deliberately: the crashing apply-type build it used
+        // to trigger is gone (program-local `.mix` is banned — TS990012), so today it
+        // exercises the ban SCAN against the same unsupported-heritage states — pushing a
+        // diagnostic must never throw either.
         const sourceText = `
             import { mixin } from "ts-mixin-class"
 

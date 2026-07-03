@@ -414,10 +414,11 @@ const manualMixApplyText = trimIndent(`
 `)
 
 it("tsserver quickinfo does not crash on a mixin used with manual .mix() syntax", async (t: Test) => {
-    // Regression (apply type): the source-view `.mix` apply type deep-clones the
-    // mixin's member signatures, which keep their source positions inside the
-    // metadata-base cast and stranded the cloned member names (`mixinStatic`,
-    // `label`) in a SyntaxList trivia gap.
+    // A program-local `.mix` is now a TS990012 ban (the crash-prone source-view `.mix`
+    // apply type — deep-cloned member signatures stranding `mixinStatic`/`label` in a
+    // SyntaxList trivia gap — was deleted with it). The file still contains the banned
+    // syntax mid-edit in a real editor, so quickinfo over it must keep working: the ban
+    // is a diagnostic, never a navigation crash.
     await assertQuickInfoOnClassNameDoesNotCrash(t, manualMixApplyText, "Named", "class Named")
 })
 

@@ -533,15 +533,14 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
     }
 })
 
-// Regression guard (emit↔source-view parity, §12.7 / §5.4): a manual `.mix(Base)` of a mixin
-// that depends on another mixin must type-check in source-view (IDE) exactly as in emit.
-// Previously tsserver reported a spurious `TS2339: Property 'mainMethod' does not exist on
-// type 'ManualWithDependency'` — the mixin's OWN method was lost from the source-view type of
-// `Main.mix(UserBase)` when `Main` has a dependency, because the dependency's framework `mix`
-// (returning the dependency's narrower instance) was intersected ahead of the mixin's own
-// `mix` and won overload resolution. Fixed by excluding `mix` from the inherited dependency
-// statics (`Omit<ClassStatics<typeof Dep>, "mix">` in the source-view value cast).
-it("a manual .mix of a dependent mixin is clean in source-view", async (t: Test) => {
+// A manual `.mix(Base)` of a PROGRAM-LOCAL mixin is banned (TS990012) — this pins the IDE
+// side of the ban: the native diagnostic rides through tsserver with its code, anchored on
+// the user's `.mix` access. (Historically this scenario was made to type-check cleanly in
+// source view through a synthetic `.mix` apply type; that node could not support navigation —
+// collapsed instance members, a find-all-references crash — and was deleted with the ban.
+// The supported manual `.mix` lives on the other side of the package boundary — see the
+// declaration-fixture-suite `package-manual-mix*` tests.)
+it("a manual .mix of a program-local dependent mixin reports the native TS990012 ban in the IDE", async (t: Test) => {
     const text = trimIndent(`
         import { mixin } from "ts-mixin-class"
 
@@ -580,8 +579,14 @@ it("a manual .mix of a dependent mixin is clean in source-view", async (t: Test)
             await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file: sourceFile })
         )
         const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const nativeCode  = diagnostics.map((diagnostic) => diagnostic.code).find((code) => code === 990012)
 
-        t.equal(messages, "", "manual .mix of a dependent mixin has no IDE semantic diagnostics")
+        assertDiagnosticParts(t, messages, [
+            "Manual mixin application inside a transformer program",
+            "Main.mix(...) is reserved for external (non-transformer) consumers",
+            "implements Main"
+        ])
+        t.is(nativeCode, 990012, "IDE diagnostic carries the native mixin-diagnostic code 990012")
     } finally {
         await fixture.dispose()
     }

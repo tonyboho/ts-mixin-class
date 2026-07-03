@@ -30,7 +30,8 @@ async function build(files: TypeScriptFixtureSourceFile[]): Promise<CommandResul
 
 // NB construction tracking ends at a manual `.mix` application — BY DESIGN (USE-CASES §9.2):
 // a class extending `M.mix(BaseDescendant)` keeps the inherited `BaseDescendant.new`. Manual
-// `.mix` is the escape hatch for non-transformer consumers; the construction-enabled form is
+// `.mix` is the escape hatch for non-transformer consumers ONLY — program-local `.mix` is
+// banned outright (TS990012, `manual-mix-ban.t.ts`); the construction-enabled form is
 // `class X extends BaseDescendant implements M`.
 
 it("a construction-base mixin imported through a re-export barrel stays construction-enabled", async (t: Test) => {

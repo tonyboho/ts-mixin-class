@@ -13,6 +13,7 @@ import {
 } from "./construction-config.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
+import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
 import { linearizeDependencies } from "./linearization.js"
 import { hasMixinDecorator } from "./decorators.js"
@@ -830,6 +831,7 @@ export function transformSourceFile(
     )
 
     pushAnonymousClassExpressionDiagnostics(tsInstance, sourceFile, context, mixinDecoratorImports, resolvedOptions)
+    pushManualMixinApplicationDiagnostics(tsInstance, sourceFile, context)
 
     // Resolves local base identifiers to cross-file construction-base entries.
     // Built lazily, only when a class actually needs construction-base resolution.
@@ -2022,8 +2024,14 @@ function shouldTransformSourceFile(
             importsPackageBase(tsInstance, facts, options) ||
             extendsCrossFileConstructionBase(tsInstance, sourceFile, facts, crossFile)
         )
+    // A file with no mixin declaration / consumer of its own can still hold a manual
+    // `.mix` application of an IMPORTED program mixin — admit it so the TS990012 ban scan
+    // (`pushManualMixinApplicationDiagnostics`) sees it. Text-gated with the same cheap
+    // prefilter the scan itself uses; nothing in such a file expands, so it passes through.
+    const hasPotentialManualMixApplication = crossFile !== undefined && sourceFile.text.includes(".mix")
 
-    return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionConfig
+    return hasMixinDeclaration || hasPotentialConsumer || hasPotentialConstructionConfig ||
+        hasPotentialManualMixApplication
 }
 
 // Whether any class in the file extends an imported class that the cross-file

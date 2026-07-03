@@ -4,7 +4,6 @@ Future work. Each item is a known limitation or open question we treat as a futu
 
 - **Limitations** were moved out of the README's `Limitations` section (the README now keeps
   only short, user-facing notes). The technical reasoning lives here.
-- **Open questions / discovered gaps** were moved out of `tests/USE-CASES.md`.
 
 ---
 
@@ -258,11 +257,12 @@ with an explicit return annotation, and a program builds cleanly on both planes.
   etc.) — is out of reach BY DESIGN: an external emitter does not run ts-patch, so it would
   emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
   Declarations must come from the patched `tsc`.
-- A USER-written `class X extends M.mix(B)` on an EXPORTED class is the option's own TS9021
-  (expression heritage — plain-TS behavior for any functional mixin pattern). The supported
-  recipe for the external (non-transformer) consumer is an annotated const with the package
-  `Mix` helper: `const XBase: Mix<typeof M, typeof B> = M.mix(B)` — checked, unlike an
-  as-assertion.
+- A USER-written `class X extends M.mix(B)` inside the transformer program is banned outright
+  (native TS990012 — program-local manual `.mix`). In an EXTERNAL (non-transformer) consumer
+  under the option, an EXPORTED class over `.mix` is TS9021 (expression heritage — plain-TS
+  behavior for any functional mixin pattern); the supported recipe is an annotated const with
+  the package `Mix` helper: `const XBase: Mix<typeof M, typeof B> = M.mix(B)` — checked,
+  unlike an as-assertion.
 
 ### 7. A mixin that violates its `implements` contract is flagged twice in the editor
 
@@ -384,44 +384,3 @@ also at every consumer.
     contributors; generics special-case). Revisit only if a future profile shows config-type resolution
     (not the surrounding hierarchy) actually dominating. The symbol carriers are off the table for
     perf: instance costs ~2×, static loses generics (TS2302).
-
----
-
-## Open questions / discovered gaps
-
-- **Go-to-definition on a member reached through a manual `.mix(Base)` does not land on the
-  member's real declaration.** `class X extends Main.mix(UserBase)` then `this.mainMethod()`:
-  the diagnostic is clean and the type resolves, but definition jumps to a collapsed span
-  (for a *dependent* mixin, even the wrong class) instead of `Main.mainMethod`. The
-  `implements`-consumer path is unaffected (it resolves correctly). Recorded as a **skipped**
-  (`xit`) test in `tsserver-definition.t.ts` → "tsserver go-to-definition resolves a member
-  reached through a manual .mix of a dependent mixin" (fix deferred).
-  - *Why.* The member is reached through the synthetic `.mix` apply type, whose instance type
-    is an inline member literal; that subtree is collapsed to a non-source range to avoid a
-    source-view stranding crash (invariant #5), so navigation resolves onto the collapsed
-    span. Navigating to the *real* code needs the instance type to reference the mixin by
-    name (`Main`), like the `implements` path — but `.mix` lives in the mixin's OWN base
-    expression (`class Main extends __Main$base`, `.mix` on the base cast), so referencing
-    `Main` there is a self-base-reference (`TS2506`/`TS2310` "recursively references itself as
-    a base type"). The inline literal exists precisely to avoid naming the mixin in its own
-    base. Verified: the name-reference fix compiles the definition test green but regresses
-    generic-required-base, diagnostic parity, and stress-references with the circular error.
-  - *Possible deeper fixes (not attempted).* Move `.mix` off the mixin's base chain (a direct
-    static on the class, so a self-returning static is non-circular), or generate a separate
-    top-level navigable interface for the mixin's own members and reference that. Both are
-    larger, position-sensitive changes. Same trilemma family as the §12.9 quickinfo
-    limitation: navigable real positions strand → crash; collapsed → no navigation; name
-    reference → circular.
-  - *Same root, worse symptom — find-all-references CRASHES the server.* Find-all-references on
-    the generated `.mix` method itself (`Main.mix`) throws in tsserver
-    (`Cannot read properties of undefined (reading 'members')`): computing the reference's
-    definition display enters TS's node-reuse path
-    (`writeType` → `visitExistingNodeTreeSymbols` → `tryVisitTypeReference` →
-    `resolveEntityName` → `resolveNameHelper`), which resolves the synthetic `.mix` type's
-    entity names against an enclosing scope — but the type is the deliberately scopeless
-    `{-1,-1}` collapsed node, so name resolution reads `.members` of `undefined` and throws
-    (TS is not defensive on this path). The only real fix is to remove entity-name references
-    from the displayed type (structurally inline the dependency's members), which is risky and
-    incomplete for cross-file/generic dependencies. **Deferred.** `stress-references.t.ts`
-    tolerates this one documented `.mix` member-name site (and fails on any other crash); the
-    exhaustive stress mode hits it every run, so it cannot silently regress further.

@@ -18,8 +18,10 @@ import type { CommandResult } from "./util.js"
 // generated `interface … extends Base`, the `mix` signature, and consumer-diagnostics
 // — so the forwarded type parameter is erased to `any` there (see
 // createRuntimeMixinClassType / eraseOwnTypeParameterReferences in mixin-expand.ts).
-// The "forwarding still enforces the required base" test below guards that the erasure
-// did not loosen the constraint.
+// That the erasure did not loosen the constraint is guarded on the `implements` path by
+// the required-base mismatch diagnostics, and on the published-`.mix` path by
+// `declaration-fixture-suite/src/package-manual-mix-generic.t.ts` (program-local `.mix`
+// itself is banned — TS990012, `manual-mix-ban.t.ts`).
 const genericRequiredBaseText = `
 import { mixin } from "ts-mixin-class"
 
@@ -76,41 +78,6 @@ async function buildFixture(
     }
 }
 
-// A generic mixin whose generic required base is *not* satisfied: `.mix(Unrelated)`
-// where `Unrelated` does not extend `RequiredBase`. Guards that erasing the forwarded
-// `T` to `any` in the `RuntimeMixinClass` marker did not also erase the required-base
-// constraint — it must still be enforced (by the `mix` signature) in both paths.
-const unsatisfiedRequiredBaseText = `
-import { mixin } from "ts-mixin-class"
-
-class RequiredBase<T> {
-    requiredValue: T
-
-    constructor(requiredValue: T) {
-        this.requiredValue = requiredValue
-    }
-
-    requiredMethod(): T {
-        return this.requiredValue
-    }
-}
-
-class Unrelated {}
-
-@mixin()
-class GenericMixin<T> extends RequiredBase<T> {
-    mixinValue!: T
-
-    mixinMethod(): T {
-        return this.mixinValue
-    }
-}
-
-const Bad = GenericMixin.mix(Unrelated)
-
-void Bad
-`
-
 it("a generic mixin extending a generic required base forwards its type parameter", async (t: Test) => {
     const emitResult       = await buildFixture(genericRequiredBaseText, undefined)
     const sourceViewResult = await buildFixture(genericRequiredBaseText, { noEmit: true })
@@ -120,17 +87,4 @@ it("a generic mixin extending a generic required base forwards its type paramete
 
     t.equal(sourceViewResult.exitCode, 0,
         `Source-view (noEmit) build of a forwarded generic required base succeeds.\n${commandOutput(sourceViewResult)}`)
-})
-
-it("forwarding a generic required base still enforces it on consumers", async (t: Test) => {
-    const emitResult       = await buildFixture(unsatisfiedRequiredBaseText, undefined)
-    const sourceViewResult = await buildFixture(unsatisfiedRequiredBaseText, { noEmit: true })
-
-    for (const [ label, result ] of [ [ "Emit", emitResult ], [ "Source-view", sourceViewResult ] ] as const) {
-        t.notEqual(result.exitCode, 0,
-            `${label}: mixing a generic mixin onto a base that does not satisfy its required base is rejected.\n${commandOutput(result)}`)
-
-        t.ok(commandOutput(result).includes("RequiredBase"),
-            `${label}: the rejection names the unsatisfied RequiredBase.\n${commandOutput(result)}`)
-    }
 })

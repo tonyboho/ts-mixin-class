@@ -154,13 +154,18 @@ Violating any of these produces confusing tsserver errors or crashes.
    transforming with `{ sourceView: true }` (a `noEmit` program) and walking the tree via
    **`node.getChildren(sf)`** (not `forEachChild` — trivia `Debug.fail`s fire inside
    reconstructed `SyntaxList` nodes that `forEachChild` never yields).
-   **Other collapse sites (not `$base` class-likes):** (a) **`.mix` apply type**
-   (`createSourceViewMixinApplyType`) — a pure-typing scaffold from `deepCloneNode`d source
-   members carries their real positions; collapse with `collapseSubtreeTextRange(node, {pos:-1,
-   end:-1})` at its generation site, but note collapse only works at *statement* granularity
+   **Other collapse sites (not `$base` class-likes):** (a) **`.mix` apply type — superseded
+   (kept for context):** `createSourceViewMixinApplyType` built a pure-typing scaffold from
+   `deepCloneNode`d source members carrying their real positions; it was collapsed with
+   `collapseSubtreeTextRange(node, {pos:-1, end:-1})` at its generation site. The general
+   lessons stand: collapse only works at *statement* granularity
    (`preserveTopLevelStatementRanges` re-expands a `[-1,-1]` node nested in a positioned subtree
    → re-strands), and `[-1,-1]` is *missing* (→ `any`, #2), so a *type* that must still resolve
-   needs a **tight positive** width-1 range via `generatedTextRange`. (b) **Generic construction
+   needs a **tight positive** width-1 range via `generatedTextRange`. Replaced by the
+   program-local manual-`.mix` BAN (TS990012): the node is deleted — a source-view mixin value
+   carries no `mix` member at all (the collapsed scaffold could never support navigation:
+   go-to-definition landed on the collapsed span; find-all-references on `mix` crashed the
+   server resolving entity names against the scopeless `{-1,-1}` node). (b) **Generic construction
    `static new<T>`** (`construction-config.ts`) — the overload `deepCloneNode`s the class type
    parameters (which keep source positions while the method sits at a tiny synthetic range);
    collapse just the cloned type parameters to `{pos:-1, end:-1}` (they normalise into the
@@ -329,6 +334,26 @@ Violating any of these produces confusing tsserver errors or crashes.
       module-level WeakMap, shared with `TS990010`) — `bench:transform` before/after showed the
       guards at or slightly below the pre-990011 baseline. Guard:
       `partial-accessor-overrides.t.ts`, `fixture-suite/src/accessor-extension-overrides.t.ts`.
+    - **Manual `.mix` of a PROGRAM-LOCAL mixin is banned (`TS990012`,
+      `pushManualMixinApplicationDiagnostics` in `mixin-apply-type.ts`)**: inside a transformer
+      program mixins compose through the class heritage; `.mix` stays on emitted values for
+      EXTERNAL (non-transformer) consumers of the `.d.ts` — so "program-local" =
+      `ref.declaration` present OR the registry entry's `fileName` is not a declaration file
+      (`isDeclarationFileName`); a `.d.ts`-resolved mixin is exempt. The scan is a per-file walk
+      over property accesses `X.mix` (identifier base resolved via `byLocalName`), gated on the
+      file text containing `.mix`, anchored on the access. Two structural consequences: (1)
+      `transformAppliesToSourceFile` additionally admits a file whose only mixin trace is a
+      `.mix` mention + cross-file context — a consumer importing the mixin has no decorator
+      import / `implements`, so without the gate widening the scan never ran (this was also WHY
+      cross-file `.mix` "worked" in emit and TS2339'd in source view: the file was never
+      transformed). (2) The source-view `.mix` APPLY TYPE is DELETED (see invariant #8(a),
+      superseded): a source-view mixin value carries NO `mix` member, so a banned use there is
+      TS2339 + TS990012 while emit (whose value cast keeps `mix` for external consumers —
+      `MixinClassValue` / the generic inline apply type) reports the ban alone; both planes
+      agree on TS990012. The dependency-statics `Omit<…, "mix">` in the source-view metadata
+      cast STAYS — inheriting a dependency's `mix` would be both a type lie and a hole in the
+      ban. Guard: `manual-mix-ban.t.ts`, `tsserver-diagnostics.t.ts` (code rides through the
+      IDE), `declaration-fixture-suite/src/package-manual-mix*.t.ts` (the allowed side).
     - **`this`-typed accessors fall back to a PROPERTY signature in the generated interface**
       (`containsThisType` in `interface-members.ts`): a `this` type anywhere inside an
       INTERFACE accessor's annotation crashes plain TypeScript 6.0's checker (a regression —
@@ -799,8 +824,9 @@ inherited interface. Full breakdown: `stress-diagnostic-parity.t.ts` header (dif
   `eraseOwnTypeParameterReferences` rewrites the mixin's own type-parameter references inside that
   marker to `any` (`RuntimeMixinClass<Base<any>>`), well-formed in both paths; non-forwarded
   arguments (`Base<string>`) keep their precision. Guard: `generic-mixin-required-base.t.ts` (both
-  builds succeed; `.mix(Unrelated)` onto an unsatisfied base is still rejected with TS2345 in both
-  paths — the erasure did not loosen enforcement).
+  builds succeed); that the erasure did not loosen enforcement is pinned through the PUBLISHED
+  `.mix` signature in `declaration-fixture-suite/src/package-manual-mix-generic.t.ts` — the
+  program-local `.mix(Unrelated)` probe it used to live on is banned now (TS990012).
 
 - **A `@mixin` whose OWN dependencies cannot be C3-linearized** (a conflict with no consumer to
   force the merge, e.g. a 3-cycle) used to compile cleanly — only the runtime threw when the mixin

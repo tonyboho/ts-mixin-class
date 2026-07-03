@@ -120,7 +120,8 @@ export const mixinDiagnosticCode = {
     MixinUsedBeforeDeclaration   : 990008,
     MixinNamespaceMerge          : 990009,
     MixinMemberKindOverride      : 990010,
-    MixinPartialAccessorOverride : 990011
+    MixinPartialAccessorOverride : 990011,
+    MixinManualApplication       : 990012
 } as const
 
 export type ImportedNameBinding = {
@@ -345,6 +346,10 @@ export function registryKey(fileName: string, name: string): string {
 
 export function normalizePath(fileName: string): string {
     return fileName.replaceAll("\\", "/")
+}
+
+export function isDeclarationFileName(fileName: string): boolean {
+    return /\.d\.[cm]?ts$/.test(normalizePath(fileName))
 }
 
 export function shouldSkipFileName(fileName: string): boolean {

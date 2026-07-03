@@ -202,20 +202,24 @@ const manualMixHeritage: TypeScriptFixtureSourceFile[] = [
     }
 ]
 
-it("a USER's manual .mix heritage on an EXPORTED class is the option's own TS9021 — both planes", async (t: Test) => {
+it("a USER's manual .mix heritage on an EXPORTED class is rejected by the TS990012 ban — both planes", async (t: Test) => {
+    // Program-local `.mix` is banned outright (TS990012, `manual-mix-ban.t.ts`), so under
+    // `isolatedDeclarations` the ban FRONTS what used to surface as the option's own TS9021
+    // (expression heritage). The pin here: the ban lands on the user's heritage line on both
+    // planes, and the factory itself stays annotated (no TS9007 noise).
     const { emit, sourceView } = await buildBothPlanes(manualMixHeritage)
 
     const emitOutput = commandOutput(emit)
 
-    t.ne(emit.exitCode, 0, "emit: rejected by the option itself (plain-TS behavior for any functional mixin)")
-    t.match(emitOutput, "TS9021", `the extends-expression ban.\n${emitOutput}`)
+    t.ne(emit.exitCode, 0, "emit: the program-local manual .mix heritage is rejected")
+    t.match(emitOutput, "TS990012", `the native ban diagnostic.\n${emitOutput}`)
     t.match(emitOutput, "source.ts(14", "…on the user's own heritage line")
-    t.notMatch(emitOutput, "TS9007", "…and it is the ONLY error family: the factory itself is annotated")
+    t.notMatch(emitOutput, "TS9007", "…and the factory itself is annotated (no TS9007)")
 
     const sourceViewOutput = commandOutput(sourceView)
 
     t.ne(sourceView.exitCode, 0, "source view: rejected identically")
-    t.match(sourceViewOutput, "TS9021", `both planes agree.\n${sourceViewOutput}`)
+    t.match(sourceViewOutput, "TS990012", `both planes agree.\n${sourceViewOutput}`)
     t.match(sourceViewOutput, "source.ts(14", "…at the same line")
 })
 

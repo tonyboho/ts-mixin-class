@@ -215,6 +215,7 @@ poisoning the constructor there would shift the position-preserved body. See §9
 | # | Scenario | Status | Tests |
 |---|----------|--------|-------|
 | 9.1 | A class that `extends Base` declaring its own constructor | ✅ | **Supported**: the constructor is preserved and runs as the native-construct step of `.new()`. A direct `new X()` stays a type error — enforced on the EMIT plane (the brand rides on the constructor's own parameter); source view leaves it un-banned, since poisoning the constructor there would shift the position-preserved body and break navigation. `source-transform-consumer-typecheck.t.ts`, `source-transform-mixins.t.ts`, `construction-mixin-standalone.t.ts` |
+| 9.2 | Construction through a **manual `.mix` heritage** (`class X extends M.mix(BaseDescendant)`) — NOT construction-recognized, **by design**: config tracking (the generated `.new`/`<Name>Config` aggregation) ends at a manual `.mix` application; the class keeps the inherited `BaseDescendant.new`, typed with the BASE's config and return type (the mixin's and the class's OWN fields are not config keys). Manual `.mix` is the escape hatch for NON-transformer consumers, where no config generation exists anyway; in a transformer project the canonical, fully construction-enabled form is `class X extends BaseDescendant implements M` | — | by design (no pin) |
 
 ## 10. Cross-file vs single-file
 

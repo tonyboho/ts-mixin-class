@@ -9,12 +9,65 @@ Future work. Each item is a known limitation or open question we treat as a futu
 
 ## To implement
 
-### Source map generation support
+### Source map generation support (recon done — the emitted map is BROKEN, fix plan below)
 
-Check how the transformer behaves when TypeScript source map generation is enabled. Verify
-that emitted JavaScript source maps still point at useful user-source locations after mixin
-helper declarations, rewritten `extends` clauses, and generated runtime calls are inserted,
-and document or fix any positions that become misleading.
+**Recon findings** (probe: mixin + construction consumer + trailing code, `sourceMap: true`,
+real `tsc` + plugin). The emitted `.js.map` names the ORIGINAL file (`sources:
+['../source.ts']`, no `sourcesContent`) but its coordinates are from the REPRINTED text that
+never existed on disk — every user position below the first generated insertion drifts:
+
+- `greet()` body maps to the original line of a bare `}`;
+- the consumer's `describe()` / trailing `afterAll` map **past the original EOF** (line 28/39
+  of a 23-line file);
+- so breakpoints land on wrong lines or beyond end-of-file and stack traces lie — the map is
+  unusable for debugging, not merely imprecise.
+
+**Root cause.** The emit plane compiles the reprinted text under the original file name, so
+tsc's map is `JS → printed`; nothing translates the second leg `printed → original`.
+
+**Fix architecture — compose the two legs at the emit seam** (no transform/printer changes):
+
+- The second leg ALREADY EXISTS: `printSourceFileWithMappings` (util.ts) captures
+  `printed → original` mappings for every reprinted file, attached to it via
+  `attachDiagnosticRemap` (they power the emit-path diagnostic remap today). Unchanged user
+  statements carry exact mappings; generated nodes map to the member they derive from, or to
+  nothing — the right policy for JS maps too.
+- `wrapProgramDiagnostics` already wraps `emit`: intercept `writeFile` for `*.js.map`, decode
+  the segments (TS internals `decodeMappings` / `createSourceMapGenerator`, both already used
+  in `printSourceFileWithMappings`), rewrite each segment's source line/column through the
+  attached remap, re-encode, write.
+- Segments originating in FULLY GENERATED regions (no remap entry): DROP them — the debugger
+  falls back to raw JS there, the standard behaviour for generated code. Never let a generated
+  statement map onto a user line.
+
+**Spec to pin (probe-verified expectations):**
+
+1. User code maps EXACTLY (line AND column): a method name, a statement inside a body, code
+   before the first insertion and after the last one (max drift zone). Verify by compiling a
+   fixture, decoding `.js.map` (base64 VLQ), and asserting representative tokens — the probe
+   already does this end to end.
+2. Generated statements (`__X$mixin` factory, `defineMixinClass` call, `$base`) carry NO
+   mapping into user lines.
+3. A file the transform leaves UNTOUCHED emits a map byte-identical to a plugin-less build.
+4. Option variants, same seam: **`inlineSourceMap`** (the map rides as a data-URI comment
+   inside the `.js` — rewrite it there), **`inlineSources`** (`sourcesContent` must embed the
+   ORIGINAL text, not the reprint), **`declarationMap`** (`.d.ts.map` presumably drifts the
+   same way — same composition on the declaration-emit leg; verify first).
+
+**Stress test** (the source-map twin of `stress-diagnostic-parity.t.ts`): compile the whole
+`fixture-suite/src` corpus with `sourceMap: true` through the transformer, decode every
+emitted map, and assert mechanical invariants that need no per-token expectations:
+
+- every segment's source position lies WITHIN the original file bounds (the beyond-EOF class
+  of today's breakage);
+- token-text agreement: for a mapped IDENTIFIER token in the JS, the original text at the
+  mapped position starts with the same identifier (user identifiers survive the reprint
+  verbatim, so this is a strong, fully mechanical check);
+- files the transform does not touch produce maps identical to a plugin-less baseline compile.
+
+Optionally seed-perturb the corpus like the diagnostic-parity stress does; the corpus sweep
+alone already covers every supported construct. Probe script:
+`scratchpad/sourcemap-probe/probe.mjs` (this session).
 
 ### Qualified mixin references (`implements lib.Logger` / `implements NS.Tagger`)
 

@@ -212,7 +212,7 @@ export function expandMixinClass(
     // `MixinLinearizationConflict<message>` value-cast intersection (emit) any more. No merge plan
     // is emitted for a conflicting set. Spanned on the first `implements` entry (the conflict's deps).
     const dependencyHeritage    = localMixinHeritageTypes(tsInstance, declaration, context)
-    const dependencyRefs        = localMixinRefs(context, dependencyHeritage)
+    const dependencyRefs        = localMixinRefs(tsInstance, context, dependencyHeritage)
     const linearizationConflict = mixinLinearizationConflict(context, dependencyRefs)
 
     if (linearizationConflict !== undefined && declaration.name !== undefined) {
@@ -513,7 +513,7 @@ function expandSourceViewMixinClass(
         declaration.typeParameters,
         []
     )
-    const dependencyRefs     = localMixinRefs(context, dependencyHeritage)
+    const dependencyRefs     = localMixinRefs(tsInstance, context, dependencyHeritage)
     const facts              = getSourceFileFacts(tsInstance, sourceFile, options)
     const baseImportMap      = context.crossFile === undefined
         ? undefined
@@ -1382,7 +1382,7 @@ function baseStaticsTypes(
         // parameter type, and DECLARATION emit expands that static side structurally — a
         // symbol-keyed marker there needs the runtime module's `factory`/`requirements`/`base`
         // names, which the user's file cannot name (TS4023/TS4025 on the exported factory).
-        ...localMixinRefs(context, dependencyHeritage)
+        ...localMixinRefs(tsInstance, context, dependencyHeritage)
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => factory.createTypeReferenceNode("Omit", [
                 factory.createTypeReferenceNode(classStaticsName, [

@@ -483,7 +483,7 @@ function createConsumerExpansionContext(
         name,
         baseName        : generatedName(name, consumerBaseSuffix),
         extendsType,
-        directMixinRefs : localMixinRefs(context, mixinHeritage),
+        directMixinRefs : localMixinRefs(tsInstance, context, mixinHeritage),
         generatedRange,
         sourceViewGeneratedRange,
         originalExtendsClause,

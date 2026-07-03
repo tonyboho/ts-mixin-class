@@ -290,6 +290,21 @@ Violating any of these produces confusing tsserver errors or crashes.
       but two same-named nested mixins in sibling scopes each expand from their own node. A nested
       mixin shadowing a top-level one resolves correctly because the generated `$base extends M`
       names `M`, lexically the nested one.
+    - **Mixin REFERENCES resolve lexically, not by the flat name map**
+      (`resolveLexicalMixinRef` in `mixin-refs.ts`): the nearest enclosing-scope class
+      declaration of the referenced name answers — with its `byDeclaration` ref (a mixin) or
+      with undefined (a PLAIN class shadowing a same-named sibling-scope mixin: the flat
+      lookup would expand its neighbour as a consumer and splice machinery referencing the
+      plain class — an artifact TS2322 against `RuntimeMixinClassValue` at build and a
+      linearization crash at runtime; stress seed 1119868945, pinned as M5b + a corpus case).
+      The walk descends `context.sourceFile` by POSITION containment (program-created files
+      may lack parent pointers), treats the whole CaseBlock as one scope, falls back through
+      `getOriginalNode` for in-place-updated declarations, and short-circuits to the by-name
+      entry for files without nested classes (a top-level double is a duplicate identifier
+      anyway) — that fast path is what keeps `bench:transform` at baseline. Every reference
+      site goes through it: consumer/dependency heritage (`localMixinHeritageTypes*`,
+      `localMixinRefs`), the TS990008 use-before-declaration guard, the transitive-heritage
+      reduction, the class-expression consumer diagnostic, and the manual-`.mix` ban.
     - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
       diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
     - **A class applying a local mixin declared LATER in the same statement list** gets a native

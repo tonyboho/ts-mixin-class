@@ -9,6 +9,7 @@ import {
     type ResolvedMixinRef
 } from "./model.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
+import { resolveLexicalMixinRef } from "./mixin-refs.js"
 import { deepCloneNode, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -37,7 +38,9 @@ export function pushManualMixinApplicationDiagnostics(
             tsInstance.isIdentifier(node.expression) &&
             node.pos >= 0 && node.end >= 0
         ) {
-            const ref = context.byLocalName.get(node.expression.text)
+            // Lexical resolution: a plain class shadowing a mixin name in a nearer scope
+            // makes `X.mix` an ordinary (failing) property access, not a manual application.
+            const ref = resolveLexicalMixinRef(tsInstance, node.expression, node.expression.text, context)
 
             if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
                 const start = node.getStart(sourceFile)

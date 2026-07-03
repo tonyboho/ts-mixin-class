@@ -156,6 +156,15 @@ export type ResolvedMixinRef = {
 }
 
 export type FileMixinContext = {
+    // The transform-input source file the context was built from — the tree lexical mixin
+    // resolution walks (`resolveLexicalMixinRef` descends it by position containment, so it
+    // needs no parent pointers, which program-created files may lack).
+    sourceFile         : ts.SourceFile,
+    // Scope-precise resolution matters only when the file HAS nested classes: at the top
+    // level a same-named plain class and mixin (or import) would be a duplicate identifier,
+    // so the flat by-name lookup is already exact — and much cheaper (`resolveLexicalMixinRef`
+    // fast path).
+    hasNestedClasses   : boolean,
     byLocalName        : Map<string, ResolvedMixinRef>,
     byKey              : Map<string, ResolvedMixinRef>,
     // Every LOCALLY-declared `@mixin` keyed by its own declaration node, so a mixin is detected

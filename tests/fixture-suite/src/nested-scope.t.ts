@@ -229,6 +229,26 @@ function makeParamPropertyConsumer(): string {
     return tagged.label() + ":" + tagged.tag
 }
 
+// A PLAIN (undecorated) nested class whose name collides with a `@mixin` in a SIBLING scope
+// (`Widget` of buildWidgetA/B above): mixin resolution is by the NEAREST enclosing-scope
+// declaration, so `UsePlainWidget implements Widget` here is ordinary TypeScript (it provides
+// the member itself) and must NOT be expanded as a consumer of the sibling scopes' mixins.
+function makePlainShadowingConsumer(): string {
+    class Widget {
+        w(): string {
+            return "plain"
+        }
+    }
+
+    class UsePlainWidget implements Widget {
+        w(): string {
+            return new Widget().w()
+        }
+    }
+
+    return new UsePlainWidget().w()
+}
+
 // A mixin + consumer declared in a NAMESPACE (ModuleBlock).
 namespace nesting {
     @mixin()
@@ -248,6 +268,7 @@ it("nested-scope mixin and consumer declarations work at runtime", async (t: Tes
     t.equal(buildWidgetA(), "A", "first same-named nested mixin")
     t.equal(buildWidgetB(), "B", "second same-named nested mixin from its own declaration")
     t.equal(makeShadowingConsumer(), "inner", "nested mixin shadowing a top-level name")
+    t.equal(makePlainShadowingConsumer(), "plain", "plain class shadowing a sibling-scope mixin name stays ordinary TypeScript")
     t.equal(new TopShadowConsumer().top(), "top", "top-level mixin keeps its own member under shadowing")
     t.equal(makeBlockConsumer(), "labeled", "nested consumer inside a plain block")
 

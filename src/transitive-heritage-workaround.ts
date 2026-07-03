@@ -17,6 +17,7 @@
 
 import type * as ts from "typescript"
 import type { FileMixinContext } from "./model.js"
+import { resolveLocalMixinHeritageRef } from "./mixin-refs.js"
 import type { TypeScript } from "./util.js"
 
 // Per-file cache of transitive dependency reachability (registry key -> all keys
@@ -38,7 +39,7 @@ export function reduceTransitiveMixinHeritageTypes(
 
         return {
             heritageType,
-            ref : context.byLocalName.get(heritageType.expression.text)
+            ref : resolveLocalMixinHeritageRef(tsInstance, heritageType, context)
         }
     })
 

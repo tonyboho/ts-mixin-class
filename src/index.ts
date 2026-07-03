@@ -15,7 +15,7 @@ import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
 import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
-import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
+import { localMixinHeritageTypesFromFacts, resolveLocalMixinHeritageRef } from "./mixin-refs.js"
 import { linearizeDependencies } from "./linearization.js"
 import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
@@ -868,8 +868,6 @@ export function transformSourceFile(
     // reports nothing — so push a NATIVE diagnostic spanned on the heritage reference. A use from
     // a DIFFERENT (deferred) scope — e.g. a function body applying a later top-level mixin — is
     // legal at runtime (the parents differ), and an imported mixin has no declaration here.
-    // (Known lexical corner: `byLocalName` is first-name-wins, so a nested class shadowed by the
-    // resolved top-level name can slip through — the emit-plane TS2448 still catches it.)
     const pushMixinUsedBeforeDeclarationDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
         for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, classFacts, context)) {
             const expression = heritageType.expression
@@ -878,7 +876,7 @@ export function transformSourceFile(
                 continue
             }
 
-            const appliedDeclaration = context.byLocalName.get(expression.text)?.declaration
+            const appliedDeclaration = resolveLocalMixinHeritageRef(tsInstance, heritageType, context)?.declaration
 
             if (
                 appliedDeclaration === undefined ||
@@ -1070,7 +1068,7 @@ export function transformSourceFile(
         while (cursor !== undefined) {
             for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, cursor, context)) {
                 const expression = heritageType.expression as ts.Identifier
-                const ref        = context.byLocalName.get(expression.text)
+                const ref        = resolveLocalMixinHeritageRef(tsInstance, heritageType, context)
 
                 if (ref?.declaration !== undefined && !seen.has(expression.text)) {
                     seen.add(expression.text)
@@ -1834,7 +1832,7 @@ function pushAnonymousClassExpressionDiagnostics(
                         "factory, registry, and declaration names."
                 ))
             } else if (implementsTypes(tsInstance, node as unknown as ts.ClassDeclaration).some((heritageType) =>
-                tsInstance.isIdentifier(heritageType.expression) && context.byLocalName.has(heritageType.expression.text)
+                resolveLocalMixinHeritageRef(tsInstance, heritageType, context) !== undefined
             )) {
                 context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
                     tsInstance, sourceFile, node, mixinDiagnosticCode.AnonymousMixinConsumer,

@@ -201,6 +201,48 @@ it("resolves a nested mixin that shadows a top-level name", async (t: Test) => {
     t.equal(imported.fromTop, "top", "the top-level consumer still resolves the top-level mixin")
 })
 
+// M5b — a PLAIN (undecorated) nested class whose name collides with a `@mixin` in a SIBLING
+// scope. The consumer next to the plain class implements it as ordinary TypeScript (providing
+// the members itself) — its lexical `Widget` is NOT a mixin, so the consumer must NOT expand:
+// mixin resolution is by the nearest enclosing-scope declaration, not by a flat file-wide
+// name lookup (which would find the sibling scope's mixin and splice runtime machinery that
+// references the plain class — an artifact TS2322 `RuntimeMixinClassValue` on the emit plane;
+// found by stress seed 1119868945). The mixin's own scope keeps expanding.
+it("does not expand a consumer whose lexical target is a plain class shadowing a sibling-scope mixin name", async (t: Test) => {
+    const imported = await buildAndImport(t, `
+        import { mixin } from "ts-mixin-class"
+
+        function buildPlain (): string {
+            class Widget {
+                w (): string { return "plain" }
+            }
+
+            class UsePlain implements Widget {
+                w (): string { return new Widget().w() }
+            }
+
+            return new UsePlain().w()
+        }
+
+        function buildMixed (): string {
+            @mixin()
+            class Widget {
+                w (): string { return "mixed" }
+            }
+
+            class UseMixed implements Widget {}
+
+            return new UseMixed().w()
+        }
+
+        export const fromPlain = buildPlain()
+        export const fromMixed = buildMixed()
+    `)
+
+    t.equal(imported.fromPlain, "plain", "the plain-class scope stays ordinary TypeScript and runs")
+    t.equal(imported.fromMixed, "mixed", "the sibling mixin scope still expands its consumer")
+})
+
 // M6 — a `@mixin` / consumer written as a class EXPRESSION (anonymous or named) has no stable
 // statement slot for the generated siblings, so it is rejected with a clean native diagnostic
 // rather than a bare TS2420. A named class DECLARATION (the supported form) is never flagged.

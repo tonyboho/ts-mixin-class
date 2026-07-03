@@ -209,6 +209,8 @@ export function buildFileMixinContext(
     nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): FileMixinContext {
     const context: FileMixinContext = {
+        sourceFile,
+        hasNestedClasses   : facts.hasNestedClasses,
         byLocalName        : new Map(),
         byKey              : new Map(),
         byDeclaration      : new Map(),

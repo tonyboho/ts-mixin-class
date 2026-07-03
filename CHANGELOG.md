@@ -1,5 +1,32 @@
 # ts-mixin-class
 
+## 0.0.8 - 2026-07-03
+
+### Patch Changes
+
+- 6cfe4a9: Support **qualified mixin references** — a consumer can reference a mixin through a namespace import (`implements lib.Logger`) or a local namespace (`implements NS.Tagger`). Such a consumer used to be left untransformed and failed with a bare TS2420. A consumer that applies a qualified mixin declared **above** its own `namespace` block is now rejected with a clear diagnostic instead of emitting code that crashes at runtime.
+- 004a456: Construction classes are now built **only** through their generated `.new(...)`; a direct `new X()` is a compile-time error (it silently bypassed `initialize()` before). A `@mixin` may now declare its own constructor — it is preserved and runs during construction.
+- 5c913f9: Fix a mixin's own **parameter properties** (`constructor(public label: string = …)`) missing from the type under `tsc` — the value existed at runtime but the consumer saw a TS2339. They now appear as members, with `readonly` preserved.
+- f3e0ade: Reject an **instantiated namespace merged with a `@mixin` class** (the static-helper pattern) with a clear diagnostic (TS990009) — the merge silently lost the namespace's members. A type-only namespace merge stays legal.
+- 05aae8c: A mixin's **accessors now keep real `get`/`set` types** on consumers — a split get/set pair keeps its distinct read and write types instead of collapsing to one property. New diagnostic **TS990010**: a class field shadowing a mixin's accessor (or the reverse) in a way that would misbehave at runtime is rejected under `useDefineForClassFields`.
+- 1d4f91f: **Auto-accessors** (`accessor x: T`) on a mixin are handled as real accessors on consumers, and **variance annotations** (`in`/`out`) on a generic mixin's type parameters no longer break the build.
+- eef7179: Work around a TypeScript 6.0 crash when a mixin declares a **`this`-typed accessor** (`get self(): this`); consumers narrow it the same way.
+- f6b0703: Fixes — a mixin or consumer declared in a **`switch` case/`default` clause** was silently not expanded, and the editor **offered internal helper names** in completions. New diagnostic **TS990008**: a class applying a local mixin declared **later in the same scope** (which would crash at runtime) is flagged on both `tsc` and the editor.
+- dc007ad: Checker error messages that embed a base-class name now show **your** class names instead of internal generated names, on both `tsc` and the editor (the override family TS4113/TS4114/TS4117, member-compat TS2416/TS2417). The generated `.new`'s name and the `<Class>Config` alias also render correctly in editor hovers and signature help.
+- bd0ab09: Fix a tsserver crash (`Debug Failure`) on every edit in a package using `moduleResolution` `node16`/`nodenext`, which made the editor **silently show no errors at all**.
+- 8b6c847: A **generic construction-base mixin** (`@mixin() class Stash<T> extends Base`) now has the full construction surface — a typed `.new<T>` and `<Mixin>Config<T>` — instead of falling back to an untyped base. `static mix` on a `@mixin` is now a reserved name (it is the framework's application method); `static new` is not reserved, and a user's own `static new` overrides the generated one.
+- a593eb1: Support **`isolatedDeclarations: true`** on the `tsc` layer — a program using the transformer builds cleanly under the option. Adds the public type `Mix<M, B>` for annotating a manual `M.mix(B)` in an external consumer.
+- 1c1e072: Fix a plain nested class whose name **collides with a `@mixin` in a sibling scope** making a neighbouring consumer expand against the wrong class — it failed to build and crashed at runtime. Such a consumer is now left as ordinary TypeScript.
+- 13dd85f: Reject a **manual `.mix(...)` on a mixin declared in your own program** with a clear diagnostic (TS990012) naming the `implements` fix — inside a transformer project mixins compose through the class heritage. `.mix` remains supported for external consumers of the published declarations.
+- 2646f38: Fix **user decorators on a `@mixin` class** being silently dropped from the build output (both decorator modes).
+- 32c28f3: A mixin's **member decorators** now work in legacy `experimentalDecorators` mode too.
+- d5f04a4: A mixin's own `static` body can now reach its base's and dependencies' statics through **`super`** on the `tsc` build (including `super.new(...)`), matching the editor; an incompatible static override is now a build error (TS2417) instead of passing silently.
+- cabad6d: The transformer's structural errors are now real TypeScript diagnostics with **stable codes (TS990001–TS990007)** and precise spans, instead of a generic TS2344. Because they run after type-checking, they can no longer be silenced with `@ts-expect-error`.
+- 77f8ab3: A `@mixin` or a mixin consumer may now be declared **anywhere a class declaration is legal** — inside a function body or block, not just at the top level — on both `tsc` and the editor. Class expressions remain unsupported but now get a clear diagnostic instead of a bare TS2420.
+- e885d94: Spec — **`noImplicitOverride` extends to mixin-member overrides**: an unmarked override is TS4114 and you mark it `override` as with a real base; the `override` modifier is also accepted in the default config.
+- 2ec4e84: New diagnostic **TS990011**: an accessor override that declares fewer halves than it overrides (e.g. get-only over a get/set pair) silently kills the missing half at runtime — this narrowing is now rejected on mixin layers. Extending (adding halves) stays legal.
+- 503616b: A **`static {}` block on a `@mixin` class** is now supported (previously rejected with TS990004); it runs once per base the mixin is applied over.
+
 ## 0.0.7 - 2026-06-27
 
 ### Patch Changes

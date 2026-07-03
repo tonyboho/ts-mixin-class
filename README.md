@@ -55,7 +55,7 @@ dependency in your `package.json`. Also add a `prepare` script:
 ```json
 {
     "dependencies": {
-        "ts-mixin-class": "0.0.7"
+        "ts-mixin-class": "0.0.8"
     },
     "devDependencies": {
         "ts-patch": "4.0.1"

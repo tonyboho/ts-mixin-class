@@ -12,6 +12,7 @@
         "useDefineForClassFields": false,
         "skipLibCheck": true,
         "declaration": true,
+        "isolatedDeclarations": true,
         "rootDir": "src",
         "outDir": "dist",
         "plugins": [

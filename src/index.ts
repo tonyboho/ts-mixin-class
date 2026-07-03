@@ -446,7 +446,8 @@ function effectiveUseDefineForClassFields(tsInstance: TypeScript, compilerOption
 function resolveTransformOptions(
     config: MixinClassTransformerConfig,
     useDefineForClassFields?: boolean,
-    experimentalDecorators?: boolean
+    experimentalDecorators?: boolean,
+    isolatedDeclarations?: boolean
 ): TransformOptions {
     return {
         packageName                : config.packageName ?? defaultTransformOptions.packageName,
@@ -454,6 +455,7 @@ function resolveTransformOptions(
         sourceView                 : false,
         useDefineForClassFields    : useDefineForClassFields ?? defaultTransformOptions.useDefineForClassFields,
         experimentalDecorators     : experimentalDecorators ?? defaultTransformOptions.experimentalDecorators,
+        isolatedDeclarations       : isolatedDeclarations ?? defaultTransformOptions.isolatedDeclarations,
         staticCollisionCheck       : normalizeStaticCollisionCheck(config.staticCollisionCheck),
         fillMissedInitializersWith : normalizeFillMissedInitializers(config.fillMissedInitializersWith),
         // Read at build time (the transformer runs under tsc in Node) and baked into the emit
@@ -511,7 +513,10 @@ export default function transformProgram(
     const compilerOptions           = program.getCompilerOptions()
     const compilerHost              = host ?? tsInstance.createCompilerHost(compilerOptions)
     const options                   = resolveTransformOptions(
-        config, effectiveUseDefineForClassFields(tsInstance, compilerOptions), compilerOptions.experimentalDecorators === true
+        config,
+        effectiveUseDefineForClassFields(tsInstance, compilerOptions),
+        compilerOptions.experimentalDecorators === true,
+        compilerOptions.isolatedDeclarations === true
     )
     const resolvedModuleFileNames   = new Map<string, string | undefined>()
     const runtimeModuleAvailability = new Map<string, boolean>()
@@ -578,7 +583,12 @@ export function createMixinClassCompilerHost(
     baseProgram?: ts.Program,
     nativeDiagnostics: NativeMixinDiagnostic[] = []
 ): ts.CompilerHost {
-    const options              = resolveTransformOptions(config, effectiveUseDefineForClassFields(tsInstance, compilerOptions), compilerOptions.experimentalDecorators === true)
+    const options              = resolveTransformOptions(
+        config,
+        effectiveUseDefineForClassFields(tsInstance, compilerOptions),
+        compilerOptions.experimentalDecorators === true,
+        compilerOptions.isolatedDeclarations === true
+    )
     const sourceCache          = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
     const usePrintedSourceFile = resolveUsePrintedSourceFile(config, compilerOptions)
 

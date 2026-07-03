@@ -684,6 +684,22 @@ emit reports the **same TS2420 at the same line and column** as the IDE. Guards:
 missing, satisfied → no false positive) and the corpus parity sweep (33 seeds). The remaining
 downstream-*consumer* propagation is still open — see Current gaps.
 
+**`isolatedDeclarations` (gated factory return annotation).** Under the option (threaded into
+`TransformOptions.isolatedDeclarations` by the hosts) the factory gets an EXPLICIT return
+annotation (`createFactoryReturnType`): real own-constructor signature (or `AnyConstructor<X>`),
+own statics literal (`createFactoryStaticsLiteral` — a static `new` MUST keep a STRING-LITERAL
+member name: the reprint round-trip reparses an identifier `new(…)` in a type literal as a
+CONSTRUCT signature), and the base/dependency statics tail (`baseStaticsTypes`, shared with the
+base parameter) with the class's OWN static names shadowed (class semantics — otherwise the
+base's permissive `new` stays a live overload next to a user's own). The return statement is
+CAST to the annotation (structural checking would reject TRUSTED declaration-merged interface
+members). GATED, not always-on: the tail references dependency VALUE types whose annotations
+nest further — `Omit<ClassStatics<…>>` chains hit the checker's instantiation-depth ceiling
+(TS2589) on deep dependency windows (caught by `bench:compile`'s 8-window fixtures), while the
+default inferred `typeof __X$class` is a flat class type. Guards: `isolated-declarations.t.ts`
+(incl. a cross-package PLUGIN-LESS consumer via the `Mix<M, B>` recipe — the public helper in
+`base.ts`), and the declaration corpus builds with the option on.
+
 ## Symptom → cause
 
 The same crash text has several possible causes; check in this order before assuming the obvious.

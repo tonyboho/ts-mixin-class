@@ -141,20 +141,20 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### `isolatedDeclarations` compatibility — the `tsc` layer
+### Construction MIXIN with a parameter property: the config alias is `Pick<X, never>` (latent)
 
-People enable the option without sharing its actual goal (external declaration emitters), and a
-broken build is a broken build — so the `tsc` layer must work: a program with the transformer
-and `isolatedDeclarations: true` should build cleanly. Suspected offender: the exported mixin
-factory (`export const __X$mixin = function (base) { return class … }`) has an INFERRED return
-type → TS9007-family error on the transformed tree; audit every generated export for explicit
-annotations (value casts / interfaces / config aliases look fine already). Pin with a build
-test first (emit + `--noEmit`).
-
-Scope note: the FULL scenario of the option — generating `.d.ts` with an external no-typecheck
-emitter (oxc etc.) — is out of reach BY DESIGN: an external emitter does not run ts-patch, so it
-would emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
-Declarations must come from the patched `tsc`; document that as a limitation.
+Found while annotating the factory under `isolatedDeclarations`: for `@mixin() class Tagged
+extends Base { constructor(public tag: string = "…") {…} }` the generated
+`TaggedConfig = Partial<Pick<Tagged, never>>` — the parameter property never reaches the
+mixin's own config keys (the alias key list is EMPTY). Nobody noticed because (a) an
+all-optional EMPTY object type accepts any object literal, so `.new({ tag: "x" })` still
+compiles (with no excess-key or required-key checking), and (b) the pin in
+`construction-mixin-config-shapes.t.ts` ("a public PARAMETER PROPERTY … is a config key")
+matches `tag?: string` in the `.d.ts` — which comes from the factory's INFERRED constructor
+signature text, not from the config. Construction CLASSES handle parameter properties
+correctly (`construction-parameter-property.t.ts`); only the construction-MIXIN config
+collection misses them. Fix: trace where the mixin's own `configProperties` skip constructor
+parameter properties, then tighten the pin to assert the CONFIG shape (not `.d.ts` text).
 
 ### Upstream: report the interface-accessor `this` crash (TypeScript 6.0 regression)
 
@@ -249,7 +249,22 @@ quickinfo reports `any`. The class name itself, its type parameters, and its mem
 correctly in every case. For the affected consumers, navigate from the base class's own
 declaration or another usage instead.
 
-### 6. A mixin that violates its `implements` contract is flagged twice in the editor
+### 6. `isolatedDeclarations`: declarations must come from the patched `tsc`; manual `.mix` heritage needs the `Mix` recipe
+
+The `tsc` layer works: with `isolatedDeclarations: true` the transformer emits the factory
+with an explicit return annotation, and a program builds cleanly on both planes. Two bounds:
+
+- The option's FULL scenario — generating `.d.ts` with an external no-typecheck emitter (oxc
+  etc.) — is out of reach BY DESIGN: an external emitter does not run ts-patch, so it would
+  emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
+  Declarations must come from the patched `tsc`.
+- A USER-written `class X extends M.mix(B)` on an EXPORTED class is the option's own TS9021
+  (expression heritage — plain-TS behavior for any functional mixin pattern). The supported
+  recipe for the external (non-transformer) consumer is an annotated const with the package
+  `Mix` helper: `const XBase: Mix<typeof M, typeof B> = M.mix(B)` — checked, unlike an
+  as-assertion.
+
+### 7. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where the

@@ -849,18 +849,219 @@ function createMixinFactoryExpression(
         declaration.name ?? declaration
     )
 
+    // The explicit return annotation exists ONLY under `isolatedDeclarations` (where the
+    // inferred return is a TS9007 on the exported factory). It is not always-on: its
+    // inherited-statics tail references dependency VALUE types whose own annotations nest
+    // further — `Omit<ClassStatics<…>>` chains that hit the checker's instantiation-depth
+    // ceiling (TS2589) on deep dependency windows. The default inferred `typeof __X$class`
+    // is a flat class type with none of that nesting.
+    const returnAnnotation = options.isolatedDeclarations
+        ? createFactoryReturnType(tsInstance, declaration, typeParameters, context)
+        : undefined
+
     return factory.createFunctionExpression(
         undefined,
         undefined,
         undefined,
         typeParameters?.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter)),
         [ createBaseParameter(tsInstance, declaration, context) ],
-        undefined,
+        returnAnnotation,
         factory.createBlock([
             runtimeClass,
-            factory.createReturnStatement(factory.createIdentifier(runtimeClassName))
+            // Under the annotation the return is CAST to it (built fresh — AST nodes are
+            // single-parent): checking `typeof __X$class` against `AnyConstructor<X>`
+            // structurally would reject a mixin whose interface gained TRUSTED members through
+            // declaration merging (the class legitimately does not implement them); the real
+            // body-vs-contract checking lives on the runtime class's own `implements` clause.
+            factory.createReturnStatement(returnAnnotation === undefined
+                ? factory.createIdentifier(runtimeClassName)
+                : factory.createAsExpression(
+                    factory.createAsExpression(
+                        factory.createIdentifier(runtimeClassName),
+                        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                    ),
+                    createFactoryReturnType(tsInstance, declaration, typeParameters, context)
+                ))
         ], true)
     )
+}
+
+// The factory's EXPLICIT return annotation: `AnyConstructor<X<T>> & { …own statics… } &
+// ClassStatics<typeof Req> & Omit<ClassStatics<typeof Dep>, …>`. Written out so the exported
+// factory satisfies `isolatedDeclarations` (an inferred return type is TS9007 on every
+// `@mixin` under that option). The annotation must restate everything the inferred
+// `typeof __X$class` carried, because the value cast reads statics through
+// `ReturnType<typeof __X$mixin>`: the instance side (the generated `interface X`), the
+// mixin's OWN statics (a faithful literal from the declared members — possible because mixin
+// members require explicit annotations), and the statics inherited from the required base /
+// dependencies (the same nodes as the base parameter's tail).
+function createFactoryReturnType(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    typeParameters: ts.TypeParameterDeclaration[] | undefined,
+    context: FileMixinContext
+): ts.TypeNode {
+    const factory      = tsInstance.factory
+    const instanceType = factory.createTypeReferenceNode(
+        declaration.name === undefined ? "never" : declaration.name.text,
+        typeParameters?.map((typeParameter) => factory.createTypeReferenceNode(typeParameter.name, undefined))
+    )
+    // A mixin declaring its OWN constructor keeps its real construct signature in the
+    // annotation (`new (tag?: string) => X`), like the inferred type did — downstream
+    // `ConstructorParameters<ReturnType<…>>` readers stay accurate. A parameter with an
+    // initializer surfaces as OPTIONAL, exactly as inference rendered it.
+    const ownConstructor = declaration.members.find(
+        (member): member is ts.ConstructorDeclaration => tsInstance.isConstructorDeclaration(member)
+    )
+    const head           = ownConstructor === undefined
+        ? factory.createTypeReferenceNode(anyConstructorName, [ instanceType ])
+        : factory.createParenthesizedType(factory.createConstructorTypeNode(
+            undefined,
+            undefined,
+            ownConstructor.parameters.map((parameter) => cloneFactorySignatureParameter(tsInstance, parameter)),
+            instanceType
+        ))
+    const staticsLiteral = createFactoryStaticsLiteral(tsInstance, declaration)
+    // Inherited statics the class's OWN statics shadow are omitted — class semantics: an own
+    // `static new` REPLACES the base's inherited one; a plain intersection would instead keep
+    // the base's permissive signature as a live overload.
+    const inheritedTail = baseStaticsTypes(tsInstance, declaration, context, ownStaticMemberNames(tsInstance, declaration))
+    const parts         = [
+        head,
+        ...(staticsLiteral.members.length === 0 ? [] : [ staticsLiteral ]),
+        ...inheritedTail
+    ]
+
+    return parts.length === 1 ? head : factory.createIntersectionTypeNode(parts)
+}
+
+// The names of the class's own statics — the keys its static side SHADOWS in whatever it
+// inherits (used to Omit them from the annotation's inherited-statics tail).
+function ownStaticMemberNames(tsInstance: TypeScript, declaration: ts.ClassDeclaration): string[] {
+    return declaration.members.flatMap((member) => {
+        if (!hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
+            member.name === undefined ||
+            !(tsInstance.isIdentifier(member.name) || tsInstance.isStringLiteral(member.name))
+        ) {
+            return []
+        }
+
+        return [ member.name.text ]
+    })
+}
+
+// A signature-position clone of a declaration parameter: modifiers (parameter properties)
+// dropped, an INITIALIZER surfaces as `?` (optional in the signature), types cloned.
+function cloneFactorySignatureParameter(
+    tsInstance: TypeScript,
+    source: ts.ParameterDeclaration
+): ts.ParameterDeclaration {
+    const factory = tsInstance.factory
+
+    return factory.createParameterDeclaration(
+        undefined,
+        source.dotDotDotToken === undefined ? undefined : deepCloneNode(tsInstance, source.dotDotDotToken),
+        deepCloneNode(tsInstance, source.name),
+        source.questionToken !== undefined || source.initializer !== undefined
+            ? factory.createToken(tsInstance.SyntaxKind.QuestionToken)
+            : undefined,
+        source.type === undefined
+            ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+            : deepCloneNode(tsInstance, source.type),
+        undefined
+    )
+}
+
+// The mixin's OWN static surface as a type literal, member for member. A static named `new`
+// gets a STRING-LITERAL member name: the emit plane REPRINTS the tree to text, and a reparsed
+// `new(…): X` inside a type literal is a CONSTRUCT signature, not a method named "new" —
+// `"new"(…): X` survives the round-trip. Accessors keep their get/set shape (a get-only static
+// stays read-only through `typeof Mixin`); an auto-accessor is a plain writable property.
+function createFactoryStaticsLiteral(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration
+): ts.TypeLiteralNode {
+    const factory = tsInstance.factory
+
+    const memberName = (name: ts.PropertyName): ts.PropertyName => {
+        if (tsInstance.isIdentifier(name) && name.text === "new") {
+            return factory.createStringLiteral("new")
+        }
+
+        return deepCloneNode(tsInstance, name)
+    }
+
+    const parameter = (source: ts.ParameterDeclaration): ts.ParameterDeclaration => {
+        return factory.createParameterDeclaration(
+            undefined,
+            source.dotDotDotToken === undefined ? undefined : deepCloneNode(tsInstance, source.dotDotDotToken),
+            deepCloneNode(tsInstance, source.name),
+            source.questionToken === undefined ? undefined : deepCloneNode(tsInstance, source.questionToken),
+            source.type === undefined
+                ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                : deepCloneNode(tsInstance, source.type),
+            undefined
+        )
+    }
+
+    return factory.createTypeLiteralNode(declaration.members.flatMap((member): ts.TypeElement[] => {
+        if (!hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
+            member.name === undefined ||
+            tsInstance.isPrivateIdentifier(member.name)
+        ) {
+            return []
+        }
+
+        if (tsInstance.isPropertyDeclaration(member)) {
+            const readonly = !hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword) &&
+                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+
+            return [ factory.createPropertySignature(
+                readonly ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ] : undefined,
+                memberName(member.name),
+                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
+                member.type === undefined
+                    ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                    : deepCloneNode(tsInstance, member.type)
+            ) ]
+        }
+
+        if (tsInstance.isMethodDeclaration(member)) {
+            return [ factory.createMethodSignature(
+                undefined,
+                memberName(member.name),
+                member.questionToken === undefined ? undefined : deepCloneNode(tsInstance, member.questionToken),
+                member.typeParameters?.map((typeParameter) => deepCloneNode(tsInstance, typeParameter)),
+                member.parameters.map(parameter),
+                member.type === undefined
+                    ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                    : deepCloneNode(tsInstance, member.type)
+            ) ]
+        }
+
+        if (tsInstance.isGetAccessorDeclaration(member)) {
+            return [ factory.createGetAccessorDeclaration(
+                undefined,
+                memberName(member.name),
+                [],
+                member.type === undefined
+                    ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                    : deepCloneNode(tsInstance, member.type),
+                undefined
+            ) ]
+        }
+
+        if (tsInstance.isSetAccessorDeclaration(member)) {
+            return [ factory.createSetAccessorDeclaration(
+                undefined,
+                memberName(member.name),
+                member.parameters.map(parameter),
+                undefined
+            ) ]
+        }
+
+        return []
+    }))
 }
 
 // Heritage of the factory's inner runtime class: `extends base`, plus the mixin's own
@@ -1149,12 +1350,46 @@ function createBaseParameter(
         baseInstanceType === undefined ? undefined : [ baseInstanceType ]
     )
 
-    const staticsTypes = [
+    const staticsTypes = baseStaticsTypes(tsInstance, declaration, context)
+
+    return factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        "base",
+        undefined,
+        staticsTypes.length === 0
+            ? constructorType
+            : factory.createIntersectionTypeNode([ constructorType, ...staticsTypes ])
+    )
+}
+
+// The STATIC sides the factory's base parameter carries — the required base's statics plus
+// each dependency's — shared verbatim by the factory's RETURN annotation (the runtime class
+// inherits exactly these through `extends base`, so the annotation must re-state them or the
+// mixin value would lose the inherited statics).
+function baseStaticsTypes(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    context: FileMixinContext,
+    // Keys to EXCLUDE from the inherited statics — the class's own static names, when the
+    // caller models class-semantics SHADOWING (the return annotation). The base parameter
+    // passes none: inside the factory `super.<baseStatic>` must keep seeing the base's own.
+    shadowedNames: readonly string[] = []
+): ts.TypeNode[] {
+    const factory            = tsInstance.factory
+    const requiredBase       = requiredBaseType(tsInstance, declaration)
+    const dependencyHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
+    // Built FRESH per use site — a type node cannot appear in two tree positions.
+    const shadowedLiterals = (): ts.TypeNode[] => shadowedNames.map((name) => {
+        return factory.createLiteralTypeNode(factory.createStringLiteral(name))
+    })
+
+    return [
         ...(requiredBase === undefined
             ? []
-            : [ factory.createTypeReferenceNode(classStaticsName, [
+            : [ wrapInOmit(tsInstance, factory.createTypeReferenceNode(classStaticsName, [
                 factory.createTypeQueryNode(expressionToEntityName(tsInstance, requiredBase.expression))
-            ]) ]),
+            ]), shadowedLiterals()) ]),
         // A dependency's statics also drop the framework marker symbols (`keyof
         // RuntimeMixinClass`): the class inside the factory inherits its static side from this
         // parameter type, and DECLARATION emit expands that static side structurally — a
@@ -1171,18 +1406,27 @@ function createBaseParameter(
                     factory.createTypeOperatorNode(
                         tsInstance.SyntaxKind.KeyOfKeyword,
                         factory.createTypeReferenceNode(runtimeMixinClassName, undefined)
-                    )
+                    ),
+                    ...shadowedLiterals()
                 ])
             ]))
     ]
+}
 
-    return factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        "base",
-        undefined,
-        staticsTypes.length === 0
-            ? constructorType
-            : factory.createIntersectionTypeNode([ constructorType, ...staticsTypes ])
-    )
+// `Omit<type, k1 | k2 | …>`, or the type untouched when there is nothing to omit.
+function wrapInOmit(
+    tsInstance: TypeScript,
+    type: ts.TypeNode,
+    keys: readonly ts.TypeNode[]
+): ts.TypeNode {
+    if (keys.length === 0) {
+        return type
+    }
+
+    const factory = tsInstance.factory
+
+    return factory.createTypeReferenceNode("Omit", [
+        type,
+        keys.length === 1 ? keys[0] : factory.createUnionTypeNode([ ...keys ])
+    ])
 }

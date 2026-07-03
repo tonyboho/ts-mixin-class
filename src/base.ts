@@ -18,6 +18,29 @@ export type MixinApplication<
     ClassStatics<Base> &
     ClassStatics<MixinStatics>
 
+// The result type of `M.mix(B)`, as a WRITTEN annotation — for the external (non-transformer)
+// consumer under `isolatedDeclarations`, whose exported class over a manual `.mix` hits the
+// option's own TS9021 (expression heritage). The supported recipe hoists the application into
+// an annotated const (checked, unlike an as-assertion):
+//
+//     const AppBase: Mix<typeof Logger, typeof Custom> = Logger.mix(Custom)
+//     export class App extends AppBase {}
+//
+// STRUCTURAL on purpose: a conditional-infer formulation (`M extends { mix: (base: B) =>
+// infer R } ? R : never`) silently degrades to an `any` instance side — inference from the
+// generic `mix` signature falls back to its constraint — and stops checking anything.
+// `ClassStatics` drops `prototype` and every construct signature (a mapped type keeps only
+// properties), and the framework's own `mix` + runtime marker symbols are omitted, leaving
+// exactly the statics an application inherits.
+export type Mix<
+    M extends AnyConstructor<object>,
+    B extends AnyConstructor<object>
+> = MixinApplication<
+    B,
+    InstanceType<M>,
+    Omit<ClassStatics<M>, "mix" | typeof factory | typeof requirements | typeof base>
+>
+
 export const factory: unique symbol = Symbol.for("ts-mixin-class.factory")
 export const requirements: unique symbol = Symbol.for("ts-mixin-class.requirements")
 export const base: unique symbol = Symbol.for("ts-mixin-class.base")

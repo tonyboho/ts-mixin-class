@@ -36,7 +36,15 @@ export type TransformOptions = {
     // preserves USER decorators on a `@mixin` class: standard (TC39) mode wraps the value in
     // an IIFE holding a real decorated class declaration (the compiler emits the decorator
     // machinery itself); legacy mode folds the decorators over the value.
-    experimentalDecorators     : boolean
+    experimentalDecorators     : boolean,
+    // The compilation's `isolatedDeclarations`, threaded in by the host. Gates the factory's
+    // EXPLICIT return annotation (without it every exported factory's inferred return is a
+    // TS9007 under the option). Gated rather than always-on: the annotation's inherited-statics
+    // tail references dependencies' VALUE types, whose annotations reference THEIR
+    // dependencies' — nested `Omit<ClassStatics<…>>` chains that hit the checker's
+    // instantiation-depth ceiling (TS2589) on deep dependency windows, whereas the inferred
+    // `typeof __X$class` is a flat class type the checker resolves without nesting.
+    isolatedDeclarations       : boolean
 }
 
 export type MixinDecoratorImports = {
@@ -220,7 +228,9 @@ export const defaultTransformOptions: TransformOptions = {
     useDefineForClassFields    : true,
     // Standard (TC39) decorators are TypeScript's default mode; hosts overwrite it with the
     // compilation's option.
-    experimentalDecorators     : false
+    experimentalDecorators     : false,
+    // The option is off by default; hosts overwrite it with the compilation's value.
+    isolatedDeclarations       : false
 }
 
 export const anyConstructorName = "AnyConstructor"

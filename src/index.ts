@@ -14,6 +14,7 @@ import {
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
+import { linearizeDependencies } from "./linearization.js"
 import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
@@ -22,6 +23,7 @@ import {
     applyLegacyClassDecoratorsLocalName,
     classStaticsName,
     defaultTransformOptions,
+    DependencyLinearizationError,
     implementsTypes,
     defineMixinClassName,
     defineMixinClassLocalName,
@@ -85,6 +87,19 @@ export { printSourceFile } from "./util.js"
 // ts-patch ProgramTransformer
 
 const preserveSourceCache = new WeakMap<ts.SourceFile, Map<string, ts.SourceFile>>()
+
+// Instance member kinds of a mixin/consumer class, extracted once per declaration NODE for the
+// member-override guards (TS990010/TS990011) — one mixin serves many consumers, and both guards
+// share one extraction. Keyed by AST node identity, so an edited file (fresh nodes) never reads
+// a stale entry and old entries are GC'd with their tree.
+type MixinInstanceMemberKinds = {
+    accessors      : Set<string>,
+    fields         : Set<string>,
+    autoAccessors  : Set<string>,
+    accessorHalves : Map<string, { get: boolean, set: boolean }>
+}
+
+const mixinInstanceMemberKindsCache = new WeakMap<ts.ClassDeclaration, MixinInstanceMemberKinds>()
 
 // ---------------------------------------------------------------------------
 // Emit-path diagnostic remapping
@@ -937,13 +952,32 @@ export function transformSourceFile(
     // Instance member KINDS of a mixin class: accessor names vs data-field names (including
     // constructor parameter properties). Used to mirror TypeScript's own TS2610/TS2611
     // kind-mismatch override guards, which the generated interface cannot carry (the checker
-    // only applies them when the base member is declared in a CLASS).
+    // only applies them when the base member is declared in a CLASS). `accessorHalves` carries
+    // WHICH halves each accessor name declares (an auto-accessor is a full pair) for the
+    // partial-override guard (TS990011). Memoized per declaration NODE (module-level WeakMap):
+    // one mixin serves many consumers, and the two override guards share one extraction — an
+    // edited file gets fresh AST nodes, so entries never go stale.
     const mixinInstanceMemberKinds = (
         declaration: ts.ClassDeclaration
-    ): { accessors: Set<string>, fields: Set<string>, autoAccessors: Set<string> } => {
-        const accessors     = new Set<string>()
-        const fields        = new Set<string>()
-        const autoAccessors = new Set<string>()
+    ): MixinInstanceMemberKinds => {
+        const cached = mixinInstanceMemberKindsCache.get(declaration)
+
+        if (cached !== undefined) {
+            return cached
+        }
+
+        const accessors      = new Set<string>()
+        const fields         = new Set<string>()
+        const autoAccessors  = new Set<string>()
+        const accessorHalves = new Map<string, { get: boolean, set: boolean }>()
+
+        const addHalf = (name: string, half: "get" | "set"): void => {
+            const halves = accessorHalves.get(name) ?? { get: false, set: false }
+
+            halves[half] = true
+
+            accessorHalves.set(name, halves)
+        }
 
         for (const member of declaration.members) {
             if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword)) {
@@ -973,20 +1007,68 @@ export function transformSourceFile(
                 continue
             }
 
-            if (tsInstance.isGetAccessorDeclaration(member) || tsInstance.isSetAccessorDeclaration(member)) {
+            if (tsInstance.isGetAccessorDeclaration(member)) {
                 accessors.add(name)
+                addHalf(name, "get")
+            } else if (tsInstance.isSetAccessorDeclaration(member)) {
+                accessors.add(name)
+                addHalf(name, "set")
             } else if (tsInstance.isPropertyDeclaration(member)) {
                 // An AUTO-ACCESSOR (`accessor x`) is syntactically a PropertyDeclaration but at
                 // runtime a get/set pair on the prototype — classify by the RUNTIME kind.
                 if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.AccessorKeyword)) {
                     autoAccessors.add(name)
+                    addHalf(name, "get")
+                    addHalf(name, "set")
                 } else {
                     fields.add(name)
                 }
             }
         }
 
-        return { accessors, fields, autoAccessors }
+        const kinds: MixinInstanceMemberKinds = { accessors, fields, autoAccessors, accessorHalves }
+
+        mixinInstanceMemberKindsCache.set(declaration, kinds)
+
+        return kinds
+    }
+
+    // The DIRECTLY applied mixin layers of a class, nearest-first: its own `implements` list
+    // (first-listed = nearest — §2.6), continued through a LOCAL `extends` chain of consumers
+    // (a base consumer's mixins are deeper layers). A ref without a program-local declaration
+    // (a `.d.ts` mixin) cannot be inspected — skipped. Shared by the member-override guards
+    // (TS990010 kind mismatches, TS990011 partial accessor overrides).
+    const collectAppliedMixinRefs = (
+        classFacts: ClassFacts
+    ): { name: string, key: string, declaration: ts.ClassDeclaration }[] => {
+        const appliedRefs: { name: string, key: string, declaration: ts.ClassDeclaration }[] = []
+        const seen                                                                           = new Set<string>()
+        let cursor: ClassFacts | undefined                                                   = classFacts
+
+        while (cursor !== undefined) {
+            for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, cursor, context)) {
+                const expression = heritageType.expression as ts.Identifier
+                const ref        = context.byLocalName.get(expression.text)
+
+                if (ref?.declaration !== undefined && !seen.has(expression.text)) {
+                    seen.add(expression.text)
+                    appliedRefs.push({ name: expression.text, key: ref.key, declaration: ref.declaration })
+                }
+            }
+
+            const baseExpression: ts.Expression | undefined = cursor.extendsType?.expression
+
+            cursor = undefined
+
+            if (baseExpression !== undefined && tsInstance.isIdentifier(baseExpression) &&
+                !seen.has("extends:" + baseExpression.text)
+            ) {
+                seen.add("extends:" + baseExpression.text)
+                cursor = facts.classesByName.get(baseExpression.text)
+            }
+        }
+
+        return appliedRefs
     }
 
     // Mirrors plain TypeScript's TS2610/TS2611: overriding an ACCESSOR with an instance FIELD
@@ -1013,33 +1095,7 @@ export function transformSourceFile(
         // the slot exists — a guaranteed TypeError at construction time. That direction is
         // rejected under BOTH semantics.
         const defineSemantics = resolvedOptions.useDefineForClassFields
-
-        const appliedRefs: { name: string, declaration: ts.ClassDeclaration }[] = []
-        const seen                                                              = new Set<string>()
-        let cursor: ClassFacts | undefined                                      = classFacts
-
-        while (cursor !== undefined) {
-            for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, cursor, context)) {
-                const expression = heritageType.expression as ts.Identifier
-                const applied    = context.byLocalName.get(expression.text)?.declaration
-
-                if (applied !== undefined && !seen.has(expression.text)) {
-                    seen.add(expression.text)
-                    appliedRefs.push({ name: expression.text, declaration: applied })
-                }
-            }
-
-            const baseExpression: ts.Expression | undefined = cursor.extendsType?.expression
-
-            cursor = undefined
-
-            if (baseExpression !== undefined && tsInstance.isIdentifier(baseExpression) &&
-                !seen.has("extends:" + baseExpression.text)
-            ) {
-                seen.add("extends:" + baseExpression.text)
-                cursor = facts.classesByName.get(baseExpression.text)
-            }
-        }
+        const appliedRefs     = collectAppliedMixinRefs(classFacts)
 
         if (appliedRefs.length === 0) {
             return
@@ -1142,6 +1198,161 @@ export function transformSourceFile(
         }
     }
 
+    // PARTIAL accessor overrides across the mixin chain (TS990011). JS prototype shadowing is
+    // per-NAME, not per-half: a nearer accessor descriptor replaces the deeper one ENTIRELY, so
+    // an override declaring FEWER halves than the overridden accessor silently kills the missing
+    // half at runtime (a dead setter → strict-mode TypeError on write; a dead getter → undefined
+    // reads) while the merged type still looks whole. Rule: an override's half-set must be a
+    // SUPERSET of the overridden one — extending is legal, narrowing is an error. Unlike the
+    // kind guard above, the hazard does not depend on define/set semantics, so it is
+    // unconditional. Scope: MIXIN layers only (the class's own members against every mixin layer
+    // of its LINEARIZED chain — transitive dependencies included — plus mixin-vs-mixin overlaps
+    // in the directly listed refs); an override of the class's own `extends` base is ordinary
+    // class inheritance, which plain TypeScript deliberately leaves unchecked.
+    const pushPartialAccessorOverrideDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
+        const directRefs = collectAppliedMixinRefs(classFacts)
+
+        if (directRefs.length === 0) {
+            return
+        }
+
+        const className = classFacts.name ?? "<anonymous>"
+
+        const push = (node: ts.Node, message: string): void => {
+            const start = node.getStart(sourceFile)
+
+            context.nativeDiagnostics.push({
+                fileName    : sourceFile.fileName,
+                start,
+                length      : node.getEnd() - start,
+                code        : mixinDiagnosticCode.MixinPartialAccessorOverride,
+                category    : tsInstance.DiagnosticCategory.Error,
+                messageText : message
+            })
+        }
+
+        const shapeOf = (
+            kinds: ReturnType<typeof mixinInstanceMemberKinds>,
+            name: string,
+            halves: { get: boolean, set: boolean }
+        ): string => {
+            if (kinds.autoAccessors.has(name)) {
+                return "an auto-accessor ('accessor')"
+            }
+
+            return halves.get && halves.set ? "a get/set pair" : halves.get ? "a get accessor" : "a set accessor"
+        }
+
+        const missingHalfOf = (near: { get: boolean, set: boolean }, deep: { get: boolean, set: boolean }): string | undefined => {
+            return deep.get && !near.get ? "get" : deep.set && !near.set ? "set" : undefined
+        }
+
+        // The class's OWN accessor declarations (get/set siblings merged into one half-set per
+        // name; an auto-accessor is a full pair and can never narrow, so it is not collected).
+        const ownHalves = new Map<string, { node: ts.Node, get: boolean, set: boolean }>()
+
+        for (const member of (tsInstance.isClassDeclaration(statement) ? statement.members : [])) {
+            if (hasModifier(tsInstance, member, tsInstance.SyntaxKind.StaticKeyword) ||
+                member.name === undefined ||
+                !(tsInstance.isIdentifier(member.name) || tsInstance.isStringLiteral(member.name))
+            ) {
+                continue
+            }
+
+            const isGet = tsInstance.isGetAccessorDeclaration(member)
+            const isSet = tsInstance.isSetAccessorDeclaration(member)
+
+            if (!isGet && !isSet) {
+                continue
+            }
+
+            const name  = member.name.text
+            const entry = ownHalves.get(name) ?? { node: member.name, get: false, set: false }
+
+            // eslint-disable-next-line align-assignments/align-assignments -- false positive on `||=`
+            entry.get ||= isGet
+            entry.set ||= isSet
+
+            ownHalves.set(name, entry)
+        }
+
+        if (ownHalves.size > 0) {
+            // The class's own members are checked against the FULL linearized chain (a
+            // transitive dependency is a runtime layer like any other). Linearized only when
+            // the class actually declares accessors — the common accessor-less class skips the
+            // C3 merge entirely. On a linearization conflict fall back to the direct refs — the
+            // conflict has its own diagnostic (TS990007).
+            let chainRefs: { name: string, declaration: ts.ClassDeclaration }[]
+
+            try {
+                chainRefs = linearizeDependencies(directRefs.map((ref) => ref.key), context)
+                    .filter((ref) => ref.declaration !== undefined)
+                    .map((ref) => ({ name: ref.className, declaration: ref.declaration as ts.ClassDeclaration }))
+            } catch (error) {
+                if (!(error instanceof DependencyLinearizationError)) {
+                    throw error
+                }
+                chainRefs = directRefs
+            }
+
+            for (const ref of chainRefs) {
+                const kinds = mixinInstanceMemberKinds(ref.declaration)
+
+                for (const [ name, own ] of ownHalves) {
+                    const deep = kinds.accessorHalves.get(name)
+
+                    if (deep === undefined) {
+                        continue
+                    }
+
+                    const missing = missingHalfOf(own, deep)
+
+                    if (missing !== undefined) {
+                        push(own.node, `Invalid mixin member override. '${name}' is declared as ` +
+                            `${shapeOf(kinds, name, deep)} in mixin ${ref.name}, but ${className} overrides only ` +
+                            `${own.get ? "the getter" : "the setter"}. JS prototype shadowing replaces an accessor ` +
+                            `per NAME, not per half, so the mixin's ${missing} accessor would silently disappear ` +
+                            `at runtime. Declare the missing ${missing} accessor as well.`)
+                    }
+                }
+            }
+        }
+
+        // Mixin-vs-mixin overlaps among the DIRECTLY listed refs (first-listed = nearest). A
+        // narrowing that lives in a mixin's own declaration (a mixin over its dependency) is
+        // reported there by the own-members check above, so transitive pairs are not re-walked.
+        for (let near = 0; near < directRefs.length; near++) {
+            const nearKinds = mixinInstanceMemberKinds(directRefs[near].declaration)
+
+            if (nearKinds.accessorHalves.size === 0) {
+                continue
+            }
+
+            for (let deep = near + 1; deep < directRefs.length; deep++) {
+                const deepKinds = mixinInstanceMemberKinds(directRefs[deep].declaration)
+
+                for (const [ name, nearHalves ] of nearKinds.accessorHalves) {
+                    const deepHalves = deepKinds.accessorHalves.get(name)
+
+                    if (deepHalves === undefined) {
+                        continue
+                    }
+
+                    const missing = missingHalfOf(nearHalves, deepHalves)
+
+                    if (missing !== undefined) {
+                        push(statement, `Invalid mixin member override. '${name}' is declared as ` +
+                            `${shapeOf(deepKinds, name, deepHalves)} in mixin ${directRefs[deep].name}, but mixin ` +
+                            `${directRefs[near].name} (a nearer layer of ${className}) re-declares it as ` +
+                            `${shapeOf(nearKinds, name, nearHalves)} — the ${missing} accessor of ` +
+                            `${directRefs[deep].name} would silently disappear at runtime for every ${className} ` +
+                            `instance. Declare the missing ${missing} accessor in ${directRefs[near].name}.`)
+                    }
+                }
+            }
+        }
+    }
+
     const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
@@ -1150,6 +1361,7 @@ export function transformSourceFile(
         if (classFacts !== undefined) {
             pushMixinUsedBeforeDeclarationDiagnostics(classFacts, statement)
             pushMixinMemberKindOverrideDiagnostics(classFacts, statement)
+            pushPartialAccessorOverrideDiagnostics(classFacts, statement)
         }
 
         // Anonymous `@mixin` / anonymous mixin consumer: a NATIVE diagnostic (drained by the

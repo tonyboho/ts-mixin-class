@@ -314,6 +314,21 @@ Violating any of these produces confusing tsserver errors or crashes.
       deeper field's constructor assignment fires the generated setter before the slot exists
       (a guaranteed TypeError at construction). Guard: `member-kind-collisions.t.ts`,
       `fixture-suite/src/mixin-auto-accessor.t.ts`.
+    - **PARTIAL accessor overrides are rejected (`TS990011`,
+      `pushPartialAccessorOverrideDiagnostics`)**: JS prototype shadowing replaces an accessor
+      per NAME, not per half, so an override declaring FEWER halves than the overridden accessor
+      silently kills the missing half at runtime (dead setter → strict TypeError, dead getter →
+      `undefined` reads) while the merged type looks whole. Rule: the override's half-set must
+      be a SUPERSET of the overridden one (extending is legal). Unlike `TS990010` this is
+      semantics-INDEPENDENT (unconditional). The class's own accessors are checked against the
+      full LINEARIZED chain (`linearizeDependencies` — transitive deps included; run only when
+      the class declares accessors), mixin-vs-mixin only among DIRECTLY listed refs (a mixin
+      narrowing its own dependency is reported at the mixin's declaration). Plain-`extends` base
+      overrides stay silent (plain-TS territory — TS itself allows every such shape, probed).
+      Member-kind extraction is memoized per declaration NODE (`mixinInstanceMemberKindsCache`,
+      module-level WeakMap, shared with `TS990010`) — `bench:transform` before/after showed the
+      guards at or slightly below the pre-990011 baseline. Guard:
+      `partial-accessor-overrides.t.ts`, `fixture-suite/src/accessor-extension-overrides.t.ts`.
     - **`this`-typed accessors fall back to a PROPERTY signature in the generated interface**
       (`containsThisType` in `interface-members.ts`): a `this` type anywhere inside an
       INTERFACE accessor's annotation crashes plain TypeScript 6.0's checker (a regression —

@@ -33,24 +33,6 @@ qualified heritage expressions, registry lookup through the checker's alias chai
 and in the generated `$base` interface heritage). Alternative fallback if support stays out:
 a native diagnostic ("qualified mixin reference is not supported — import the mixin by name").
 
-### Check: PARTIAL accessor overrides across the chain (suspected silent runtime traps)
-
-JS prototype shadowing is per-NAME, not per-half: a nearer accessor descriptor replaces the
-deeper one entirely. Suspected uncovered cases (each needs a test; the hazard does NOT depend
-on define/set semantics, unlike §2.14):
-
-- a consumer's GET-ONLY accessor over a mixin's full get/set pair — the mixin's SETTER dies
-  (strict-mode TypeError on write through the mixin-typed view);
-- a consumer's SET-ONLY accessor over a mixin's full pair — the GETTER dies (reads → undefined);
-- the nastiest: "adding the missing half" — mixin declares `get x`, consumer adds only `set x`
-  → the mixin's getter silently disappears while the merged TYPE looks like a full pair;
-- the same three shapes mixin-vs-mixin within one `implements` list (first-listed = nearest);
-- a half-override over a mixin's AUTO-ACCESSOR (`accessor x`).
-
-The checker's own guards can't see any of this through the generated interface (same reason
-as TS990010). If the tests confirm the traps, likely resolution: a new native diagnostic
-(TS990011, "partial accessor override") — decide semantics by looking at the red tests.
-
 ### ~~Check: `override` modifier on a mixin member overriding its DEPENDENCY's member~~ — RESOLVED (pass 8)
 
 Answered and pinned in `compiler-option-edges.t.ts` (§2.23): the modifier IS legal in both

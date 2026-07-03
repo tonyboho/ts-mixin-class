@@ -140,20 +140,31 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### Construction MIXIN with a parameter property: the config alias is `Pick<X, never>` (latent)
+### Construction with a parameter property: the config alias is `Pick<X, never>` (latent — MIXINS **and** CLASSES)
 
-Found while annotating the factory under `isolatedDeclarations`: for `@mixin() class Tagged
-extends Base { constructor(public tag: string = "…") {…} }` the generated
-`TaggedConfig = Partial<Pick<Tagged, never>>` — the parameter property never reaches the
-mixin's own config keys (the alias key list is EMPTY). Nobody noticed because (a) an
-all-optional EMPTY object type accepts any object literal, so `.new({ tag: "x" })` still
-compiles (with no excess-key or required-key checking), and (b) the pin in
-`construction-mixin-config-shapes.t.ts` ("a public PARAMETER PROPERTY … is a config key")
-matches `tag?: string` in the `.d.ts` — which comes from the factory's INFERRED constructor
-signature text, not from the config. Construction CLASSES handle parameter properties
-correctly (`construction-parameter-property.t.ts`); only the construction-MIXIN config
-collection misses them. Fix: trace where the mixin's own `configProperties` skip constructor
-parameter properties, then tighten the pin to assert the CONFIG shape (not `.d.ts` text).
+Found while annotating the factory under `isolatedDeclarations`; re-probed 2026-07: for
+`constructor(public tag: string = "…")` the generated config alias is
+`Partial<Pick<X, never>>` — the parameter property never reaches the config keys (the key
+list is EMPTY). This holds for a construction MIXIN (`TaggedConfig`) **and** — contrary to
+what this entry first recorded — for a plain construction CLASS (`TicketConfig`): both paths
+share `collectClassMemberFacts` (`source-file-facts.ts`), which walks `declaration.members`
+and collects only set-accessors and PropertyDeclarations — a parameter property is a
+ParameterDeclaration inside the ConstructorDeclaration and is never visited. (The generated
+mixin INTERFACE does carry the member — only the config collection misses it.)
+
+Nobody noticed because (a) an all-optional EMPTY object type accepts any object literal, so
+`.new({ tag: "x" })` still compiles — but with NO excess-key / required-key / type checking
+(a typo like `.new({ tga: … })` passes silently), and (b) BOTH pins match `tag?: string`
+against the whole `.d.ts`, where the substring also occurs in the emitted
+`constructor(tag?: string)` signature — `construction-mixin-config-shapes.t.ts` (the
+factory's inferred signature) and `construction-parameter-property.t.ts`
+(`readConstructionConfigDts` returns the full file) — the config-test trap again.
+
+Fix: collect public constructor parameter properties into `configProperties` in
+`collectClassMemberFacts` (public only; optional — the native-construct step supplies the
+default first, `Object.assign` overrides; a `!` parameter property is a syntax error, so
+they are always optional), then tighten BOTH pins to assert the CONFIG shape (the alias
+text / excess-key + typo rejection), not raw `.d.ts` text.
 
 ### Upstream: report the interface-accessor `this` crash (TypeScript 6.0 regression)
 

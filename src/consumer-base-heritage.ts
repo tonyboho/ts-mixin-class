@@ -1,9 +1,10 @@
 import type * as ts from "typescript"
 import {
-    constructionHeadType,
     cloneExpressionWithTypeArguments,
+    constructionHeadType,
     createLinearizationPlanLiteral,
     createSourceViewConsumerBaseHeadType,
+    dottedNameToEntityName,
     expressionToEntityName,
     heritageTypeToTypeReference,
     intersectionOrSingle,
@@ -37,7 +38,7 @@ function createMixinStaticsType(
     tsInstance: TypeScript,
     valueName: string
 ): ts.TypeNode {
-    return createStaticsBag(tsInstance, tsInstance.factory.createIdentifier(valueName))
+    return createStaticsBag(tsInstance, dottedNameToEntityName(tsInstance, valueName))
 }
 
 // The statics bag of every applied mixin whose runtime value is available in the

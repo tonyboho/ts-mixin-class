@@ -308,6 +308,21 @@ Violating any of these produces confusing tsserver errors or crashes.
       (`localMixinHeritageTypes*`, `localMixinRefs`), the TS990008 use-before-declaration
       guard, the transitive-heritage reduction, the class-expression consumer diagnostic,
       and the manual-`.mix` ban.
+    - **QUALIFIED references** (`implements lib.Logger` via `import * as lib`, and a local
+      top-level `namespace NS { @mixin() export class Tagger }` + `implements NS.Tagger`)
+      resolve by their DOTTED text in `byLocalName` (two-level `ns.Member` only, no lexical
+      walk — a dotted name has no same-file class declaration to shadow it). The ref's
+      `localValueName` is the dotted text; `dottedNameToExpression` / `dottedNameToEntityName`
+      (expand-util) build the value / type-query forms everywhere a ref value is referenced,
+      so never `createIdentifier(localValueName)` directly. Registration: namespace-import
+      members in `addQualifiedMixinRefs` (only names some class actually references — the
+      namespace exposes the whole module); local-namespace members as DERIVED refs that also
+      REPLACE the `byKey` entry (linearized emission must use the qualified name — it is
+      valid both inside and outside the namespace). Dependency plumbing is symmetric in
+      THREE places, and missing any one breaks subtly: the registry (`dependencyCandidateKeys`),
+      the same-file dependency pass (`addSameFileDependencies` — missing it desynced the
+      linearization PLAN from the runtime metadata; the runtime `verify` cross-check caught
+      it in the fixture corpus), and the construction config accumulation.
     - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
       diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
     - **A class applying a local mixin declared LATER in the same statement list** gets a native

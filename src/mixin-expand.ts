@@ -32,16 +32,17 @@ import {
     type TransformOptions
 } from "./model.js"
 import {
+    brandedConstructSignatureType,
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
     createLinearizationPlanLiteral,
-    brandedConstructSignatureType,
     createSourceViewConsumerBaseHeadType,
+    dottedNameToEntityName,
     expressionToEntityName,
     heritageTypeToTypeReference,
     linearizationMode,
-    mixinValueIdentifier,
     MixinTransformError,
+    mixinValueIdentifier,
     rewriteTypeReferences
 } from "./expand-util.js"
 import {
@@ -663,7 +664,7 @@ function createSourceViewMixinMetadataBase(
                 // are still inherited.
                 return factory.createTypeReferenceNode("Omit", [
                     factory.createTypeReferenceNode(classStaticsName, [
-                        factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                        factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, ref.localValueName as string))
                     ]),
                     factory.createLiteralTypeNode(factory.createStringLiteral("mix"))
                 ])
@@ -1386,7 +1387,7 @@ function baseStaticsTypes(
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => factory.createTypeReferenceNode("Omit", [
                 factory.createTypeReferenceNode(classStaticsName, [
-                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                    factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, ref.localValueName as string))
                 ]),
                 factory.createUnionTypeNode([
                     factory.createLiteralTypeNode(factory.createStringLiteral("mix")),

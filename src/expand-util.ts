@@ -169,12 +169,50 @@ export function expressionToEntityName(tsInstance: TypeScript, expression: ts.Ex
     return tsInstance.factory.createIdentifier(unsupportedBaseEntityName)
 }
 
-export function mixinValueIdentifier(tsInstance: TypeScript, ref: ResolvedMixinRef): ts.Identifier {
+// A local mixin value name is DOTTED when the mixin is referenced through a namespace
+// import (`import * as lib` → `localValueName: "lib.Logger"`) — the value expression is
+// then a property access off the namespace object, and the type-query form a qualified
+// name. A plain name stays a bare identifier. Dots never appear in class names, so the
+// split is unambiguous.
+export function dottedNameToExpression(tsInstance: TypeScript, name: string): ts.Expression {
+    const factory = tsInstance.factory
+
+    return name.split(".").map((part): ts.Expression => factory.createIdentifier(part))
+        .reduce((expression, part) =>
+            factory.createPropertyAccessExpression(expression, (part as ts.Identifier).text))
+}
+
+export function dottedNameToEntityName(tsInstance: TypeScript, name: string): ts.EntityName {
+    const factory = tsInstance.factory
+
+    return name.split(".").map((part): ts.EntityName => factory.createIdentifier(part))
+        .reduce((entityName, part) =>
+            factory.createQualifiedName(entityName, (part as ts.Identifier).text))
+}
+
+// The dotted text of an all-identifier expression chain (`lib.Logger` → "lib.Logger",
+// `Logger` → "Logger"); undefined when any link is not an identifier (a call, an element
+// access, `this.…`).
+export function dottedExpressionText(tsInstance: TypeScript, expression: ts.Expression): string | undefined {
+    if (tsInstance.isIdentifier(expression)) {
+        return expression.text
+    }
+
+    if (tsInstance.isPropertyAccessExpression(expression) && tsInstance.isIdentifier(expression.name)) {
+        const base = dottedExpressionText(tsInstance, expression.expression)
+
+        return base === undefined ? undefined : `${base}.${expression.name.text}`
+    }
+
+    return undefined
+}
+
+export function mixinValueIdentifier(tsInstance: TypeScript, ref: ResolvedMixinRef): ts.Expression {
     if (ref.localValueName === undefined) {
         throw new Error(`Mixin value ${ref.className} is not available in the transformed file`)
     }
 
-    return tsInstance.factory.createIdentifier(ref.localValueName)
+    return dottedNameToExpression(tsInstance, ref.localValueName)
 }
 
 // Emit a precomputed merge plan as an array-of-triples literal `[[s, o, l], ...]`, the

@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import {
     createDiagnosticLiteralType,
+    dottedNameToEntityName,
     expressionToEntityName,
     heritageTypeText
 } from "./expand-util.js"
@@ -133,7 +134,7 @@ function mixinStaticSource(
 
     return [ {
         name        : ref.className,
-        typeNode    : tsInstance.factory.createTypeQueryNode(tsInstance.factory.createIdentifier(ref.localValueName)),
+        typeNode    : tsInstance.factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, ref.localValueName)),
         staticNames : ref.declaration === undefined
             ? undefined
             : facts.classesByDeclaration.get(ref.declaration)?.staticNames

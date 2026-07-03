@@ -1,4 +1,5 @@
 import type * as ts from "typescript"
+import { dottedExpressionText } from "./expand-util.js"
 import {
     implementsTypes,
     type ClassScopeEntry,
@@ -64,11 +65,20 @@ export function resolveLocalMixinHeritageRef(
     heritageType: ts.ExpressionWithTypeArguments,
     context: FileMixinContext
 ): ResolvedMixinRef | undefined {
-    if (!tsInstance.isIdentifier(heritageType.expression)) {
-        return undefined
+    if (tsInstance.isIdentifier(heritageType.expression)) {
+        return resolveLexicalMixinRef(tsInstance, heritageType, heritageType.expression.text, context)
     }
 
-    return resolveLexicalMixinRef(tsInstance, heritageType, heritageType.expression.text, context)
+    // A QUALIFIED reference (`implements lib.Logger` through `import * as lib`) is keyed in
+    // `byLocalName` by its dotted text. No lexical walk: a dotted name has no same-file class
+    // declaration to shadow it (the namespace binding itself is an import).
+    if (tsInstance.isPropertyAccessExpression(heritageType.expression)) {
+        const dotted = dottedExpressionText(tsInstance, heritageType.expression)
+
+        return dotted === undefined ? undefined : context.byLocalName.get(dotted)
+    }
+
+    return undefined
 }
 
 export function localMixinHeritageTypes(

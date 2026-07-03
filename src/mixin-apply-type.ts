@@ -10,6 +10,7 @@ import {
 } from "./model.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
 import { resolveLexicalMixinRef } from "./mixin-refs.js"
+import { dottedExpressionText } from "./expand-util.js"
 import { deepCloneNode, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -35,12 +36,14 @@ export function pushManualMixinApplicationDiagnostics(
     const visit = (node: ts.Node): void => {
         if (tsInstance.isPropertyAccessExpression(node) &&
             node.name.text === "mix" &&
-            tsInstance.isIdentifier(node.expression) &&
             node.pos >= 0 && node.end >= 0
         ) {
             // Lexical resolution: a plain class shadowing a mixin name in a nearer scope
             // makes `X.mix` an ordinary (failing) property access, not a manual application.
-            const ref = resolveLexicalMixinRef(tsInstance, node.expression, node.expression.text, context)
+            // A QUALIFIED base (`lib.Logger.mix`) resolves by its dotted text.
+            const ref = tsInstance.isIdentifier(node.expression)
+                ? resolveLexicalMixinRef(tsInstance, node.expression, node.expression.text, context)
+                : dottedTextRef(tsInstance, node.expression, context)
 
             if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
                 const start = node.getStart(sourceFile)
@@ -60,6 +63,21 @@ export function pushManualMixinApplicationDiagnostics(
     }
 
     tsInstance.forEachChild(sourceFile, visit)
+}
+
+// The by-name ref of an all-identifier dotted expression (`lib.Logger`), for the ban scan.
+function dottedTextRef(
+    tsInstance: TypeScript,
+    expression: ts.Expression,
+    context: FileMixinContext
+): ResolvedMixinRef | undefined {
+    if (!tsInstance.isPropertyAccessExpression(expression)) {
+        return undefined
+    }
+
+    const dotted = dottedExpressionText(tsInstance, expression)
+
+    return dotted === undefined ? undefined : context.byLocalName.get(dotted)
 }
 
 // Program-local: declared in THIS file, or registered from another PROGRAM source

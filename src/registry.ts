@@ -70,7 +70,7 @@ export function buildMixinRegistry(
     // so a mixin DEPENDENCY imported via a barrel resolves too.
     addReExportAliasKeys(tsInstance, program, registry)
 
-    const importMaps            = new Map<string, Map<string, { resolvedFileName: string, importedName: string }>>()
+    const importMaps            = new Map<string, Map<string, ImportedNameBinding>>()
     const dependencyNamesByFile = new Map<string, Set<string>>()
 
     for (const candidate of candidates) {
@@ -81,6 +81,38 @@ export function buildMixinRegistry(
         }
 
         dependencyNamesByFile.set(candidate.sourceFile.fileName, names)
+    }
+
+    // Registry keys a (possibly QUALIFIED) dependency name may resolve to, in priority
+    // order: the same file, the named import binding, or — for a dotted `lib.Logger` —
+    // the namespace-import member. The first key the registry actually has wins.
+    const dependencyCandidateKeys = (
+        fileName: string,
+        dependencyName: string,
+        importMap: Map<string, ImportedNameBinding>
+    ): string[] => {
+        const separator = dependencyName.indexOf(".")
+
+        if (separator >= 0) {
+            if (dependencyName.indexOf(".", separator + 1) >= 0) {
+                return []
+            }
+
+            const binding = importMap.get(dependencyName.slice(0, separator))
+
+            return binding?.namespace === true
+                ? [ registryKey(binding.resolvedFileName, dependencyName.slice(separator + 1)) ]
+                : []
+        }
+
+        const keys     = [ registryKey(fileName, dependencyName) ]
+        const imported = importMap.get(dependencyName)
+
+        if (imported !== undefined) {
+            keys.push(registryKey(imported.resolvedFileName, imported.importedName))
+        }
+
+        return keys
     }
 
     for (const candidate of candidates) {
@@ -105,25 +137,15 @@ export function buildMixinRegistry(
         }
 
         for (const dependencyName of candidate.dependencyNames) {
-            const sameFileKey = registryKey(fileName, dependencyName)
+            const resolvedKey = dependencyCandidateKeys(fileName, dependencyName, importMap)
+                .find((candidateKey) => registry.has(candidateKey))
 
-            if (registry.has(sameFileKey)) {
-                entry.dependencies.push(sameFileKey)
+            if (resolvedKey !== undefined) {
+                entry.dependencies.push(resolvedKey)
                 continue
             }
 
-            const imported = importMap.get(dependencyName)
-
-            if (imported !== undefined) {
-                const importedKey = registryKey(imported.resolvedFileName, imported.importedName)
-
-                if (registry.has(importedKey)) {
-                    entry.dependencies.push(importedKey)
-                    continue
-                }
-            }
-
-            if (candidate.declarationHeritage && entry.requiredBaseName === undefined) {
+            if (candidate.declarationHeritage && entry.requiredBaseName === undefined && !dependencyName.includes(".")) {
                 entry.requiredBaseName = dependencyName
             }
         }
@@ -267,7 +289,10 @@ export function buildConstructionBaseRegistry(
                 baseName             : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
                 extendsPackageBase   : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts),
                 ownConfigProperties  : classFacts.configProperties,
-                mixinDependencyNames : classFacts.implementsIdentifierNames,
+                mixinDependencyNames : [
+                    ...classFacts.implementsIdentifierNames,
+                    ...classFacts.implementsQualifiedNames
+                ],
                 importMap
             }
 
@@ -284,6 +309,23 @@ export function buildConstructionBaseRegistry(
         }
 
         return uniqueConfigProperties(candidate.mixinDependencyNames.flatMap((name) => {
+            // Same resolution order as the dependency loop above: same file, the named
+            // import binding, or a QUALIFIED `lib.Logger` through its namespace import.
+            const separator = name.indexOf(".")
+
+            if (separator >= 0) {
+                const binding      = separator === name.lastIndexOf(".")
+                    ? candidate.importMap.get(name.slice(0, separator))
+                    : undefined
+                const qualifiedKey = binding?.namespace === true
+                    ? registryKey(binding.resolvedFileName, name.slice(separator + 1))
+                    : undefined
+
+                return qualifiedKey !== undefined && mixinRegistry.has(qualifiedKey)
+                    ? accumulateRegisteredMixinConfig(qualifiedKey, mixinRegistry, new Set())
+                    : []
+            }
+
             const sameFileKey = registryKey(candidate.fileName, name)
 
             if (mixinRegistry.has(sameFileKey)) {
@@ -581,8 +623,11 @@ function collectSourceFileMixinCandidates(
 
         candidates.push({
             sourceFile,
-            name                      : classFacts.name,
-            dependencyNames           : classFacts.implementsIdentifierNames,
+            name            : classFacts.name,
+            dependencyNames : [
+                ...classFacts.implementsIdentifierNames,
+                ...classFacts.implementsQualifiedNames
+            ],
             requiredBaseName          : classFacts.requiredBaseName,
             requiredBaseIsPackageBase : classFacts.extendsType !== undefined &&
                 isPackageBaseExpression(tsInstance, classFacts.extendsType.expression, options, facts),

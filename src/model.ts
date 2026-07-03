@@ -127,7 +127,11 @@ export const mixinDiagnosticCode = {
 export type ImportedNameBinding = {
     resolvedFileName : string,
     importedName     : string,
-    typeOnly         : boolean
+    typeOnly         : boolean,
+    // True for a NAMESPACE import binding (`import * as lib` → key "lib",
+    // `importedName: "*"`): its MEMBERS are what qualified references resolve through;
+    // name-keyed consumers must not treat it as a value/type binding itself.
+    namespace?       : boolean
 }
 
 // Mixin reference from the transformed file's point of view

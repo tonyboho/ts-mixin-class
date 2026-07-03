@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import {
     createDiagnosticLiteralType,
+    dottedNameToEntityName,
     heritageTypeText,
     heritageTypeToTypeReference
 } from "./expand-util.js"
@@ -388,7 +389,7 @@ function runtimeMixinClassRequiredBaseInstanceType(
 
     return factory.createTypeReferenceNode("InstanceType", [
         factory.createIndexedAccessTypeNode(
-            factory.createTypeQueryNode(factory.createIdentifier(valueName)),
+            factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, valueName)),
             factory.createTypeQueryNode(factory.createIdentifier(metadataBaseLocalName))
         )
     ])

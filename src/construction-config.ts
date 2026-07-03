@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
+import { dottedExpressionText, intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
 import {
     accumulateRegisteredMixinConfig,
     registryKey,
@@ -671,8 +671,12 @@ function mixinImplementsTypeArguments(
         }
 
         for (const type of clause.types) {
-            if (tsInstance.isIdentifier(type.expression) &&
-                (type.expression.text === ref.localValueName || type.expression.text === ref.className)) {
+            const referenceText = tsInstance.isIdentifier(type.expression)
+                ? type.expression.text
+                : dottedExpressionText(tsInstance, type.expression)
+
+            if (referenceText !== undefined &&
+                (referenceText === ref.localValueName || referenceText === ref.className)) {
                 return type.typeArguments
             }
         }

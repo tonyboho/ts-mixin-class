@@ -2025,7 +2025,8 @@ function shouldTransformSourceFile(
     const hasMixinDeclaration            = hasMixinDecoratorImports &&
         candidateClasses.some((classFacts) => classFacts.hasMixinDecorator)
     const hasPotentialConsumer           = candidateClasses.some((classFacts) => {
-        return classFacts.implementsIdentifierNames.length > 0
+        return classFacts.implementsIdentifierNames.length > 0 ||
+            classFacts.implementsQualifiedNames.length > 0
     }) && (hasMixinDecoratorImports || crossFile !== undefined)
     const hasPotentialConstructionConfig = candidateClasses.some((classFacts) => classFacts.extendsType !== undefined) &&
         (

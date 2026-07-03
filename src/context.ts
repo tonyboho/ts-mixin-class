@@ -15,6 +15,7 @@ import {
     type TransformOptions
 } from "./model.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 // Unfiltered import maps are recomputed for the same file across the construction-base
@@ -79,7 +80,22 @@ export function buildImportedNameMap(
             })
         }
 
-        if (namedBindings === undefined || !tsInstance.isNamedImports(namedBindings)) {
+        if (namedBindings === undefined) {
+            return
+        }
+
+        if (tsInstance.isNamespaceImport(namedBindings)) {
+            importMap.set(namedBindings.name.text, {
+                resolvedFileName,
+                importedName : "*",
+                typeOnly     : importClause?.isTypeOnly === true,
+                namespace    : true
+            })
+
+            return
+        }
+
+        if (!tsInstance.isNamedImports(namedBindings)) {
             return
         }
 
@@ -105,7 +121,11 @@ export function buildImportedNameMap(
 
     if (facts !== undefined) {
         for (const importFacts of facts.imports) {
-            addImport(importFacts.declaration, importFacts.specifier, importFacts.localNames.length)
+            addImport(
+                importFacts.declaration,
+                importFacts.specifier,
+                importFacts.localNames.length + (importFacts.namespaceName === undefined ? 0 : 1)
+            )
         }
 
         return finish()
@@ -121,6 +141,7 @@ export function buildImportedNameMap(
         const importClause     = statement.importClause
         const namedBindings    = importClause?.namedBindings
         const localNamesLength = (importClause?.name === undefined ? 0 : 1) +
+            (namedBindings !== undefined && tsInstance.isNamespaceImport(namedBindings) ? 1 : 0) +
             (namedBindings !== undefined && tsInstance.isNamedImports(namedBindings) ? namedBindings.elements.length : 0)
 
         addImport(statement, statement.moduleSpecifier.text, localNamesLength)
@@ -139,6 +160,15 @@ function importHasFilteredLocalName(
 
     if (importClause?.name !== undefined && localNameFilter.has(importClause.name.text)) {
         return true
+    }
+
+    // A namespace import matches when the filter holds the binding itself or any
+    // QUALIFIED name through it (dotted dependency names like "lib.Logger").
+    if (namedBindings !== undefined && tsInstance.isNamespaceImport(namedBindings)) {
+        const namespaceName = namedBindings.name.text
+
+        return localNameFilter.has(namespaceName) ||
+            [ ...localNameFilter ].some((name) => name.startsWith(namespaceName + "."))
     }
 
     return namedBindings !== undefined &&
@@ -222,7 +252,7 @@ export function buildFileMixinContext(
         nativeDiagnostics
     }
 
-    addLocalMixinRefs(sourceFile, imports, facts, context)
+    addLocalMixinRefs(tsInstance, sourceFile, imports, facts, context)
 
     if (crossFile !== undefined) {
         addImportedMixinRefs(tsInstance, sourceFile, crossFile, facts, context, options)
@@ -238,6 +268,7 @@ export function buildFileMixinContext(
 }
 
 function addLocalMixinRefs(
+    tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     imports: MixinDecoratorImports,
     facts: SourceFileFacts,
@@ -291,6 +322,61 @@ function addLocalMixinRefs(
         for (const classFacts of facts.classesByDeclaration.values()) {
             if (!topLevel.has(classFacts.declaration)) {
                 register(classFacts)
+            }
+        }
+
+        addNamespaceMemberRefs(tsInstance, sourceFile, context)
+    }
+}
+
+// A TOP-LEVEL namespace exposes its EXPORTED `@mixin` members under QUALIFIED names
+// (`namespace NS { @mixin() export class Tagger }` → `implements NS.Tagger`): register a
+// derived by-name ref keyed by the dotted text. Its value expression is the dotted access —
+// the expansion inside the ModuleBlock keeps the export modifiers on the generated factory /
+// value consts, so `NS.Tagger` is a real runtime value and `typeof NS.Tagger` a real type.
+// The derived ref's factory name is never consumed (only a mixin's OWN expansion references
+// its factory, resolved by declaration); dependencies get their own array so the same-file
+// dependency pass fills the base and derived refs independently.
+function addNamespaceMemberRefs(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext
+): void {
+    for (const statement of sourceFile.statements) {
+        if (!tsInstance.isModuleDeclaration(statement) ||
+            !tsInstance.isIdentifier(statement.name) ||
+            statement.body === undefined ||
+            !tsInstance.isModuleBlock(statement.body)
+        ) {
+            continue
+        }
+
+        for (const member of statement.body.statements) {
+            if (!tsInstance.isClassDeclaration(member)) {
+                continue
+            }
+
+            const ref = context.byDeclaration.get(member)
+
+            if (ref === undefined || !hasModifier(tsInstance, member, tsInstance.SyntaxKind.ExportKeyword)) {
+                continue
+            }
+
+            const dotted = `${statement.name.text}.${ref.className}`
+
+            if (!context.byLocalName.has(dotted)) {
+                const derived: ResolvedMixinRef = {
+                    ...ref,
+                    localValueName : dotted,
+                    dependencies   : [ ...ref.dependencies ]
+                }
+
+                context.byLocalName.set(dotted, derived)
+                // The by-KEY entry feeds linearized VALUE emission (chain members, statics
+                // bags) for consumers anywhere in the file — the QUALIFIED name is the one
+                // valid both inside the namespace (a namespace can reference itself) and
+                // outside it, so it replaces the member's bare-name entry.
+                context.byKey.set(ref.key, derived)
             }
         }
     }
@@ -377,6 +463,120 @@ function addImportedMixinRefs(
             context.byKey.set(key, ref)
         }
     }
+
+    addQualifiedMixinRefs(facts, importMap, crossFile, context, options)
+}
+
+// QUALIFIED references through a NAMESPACE import: `import * as lib from "./logger"` +
+// `implements lib.Logger`. Only the dotted names some class in the file actually references
+// are registered (the namespace exposes the module's whole surface — enumerating it would
+// drag every mixin of the module into the context). The ref is keyed in `byLocalName` by the
+// DOTTED text; its value expression is the property access off the namespace object (the
+// dotted `localValueName` — `mixinValueIdentifier` / the type-query sites build the
+// qualified forms from it), while the factory imports under a sanitized local alias exactly
+// like a named import.
+function addQualifiedMixinRefs(
+    facts: SourceFileFacts,
+    importMap: ImportMap,
+    crossFile: CrossFileContext,
+    context: FileMixinContext,
+    options: TransformOptions
+): void {
+    const referenced = new Set<string>()
+
+    for (const classFacts of facts.classesByDeclaration.values()) {
+        for (const dotted of classFacts.implementsQualifiedNames) {
+            referenced.add(dotted)
+        }
+    }
+
+    for (const dotted of referenced) {
+        const separator = dotted.indexOf(".")
+
+        // Only the two-level `namespace.Member` form resolves (deeper chains would need
+        // nested-namespace modelling); the binding must be a namespace import.
+        if (separator < 0 || dotted.indexOf(".", separator + 1) >= 0 || context.byLocalName.has(dotted)) {
+            continue
+        }
+
+        const namespaceName = dotted.slice(0, separator)
+        const memberName    = dotted.slice(separator + 1)
+        const binding       = importMap.get(namespaceName)
+
+        if (binding?.namespace !== true) {
+            continue
+        }
+
+        const specifier = facts.imports.find((importFacts) => importFacts.namespaceName === namespaceName)?.specifier
+
+        if (specifier === undefined) {
+            continue
+        }
+
+        const key        = registryKey(binding.resolvedFileName, memberName)
+        const registered = crossFile.registry.get(key)
+
+        if (registered === undefined) {
+            continue
+        }
+
+        // Local alias base for generated names (the factory import alias etc.) — the dotted
+        // text itself is not an identifier.
+        const aliasBase      = `${namespaceName}$${memberName}`
+        const localValueName = binding.typeOnly ? generatedName(aliasBase, mixinValueSuffix) : dotted
+
+        if (binding.typeOnly) {
+            const importedValueName = registered.defaultExport ? "default" : registered.name
+
+            context.usedFactoryImports.set(
+                `${specifier}:${importedValueName}:${localValueName}`,
+                {
+                    specifier,
+                    importedName : importedValueName,
+                    localName    : localValueName
+                }
+            )
+        }
+
+        const requiredBase = registered.requiredBaseName === undefined
+            ? undefined
+            : importedRequiredBaseRef(
+                importMap,
+                binding.resolvedFileName,
+                specifier,
+                registered.requiredBaseName,
+                aliasBase + "$requiredBase",
+                registered.requiredBaseIsPackageBase,
+                options.packageName
+            )
+
+        const ref: ResolvedMixinRef = {
+            key,
+            className        : registered.name,
+            localValueName,
+            localFactoryName : generatedName(aliasBase, mixinFactorySuffix),
+            factoryImport    : {
+                specifier,
+                importedName : generatedName(registered.name, mixinFactorySuffix)
+            },
+            requiredBase,
+            dependencies         : registered.dependencies,
+            declaration          : undefined,
+            configProperties     : registered.configProperties,
+            missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
+                ? {
+                    specifier,
+                    importedName : registered.defaultExport ? "default" : registered.name
+                }
+                : undefined
+        }
+
+        context.byLocalName.set(dotted, ref)
+
+        if (!context.byKey.has(key)) {
+            context.byKey.set(key, ref)
+        }
+    }
 }
 
 function addSameFileDependencies(
@@ -394,7 +594,13 @@ function addSameFileDependencies(
             continue
         }
 
-        for (const dependencyName of classFacts.implementsIdentifierNames) {
+        // QUALIFIED dependency names (`implements lib.Named`) resolve through the same
+        // by-name map — imported namespace members and local-namespace members are both
+        // keyed by their dotted text (registered before this pass runs).
+        for (const dependencyName of [
+            ...classFacts.implementsIdentifierNames,
+            ...classFacts.implementsQualifiedNames
+        ]) {
             const dependency = context.byLocalName.get(dependencyName)
 
             if (dependency !== undefined) {

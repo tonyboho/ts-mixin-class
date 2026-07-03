@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import { collectMixinDecoratorImports, hasMixinDecorator } from "./decorators.js"
+import { dottedExpressionText } from "./expand-util.js"
 import {
     extendsClause,
     implementsTypes,
@@ -15,9 +16,13 @@ import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 export type ImportFacts = {
-    declaration : ts.ImportDeclaration,
-    specifier   : string,
-    localNames  : string[]
+    declaration   : ts.ImportDeclaration,
+    specifier     : string,
+    localNames    : string[],
+    // The binding name of a NAMESPACE import (`import * as lib from "…"` → "lib") — kept
+    // out of `localNames` (those are value/type names; the namespace is a container whose
+    // MEMBERS are referenced through qualified names, e.g. `implements lib.Logger`).
+    namespaceName : string | undefined
 }
 
 export type ClassFacts = {
@@ -27,6 +32,10 @@ export type ClassFacts = {
     extendsType               : ts.ExpressionWithTypeArguments | undefined,
     implementsTypes           : ts.ExpressionWithTypeArguments[],
     implementsIdentifierNames : string[],
+    // Dotted texts of QUALIFIED `implements` references (`implements lib.Logger` →
+    // "lib.Logger") — all-identifier property-access chains only. Resolved through a
+    // namespace import binding; disjoint from `implementsIdentifierNames`.
+    implementsQualifiedNames  : string[],
     requiredBaseName          : string | undefined,
     configProperties          : ConfigProperty[],
     staticNames               : Set<string>,
@@ -186,8 +195,11 @@ function importFacts(
 
     return {
         declaration,
-        specifier : (declaration.moduleSpecifier as ts.StringLiteral).text,
-        localNames
+        specifier     : (declaration.moduleSpecifier as ts.StringLiteral).text,
+        localNames,
+        namespaceName : namedBindings !== undefined && tsInstance.isNamespaceImport(namedBindings)
+            ? namedBindings.name.text
+            : undefined
     }
 }
 
@@ -227,6 +239,11 @@ function classFacts(
             .map((heritageType) => heritageType.expression)
             .filter((expression): expression is ts.Identifier => tsInstance.isIdentifier(expression))
             .map((expression) => expression.text),
+        implementsQualifiedNames : implementedTypes
+            .map((heritageType) => heritageType.expression)
+            .filter((expression) => tsInstance.isPropertyAccessExpression(expression))
+            .map((expression) => dottedExpressionText(tsInstance, expression))
+            .filter((dotted): dotted is string => dotted !== undefined),
         requiredBaseName : requiredBaseIdentifierName(tsInstance, declaration),
         get configProperties() {
             return getMemberFacts().configProperties

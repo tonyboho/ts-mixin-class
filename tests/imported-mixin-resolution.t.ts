@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 
-import { it, xit } from "@bryntum/siesta/nodejs.js"
+import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, trimIndent } from "./util.js"
@@ -248,12 +248,11 @@ it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
         `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`)
 })
 
-// SKIPPED (xit) — decided-deferred spec point (see TODO.md "Qualified mixin references").
-// A QUALIFIED heritage reference (`implements lib.Logger` via `import * as lib`) is not
-// resolved: the consumer is left untransformed and fails with a bare TS2420. Resolution keys
-// heritage references by identifier; supporting PropertyAccess needs facts + registry +
-// two-plane emission work.
-xit("resolves a mixin referenced through a NAMESPACE import (implements lib.Logger)", async (t: Test) => {
+// A QUALIFIED heritage reference through a NAMESPACE import (`import * as lib` +
+// `implements lib.Logger`): the reference resolves through the namespace binding to the
+// declaring module's registry entry, and the generated machinery references the value as
+// `lib.Logger` (a property access, not a local identifier) on both planes.
+it("resolves a mixin referenced through a NAMESPACE import (implements lib.Logger)", async (t: Test) => {
     const { result, consumerJs } = await build([
         { fileName: "logger.ts", text: loggerMixin },
         { fileName : "consumer.ts", text     : trimIndent(`
@@ -271,8 +270,10 @@ xit("resolves a mixin referenced through a NAMESPACE import (implements lib.Logg
         `the qualified mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`)
 })
 
-// SKIPPED (xit) — same deferred spec point as above, the local-namespace form.
-xit("resolves a mixin declared in a local NAMESPACE (implements NS.Tagger)", async (t: Test) => {
+// The local-namespace form: a TOP-LEVEL namespace exposes its EXPORTED `@mixin` members
+// under qualified names — the derived ref's value expression is the dotted access
+// (`NS.Tagger`), valid both inside the namespace and outside it.
+it("resolves a mixin declared in a local NAMESPACE (implements NS.Tagger)", async (t: Test) => {
     const { result } = await build([
         { fileName : "consumer.ts", text     : trimIndent(`
             import { mixin } from "ts-mixin-class"

@@ -32,14 +32,6 @@ qualified heritage expressions, registry lookup through the checker's alias chai
 and in the generated `$base` interface heritage). Alternative fallback if support stays out:
 a native diagnostic ("qualified mixin reference is not supported — import the mixin by name").
 
-### ~~Check: `override` modifier on a mixin member overriding its DEPENDENCY's member~~ — RESOLVED (pass 8)
-
-Answered and pinned in `compiler-option-edges.t.ts` (§2.23): the modifier IS legal in both
-planes, on a consumer AND on a mixin over its dependency, in the default config and under
-`noImplicitOverride` (which — spec decision — extends to mixin-member overrides: unmarked →
-TS4114, marked → clean). No rewrite/strip needed; the remaining piece is the message's
-base-NAME cosmetics (previous section).
-
 ### Generated base names leak into CHECKER diagnostic messages (found via `noImplicitOverride`)
 
 The checker names the base class in several of its own messages, and after the transform that

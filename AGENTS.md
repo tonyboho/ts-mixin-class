@@ -693,9 +693,18 @@ combined display. `typeof __X$class`/`ClassStatics<typeof R>` unwrap textually. 
 replacements are exact-keyed and fire only when a replacement resolved. TS2416 fires TWICE by
 construction (the user's `implements` reference + the generated heritage); the rewrite makes the
 artifact twin byte-identical and an exact-duplicate pass drops it — do not "fix" the double
-report upstream, the twin is load-bearing for the implements conformance check. Guards:
-`diagnostic-base-names.t.ts`, the §2.23 pins in `compiler-option-edges.t.ts`,
-`mixin-static-super.t.ts` (TS2417).
+report upstream, the twin is load-bearing for the implements conformance check. A NESTED
+construction class's in-block `<Name>Config` alias is the one generated node whose collapsed
+name can surface OUTSIDE a base-name context — a message printing the alias SYMBOL (e.g.
+TS2315) renders a bare `'}'` (the append-real-text trick works only past the document end, so
+an in-block alias stays synthetic); the span sits on the user's own alias reference, so
+`configAliasNameAtSpan` reads the real name from the original text at the span (gated on the
+`<Name>Config` shape with class `<Name>` present, and on an UNAMBIGUOUS single `'}'`). The
+HOVER twin of that render (`type } = {...}`) is fixed at the language-service-plugin seam
+instead: the plugin substitutes the hovered reference's text into the collapsed `aliasName`
+display part. Guards: `diagnostic-base-names.t.ts`, the §2.23 pins in
+`compiler-option-edges.t.ts`, `mixin-static-super.t.ts` (TS2417),
+`tsserver-construction-config-alias.t.ts` (the nested hover).
 
 ## Emit-path implements conformance
 

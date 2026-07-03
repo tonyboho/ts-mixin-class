@@ -119,6 +119,43 @@ it("TS4113 (member not in the base) falls back to the user-level combined-base n
     }
 })
 
+// A construction class declared in a NESTED scope keeps its generated `<Name>Config` alias
+// INSIDE the block (a top-level alias is appended as real text past the document end, where
+// its name renders natively; inside a block that would shift positions), so a source-view
+// message that prints the alias SYMBOL — e.g. TS2315 `Type '{0}' is not generic` — renders
+// the collapsed name as `'}'`, while emit prints the real `'PointConfig'`. The span sits on
+// the user's own alias reference, so the original text at the span IS the real name.
+const nestedAliasSymbolMessage = trimIndent(`
+    import { Base } from "ts-mixin-class/base"
+
+    const make = () => {
+        class Point extends Base {
+            public readonly x!: number
+
+            override initialize(config?: PointConfig<number>): void {
+                super.initialize(config)
+            }
+        }
+
+        return Point.new({ x : 1 })
+    }
+
+    void make()
+`)
+
+it("a message printing a NESTED class's config-alias symbol names the alias, not the collapsed '}'", async (t: Test) => {
+    const { emit, sourceView } = await buildBothPlanes(nestedAliasSymbolMessage)
+
+    for (const [ label, result ] of [ [ "emit", emit ], [ "source view", sourceView ] ] as const) {
+        const output = commandOutput(result)
+
+        t.ne(result.exitCode, 0, `${label}: the type-argument misuse is rejected`)
+        t.match(output, "TS2315", `${label}: with the not-generic code`)
+        t.match(output, "Type 'PointConfig' is not generic", `${label}: naming the config alias.\n${output}`)
+        t.notMatch(output, "'}'", `${label}: no collapsed-position render leaks`)
+    }
+})
+
 // TS2416 fires TWICE by construction: once against the user's own `implements Greeter`
 // reference (correct name) and once against the generated heritage (artifact name). The
 // rewrite maps the artifact twin onto the same user-level name, which makes the two

@@ -96,6 +96,9 @@ function rewriteDiagnostic<Diagnostic extends ts.Diagnostic>(
     const resolution   = originalFile === undefined || diagnostic.start === undefined
         ? undefined
         : resolveSpanContext(tsInstance, originalFile, diagnostic.start, originalProgram, crossFile, options)
+    const aliasAtSpan  = originalFile === undefined || diagnostic.start === undefined
+        ? undefined
+        : configAliasNameAtSpan(tsInstance, originalFile, diagnostic.start)
 
     const rewriteText = (text: string): string => {
         let out = text
@@ -122,6 +125,17 @@ function rewriteDiagnostic<Diagnostic extends ts.Diagnostic>(
                     `$1'${replacement}'`
                 )
             }
+        }
+
+        // A remaining bare-quoted `'}'` can be the collapsed NAME of a generated in-block
+        // `<Name>Config` alias — a construction class in a NESTED scope keeps its alias in the
+        // block (the append-real-text trick is position-safe only past the document end), so a
+        // message printing the alias SYMBOL (e.g. TS2315 `Type '{0}' is not generic`) renders
+        // it as `'}'`. The span sits on the user's own alias reference — the original text at
+        // the span IS the real name. Only an UNAMBIGUOUS single occurrence is rewritten: two
+        // `'}'` renders in one message could come from two different aliases.
+        if (aliasAtSpan !== undefined && out.match(/'\}'/g)?.length === 1) {
+            out = out.replace("'}'", `'${aliasAtSpan}'`)
         }
 
         return out
@@ -202,6 +216,38 @@ function resolveSpanContext(
         )
 
     return { ownerName, realBaseName, combinedDisplay }
+}
+
+// The `<Name>Config` identifier at the span in the ORIGINAL file, accepted only when a class
+// `<Name>` is declared in the same file (any scope depth — nested classes are the case that
+// needs this) — the shape of a generated construction-config alias reference. Anything else
+// (no identifier, no `Config` suffix, no owning class) resolves to undefined and the message
+// passes through untouched.
+function configAliasNameAtSpan(
+    tsInstance: TypeScript,
+    file: ts.SourceFile,
+    position: number
+): string | undefined {
+    const text         = file.text
+    const isIdentifier = (index: number): boolean => /[\w$]/.test(text.charAt(index))
+
+    let start = position
+    let end   = position
+
+    while (start > 0 && isIdentifier(start - 1)) {
+        start--
+    }
+
+    while (end < text.length && isIdentifier(end)) {
+        end++
+    }
+
+    const identifier = text.slice(start, end)
+    const className  = /^(.+?)Config_*$/.exec(identifier)?.[1]
+
+    return className !== undefined && findClassByName(tsInstance, file, className) !== undefined
+        ? identifier
+        : undefined
 }
 
 function findEnclosingClass(

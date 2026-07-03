@@ -167,6 +167,63 @@ function init(modules: { typescript: typeof import("typescript") }): ts.server.P
                 }))
                 .filter((entry) => entry.highlightSpans.length > 0)
 
+        // --- quickinfo: name a NESTED class's generated `<Name>Config` alias ---
+        //
+        // A top-level generated alias is appended as REAL text past the document end, so its
+        // name renders natively. A construction class in a NESTED scope keeps its alias INSIDE
+        // the block (appending real text is position-safe only past the end), so the alias
+        // hover prints the collapsed name — `type } = {...}`. The hovered token IS the alias
+        // reference, so its text is the real name: substitute it into the collapsed `aliasName`
+        // display parts, gated on the `<Name>Config` shape with an owning class present (the
+        // same resolution the definition remap uses).
+        const identifierAtPosition = (fileName: string, position: number): string | undefined => {
+            const snapshot = host.getScriptSnapshot ? host.getScriptSnapshot(fileName) : undefined
+
+            if (snapshot === undefined) {
+                return undefined
+            }
+
+            const length       = snapshot.getLength()
+            const isIdentifier = (index: number): boolean => /[\w$]/.test(snapshot.getText(index, index + 1))
+
+            let start = position
+            let end   = position
+
+            while (start > 0 && isIdentifier(start - 1)) {
+                start--
+            }
+
+            while (end < length && isIdentifier(end)) {
+                end++
+            }
+
+            return start < end ? snapshot.getText(start, end) : undefined
+        }
+
+        const isCollapsedAliasName = (part: ts.SymbolDisplayPart): boolean =>
+            part.kind === "aliasName" && part.text === "}"
+
+        const baseGetQuickInfoAtPosition = ls.getQuickInfoAtPosition.bind(ls)
+        ls.getQuickInfoAtPosition = (fileName, position) => {
+            const result = baseGetQuickInfoAtPosition(fileName, position)
+
+            if (result?.displayParts?.some(isCollapsedAliasName) !== true) {
+                return result
+            }
+
+            const aliasName = identifierAtPosition(fileName, position)
+
+            if (aliasName === undefined || classNameSpanForAlias(fileName, aliasName) === undefined) {
+                return result
+            }
+
+            return {
+                ...result,
+                displayParts : result.displayParts?.map((part) =>
+                    isCollapsedAliasName(part) ? { ...part, text: aliasName } : part)
+            }
+        }
+
         // --- completions: drop the generated helper names from identifier lists ---
         //
         // The source-view transform splices real declarations (`__X$base`, `__X$empty`, the

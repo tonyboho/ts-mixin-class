@@ -138,10 +138,6 @@ Residuals:
 - **Per-call runtime cost.** A nested mixin/consumer's `defineMixinClass` / chain assembly runs
   on every call of its enclosing function — no global registry leak (metadata rides on the
   fresh constructor), just not memoized across calls. Same as any class declared in a function.
-- **Nested construction config-alias hover** keeps the §12.9 cosmetic (the alias name renders
-  as `}` in the editor hover): its `<Name>Config` alias lives in the block, not appended past
-  the document end where the name would read natively. Cosmetic only — `.new(...)` type-checks
-  and constructs correctly.
 
 ### 4. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
 

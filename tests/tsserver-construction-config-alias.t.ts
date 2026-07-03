@@ -188,6 +188,61 @@ it("tsserver find-all-references on a config-alias reference responds instead of
     }
 })
 
+// A construction class declared in a NESTED scope keeps its generated `<Name>Config` alias
+// INSIDE the block — the append-real-text trick works only past the document end, and inside
+// a block it would shift positions — so the alias declaration hover would print the collapsed
+// name: `type } = {...}`. The hovered token IS the alias reference, so the language-service
+// plugin substitutes its text into the collapsed `aliasName` display part.
+const nestedAliasHoverText = trimIndent(`
+    import { Base } from "ts-mixin-class/base"
+
+    const make = () => {
+        class Point extends Base {
+            public readonly x!: number
+
+            override initialize(config?: PointConfig): void {
+                super.initialize(config)
+            }
+        }
+
+        return Point.new({ x : 1 })
+    }
+
+    void make()
+`)
+
+it("tsserver quickinfo on a NESTED class's config-alias reference names the alias, not the collapsed `}`", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text: nestedAliasHoverText } ]
+    })
+
+    try {
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const marker     = "config?: PointConfig"
+        const position   = nestedAliasHoverText.indexOf(marker) + marker.indexOf("PointConfig") + 1
+
+        const info    = assertResponseBody<QuickInfoBody>(
+            t,
+            await runTypeScriptServerRequest(
+                fixture.directory,
+                sourceFile,
+                nestedAliasHoverText,
+                "quickinfo",
+                { file: sourceFile, ...positionToLineOffset(nestedAliasHoverText, position) }
+            )
+        )
+        const display = info.displayString ?? ""
+
+        t.match(display, "type PointConfig =",
+            `Hover on the nested config alias names it, got:\n${display}`)
+        t.notMatch(display, "type } =",
+            "The collapsed-position render never surfaces in the hover")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 // A consumer applying several mixins that each override `initialize` with their own
 // strict config. In the editor (source view) the generated `$base` interface re-declares
 // the `Base.initialize` protocol member to suppress the TS2320 merge conflict; that

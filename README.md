@@ -248,6 +248,12 @@ export class User extends NamedUserBase {
 }
 ```
 
+In a project that runs the transformer itself, `isolatedDeclarations` can also be enabled and
+builds cleanly. Note that the option's main benefit — generating declaration files with an
+external no-typecheck emitter — is fundamentally unreachable there: such an emitter does not
+run the transformer and would emit declarations of the untransformed source. Declaration files
+must come from a build that runs the transformer, so the option brings little practical benefit.
+
 ## Generics
 
 Generics are fully supported:

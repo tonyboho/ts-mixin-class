@@ -248,23 +248,7 @@ quickinfo reports `any`. The class name itself, its type parameters, and its mem
 correctly in every case. For the affected consumers, navigate from the base class's own
 declaration or another usage instead.
 
-### 6. `isolatedDeclarations`: declarations must come from the patched `tsc`; manual `.mix` heritage needs the `Mix` recipe
-
-The `tsc` layer works: with `isolatedDeclarations: true` the transformer emits the factory
-with an explicit return annotation, and a program builds cleanly on both planes. Two bounds:
-
-- The option's FULL scenario — generating `.d.ts` with an external no-typecheck emitter (oxc
-  etc.) — is out of reach BY DESIGN: an external emitter does not run ts-patch, so it would
-  emit declarations of the UNTRANSFORMED source (no interface, no `.mix`, no `.new`).
-  Declarations must come from the patched `tsc`.
-- A USER-written `class X extends M.mix(B)` inside the transformer program is banned outright
-  (native TS990012 — program-local manual `.mix`). In an EXTERNAL (non-transformer) consumer
-  under the option, an EXPORTED class over `.mix` is TS9021 (expression heritage — plain-TS
-  behavior for any functional mixin pattern); the supported recipe is an annotated const with
-  the package `Mix` helper: `const XBase: Mix<typeof M, typeof B> = M.mix(B)` — checked,
-  unlike an as-assertion.
-
-### 7. A mixin that violates its `implements` contract is flagged twice in the editor
+### 6. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where the

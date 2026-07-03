@@ -224,6 +224,133 @@ function init(modules: { typescript: typeof import("typescript") }): ts.server.P
             }
         }
 
+        // --- quickinfo / signature help / completion details: name the generated `.new` ---
+        //
+        // The generated `static new`'s NAME node is pinned to a ONE-CHAR source anchor (a
+        // factory-fresh name crashes the checker's error-span machinery on a failing
+        // `.new(...)` call — see `createConstructionMembers`), so member-name display reads
+        // that single source character instead: `TopPoint.r` / `Point[}]` on hover, `r(` in
+        // signature help, the same render in completion details (a mixin's string-literal
+        // `"new"` collapses to a non-identifier char and falls back to the bracketed form).
+        // The real name is statically `new`, and each surface's request provably targets it —
+        // the hovered identifier, the callee before the arguments span, or the requested
+        // completion entry — so the first mis-rendered method-name part is normalized. A
+        // user-declared `static new` renders its own real text and the normalization no-ops.
+
+        const renameNewParts = (parts: ts.SymbolDisplayPart[] | undefined): ts.SymbolDisplayPart[] | undefined => {
+            if (parts === undefined) {
+                return parts
+            }
+
+            const out: ts.SymbolDisplayPart[] = []
+            let   renamed = false
+
+            for (let index = 0; index < parts.length; index++) {
+                const part = parts[index]
+
+                if (part === undefined) {
+                    continue
+                }
+
+                if (!renamed && part.kind === "methodName" && part.text !== "new") {
+                    out.push({ kind: "methodName", text: "new" })
+                    renamed = true
+                    continue
+                }
+
+                // The bracketed render (`Timed[0]`) of the string-literal `"new"` name:
+                // normalize the whole `[x]` back to `.new`.
+                if (!renamed &&
+                    part.kind === "punctuation" && part.text === "[" &&
+                    parts[index + 2]?.kind === "punctuation" && parts[index + 2]?.text === "]" &&
+                    parts[index + 3]?.text === "("
+                ) {
+                    out.push({ kind: "punctuation", text: "." }, { kind: "methodName", text: "new" })
+                    index  += 2
+                    renamed = true
+                    continue
+                }
+
+                out.push(part)
+            }
+
+            return renamed ? out : parts
+        }
+
+        // The identifier just before an invocation's arguments span (skipping the open paren
+        // and whitespace) — the callee name a signature-help request is showing.
+        const calleeBeforeSpan = (fileName: string, spanStart: number): string | undefined => {
+            const snapshot = host.getScriptSnapshot ? host.getScriptSnapshot(fileName) : undefined
+
+            if (snapshot === undefined) {
+                return undefined
+            }
+
+            const charAt = (index: number): string => snapshot.getText(index, index + 1)
+
+            let end = spanStart
+
+            while (end > 0 && /[\s(]/.test(charAt(end - 1))) {
+                end--
+            }
+
+            let start = end
+
+            while (start > 0 && /[\w$]/.test(charAt(start - 1))) {
+                start--
+            }
+
+            return start < end ? snapshot.getText(start, end) : undefined
+        }
+
+        const baseQuickInfoForNewName = ls.getQuickInfoAtPosition.bind(ls)
+        ls.getQuickInfoAtPosition = (fileName, position) => {
+            const result = baseQuickInfoForNewName(fileName, position)
+
+            if (result?.displayParts === undefined || identifierAtPosition(fileName, position) !== "new") {
+                return result
+            }
+
+            const displayParts = renameNewParts(result.displayParts)
+
+            return displayParts === result.displayParts ? result : { ...result, displayParts }
+        }
+
+        const baseGetSignatureHelpItems = ls.getSignatureHelpItems.bind(ls)
+        ls.getSignatureHelpItems = (fileName, position, options) => {
+            const result = baseGetSignatureHelpItems(fileName, position, options)
+
+            if (result === undefined || calleeBeforeSpan(fileName, result.applicableSpan.start) !== "new") {
+                return result
+            }
+
+            return {
+                ...result,
+                items : result.items.map((item) => {
+                    const prefixDisplayParts = renameNewParts(item.prefixDisplayParts)
+
+                    return prefixDisplayParts === item.prefixDisplayParts
+                        ? item
+                        : { ...item, prefixDisplayParts: prefixDisplayParts ?? item.prefixDisplayParts }
+                })
+            }
+        }
+
+        const baseGetCompletionEntryDetails = ls.getCompletionEntryDetails.bind(ls)
+        ls.getCompletionEntryDetails = (fileName, position, entryName, formatOptions, source, preferences, data) => {
+            const result = baseGetCompletionEntryDetails(
+                fileName, position, entryName, formatOptions, source, preferences, data
+            )
+
+            if (result === undefined || entryName !== "new") {
+                return result
+            }
+
+            const displayParts = renameNewParts(result.displayParts)
+
+            return displayParts === result.displayParts ? result : { ...result, displayParts: displayParts ?? [] }
+        }
+
         // --- completions: drop the generated helper names from identifier lists ---
         //
         // The source-view transform splices real declarations (`__X$base`, `__X$empty`, the

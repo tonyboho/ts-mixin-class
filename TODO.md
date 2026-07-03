@@ -85,6 +85,17 @@ one-line repro. Our side is defended: the generated mixin interface falls back t
 signature for this-typed accessors (`containsThisType` in `interface-members.ts`, pinned by
 `mixin-accessor-edges.t.ts`); remove the fallback once the fix ships in the pinned TS.
 
+### Stress parity: emit-only diagnostic line in a perturbed nested-scope fixture
+
+`MIXIN_STRESS_SEED=1119868945` fails `stress-diagnostic-parity.t.ts` deterministically:
+perturbing `fixture-suite/src/nested-scope.t.ts` at 44:11 (an identifier rename ending
+`@mixin`) makes EMIT report a diagnostic on `nested-scope.t.ts:49` that source view does not
+(emit: lines 44 and 49; ide: line 44 only) — "a regenerated line that does not exist on
+disk", the line-drift family. PRE-EXISTING: reproduces unchanged at least back to `f88a807`
+(before the diagnostic name-rewrite work), so it is a latent emit-plane drift in the nested
+splice, not a rewrite regression. Investigate with the seed pinned; the fixture region is the
+sibling-scope `Widget` mixins.
+
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

@@ -2,7 +2,7 @@ import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { createTypeScriptFixture, requiredFixtureSourceFile, trimIndent } from "./util.js"
-import { assertResponseBody, positionToLineOffset, runTypeScriptServerRequest } from "./tsserver-util.js"
+import { assertResponseBody, openTsServerSession, positionToLineOffset, runTypeScriptServerRequest } from "./tsserver-util.js"
 
 // Editor-service behaviour on the generated, source-referenced `<ClassName>Config`
 // alias. The alias is a synthetic sibling whose `.original` points at the unbound
@@ -46,6 +46,7 @@ const aliasUsageText = trimIndent(`
 type DefinitionInfo = { file: string, start: { line: number, offset: number } }
 type QuickInfoBody = { displayString?: string }
 type RenameBody = { info?: { canRename?: boolean } }
+type SignatureItemsBody = { items?: Array<{ prefixDisplayParts?: Array<{ text: string }> }> }
 
 // Resolves the position of the ALIAS NAME inside `marker` (the markers embed the alias
 // name, e.g. `config?: AccountConfig`), one char into the identifier so the request lands
@@ -239,6 +240,100 @@ it("tsserver quickinfo on a NESTED class's config-alias reference names the alia
         t.notMatch(display, "type } =",
             "The collapsed-position render never surfaces in the hover")
     } finally {
+        await fixture.dispose()
+    }
+})
+
+// The generated `static new`'s NAME node is pinned to a ONE-CHAR source anchor (a real span
+// is load-bearing: a factory-fresh name crashes the checker's error-span machinery on a
+// failing `.new(...)` call), so every editor surface that prints a member name from SOURCE
+// TEXT renders that one garbage character instead — `TopPoint.r`, `Timed[0]`, `Point[}]` —
+// on quickinfo, signature help and completion details alike. The language-service plugin
+// normalizes the name back to `new` (each request is gated on actually targeting `new`).
+const newNameRenderText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Timed extends Base {
+        public delay!: number = 0
+    }
+
+    class TopPoint extends Base implements Timed {
+        public readonly x!: number
+    }
+
+    const tp = TopPoint.new({ x : 1, delay : 2 })
+    const tm = Timed.new({ delay : 2 })
+
+    const make = () => {
+        class Point extends Base {
+            public readonly y!: number
+        }
+
+        return Point.new({ y : 2 })
+    }
+
+    void [ tp, tm, make() ]
+`)
+
+it("tsserver renders the generated `.new` NAME as `new` on quickinfo, signature help and completion details", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text: newNameRenderText } ]
+    })
+    const session = openTsServerSession(fixture.directory)
+
+    try {
+        const file = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+
+        await session.open(file, newNameRenderText)
+
+        const at = (marker: string, inner: string): { line: number, offset: number } =>
+            positionToLineOffset(newNameRenderText, newNameRenderText.indexOf(marker) + marker.indexOf(inner) + 1)
+
+        // --- quickinfo on `.new`: consumer (top-level), mixin value-cast, nested consumer ---
+        for (const { label, marker, expected } of [
+            { label: "top-level consumer", marker: "TopPoint.new({ x", expected: "TopPoint.new(props" },
+            { label: "mixin",              marker: "Timed.new({ delay", expected: "Timed.new(props" },
+            { label: "nested consumer",    marker: "Point.new({ y",     expected: "Point.new(props" }
+        ]) {
+            const info    = assertResponseBody<QuickInfoBody>(
+                t,
+                await session.request("quickinfo", { file, ...at(marker, "new") })
+            )
+            const display = info.displayString ?? ""
+
+            t.match(display, expected, `${label}: quickinfo names the method \`new\`, got:\n${display}`)
+        }
+
+        // --- signature help inside `.new(`: the prefix leads with the real name ---
+        const sigPosition = newNameRenderText.indexOf("TopPoint.new({ x") + "TopPoint.new(".length + 1
+        const signatures  = assertResponseBody<SignatureItemsBody>(
+            t,
+            await session.request("signatureHelp", {
+                file,
+                ...positionToLineOffset(newNameRenderText, sigPosition)
+            })
+        )
+        const prefix      = (signatures.items?.[0]?.prefixDisplayParts ?? []).map((part) => part.text).join("")
+
+        t.is(prefix, "new(", "signature help leads with `new(`, not the one-char anchor render")
+
+        // --- completion entry details for `new` ---
+        const details    = assertResponseBody<Array<{ displayParts?: Array<{ text: string }> }>>(
+            t,
+            await session.request("completionEntryDetails", {
+                file,
+                ...at("TopPoint.new({ x", "new"),
+                entryNames : [ "new" ]
+            })
+        )
+        const detailText = (details[0]?.displayParts ?? []).map((part) => part.text).join("")
+
+        t.match(detailText, "TopPoint.new(props", `completion details name the method \`new\`, got:\n${detailText}`)
+    } finally {
+        await session.close()
         await fixture.dispose()
     }
 })

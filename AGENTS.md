@@ -702,9 +702,15 @@ an in-block alias stays synthetic); the span sits on the user's own alias refere
 `<Name>Config` shape with class `<Name>` present, and on an UNAMBIGUOUS single `'}'`). The
 HOVER twin of that render (`type } = {...}`) is fixed at the language-service-plugin seam
 instead: the plugin substitutes the hovered reference's text into the collapsed `aliasName`
-display part. Guards: `diagnostic-base-names.t.ts`, the §2.23 pins in
+display part. The same plugin seam normalizes the generated `.new`'s METHOD NAME on quickinfo,
+signature help and completion details: the name node is pinned to a ONE-CHAR anchor (a
+factory-fresh name crashes the checker's error-span machinery on a failing `.new(...)` —
+`createConstructionMembers`), so member-name display reads that single source character
+(`TopPoint.r`, `Timed[0]`, `Point[}]`); the real name is statically `new` and each request
+provably targets it (hovered identifier / callee before the arguments span / requested
+completion entry). Guards: `diagnostic-base-names.t.ts`, the §2.23 pins in
 `compiler-option-edges.t.ts`, `mixin-static-super.t.ts` (TS2417),
-`tsserver-construction-config-alias.t.ts` (the nested hover).
+`tsserver-construction-config-alias.t.ts` (the nested hover + the `.new` name surfaces).
 
 ## Emit-path implements conformance
 

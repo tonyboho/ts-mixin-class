@@ -122,30 +122,13 @@ before relying on inferred implementation details. In ordinary classes TypeScrip
 public member types from initializers and method bodies, but mixins need a stable AST-level
 public surface that can be copied into generated declarations.
 
-### 3. Named mixin / consumer declarations at any nesting level — RESOLVED
-
-A `@mixin` or a mixin consumer may be declared at the top level OR inside a function body /
-block. The generated siblings (`__User$base`, the merged interface, the `defineMixinClass`
-call, a construction `<Name>Config` alias) are spliced into the SAME block, never hoisted to
-module scope. A nested class is a local: it cannot be exported, and never leaks its name into
-the `.d.ts` (an escaping instance widens to its structural shape). Works on both planes — emit
-(`tsc`) and source view (tsserver navigation / quickinfo / diagnostics).
-
-Residuals:
-- **Anonymous classes / class expressions** (`const C = class implements M {}`) stay
-  unsupported — no stable statement slot for the siblings — but are now flagged with a clean
-  native diagnostic (TS990002 for a `@mixin`, TS990003 for a consumer) instead of a bare TS2420.
-- **Per-call runtime cost.** A nested mixin/consumer's `defineMixinClass` / chain assembly runs
-  on every call of its enclosing function — no global registry leak (metadata rides on the
-  fresh constructor), just not memoized across calls. Same as any class declared in a function.
-
-### 4. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
+### 3. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
 
 A dynamic base would need to be evaluated exactly once, stored in a generated runtime
 constant, represented on both the instance and static sides, and emitted correctly in `.d.ts`
 files. Use a named base class for now.
 
-### 5. Base-name navigation is limited for generic / construction / qualified consumers
+### 4. Base-name navigation is limited for generic / construction / qualified consumers
 
 Go-to-definition, find-all-references, and quickinfo on a base type name *inside* a class
 heritage clause work for a **non-generic** consumer that does not use construction and extends
@@ -161,7 +144,7 @@ quickinfo reports `any`. The class name itself, its type parameters, and its mem
 correctly in every case. For the affected consumers, navigate from the base class's own
 declaration or another usage instead.
 
-### 6. A mixin that violates its `implements` contract is flagged twice in the editor
+### 5. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where the

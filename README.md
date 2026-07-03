@@ -470,7 +470,8 @@ A few things the library does not support yet.
 - **Mixin consumers and `@mixin`es must be named class declarations**, at the top level or
   nested in a function or block. Anonymous classes and class expressions are rejected — the
   library has nowhere stable to attach the helpers it generates. A nested class is a local: it
-  can't be exported.
+  can't be exported, and its mixin setup runs on every call of the enclosing function — same
+  as any class declared in a function.
 
 - **A consumer's base can't be a dynamic expression** such as `extends makeBase()`. Use a
   named base class for now.

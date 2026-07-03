@@ -46,17 +46,27 @@ export type MixinClassValue<
     RequiredBase extends object = any
 > =
     (new (...args: any[]) => Instance)
-    & ConstructionMixinClassValue<Instance, Factory, RequiredBase>
+    & ClassStatics<ReturnType<Factory>>
+    & {
+        readonly mix: <Base extends AnyConstructor<RequiredBase>>(base: Base) =>
+            MixinApplication<Base, Instance, ReturnType<Factory>>
+    }
 
 // `MixinClassValue` WITHOUT the permissive bare construct signature — the value form for a
 // construction (Base-deriving) mixin, whose direct `new` is poisoned with a brand so it can only
-// be built through the generated static `.new(...)`. The statics and `.mix` are unchanged.
+// be built through the generated static `.new(...)`. The factory statics additionally DROP the
+// inherited `new`: the factory's `base` parameter carries the required base's static side, so
+// `ReturnType<Factory>` inherits `Base.new(props?: unknown)` — intersected next to the generated
+// `.new` it would win overload FALLBACK and silently accept any config shape. Source view shadows
+// it naturally (the generated `static new` is an OWN member of the real class); the emit cast
+// reproduces that shadowing with the omit. A mixin OWNING its `static new` never takes this form
+// (its own member already shadows the base's — it keeps the permissive `MixinClassValue` above).
 export type ConstructionMixinClassValue<
     Instance extends object,
     Factory extends (...args: any[]) => any,
     RequiredBase extends object = any
 > =
-    ClassStatics<ReturnType<Factory>>
+    Omit<ClassStatics<ReturnType<Factory>>, "new">
     & {
         readonly mix: <Base extends AnyConstructor<RequiredBase>>(base: Base) =>
             MixinApplication<Base, Instance, ReturnType<Factory>>

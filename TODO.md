@@ -109,7 +109,21 @@ only the TS4114 code, not the message — tighten those pins when fixing this).
 The diagnostic is correct in substance (the member IS an override); only the NAME is wrong. Any
 other checker message that embeds the base-class name presumably leaks the same way (TS2415
 "incorrectly extends", TS2417 static-side, TS4113/4117 override family, …) — sweep for them
-when fixing. Likely resolution: rewrite the offending name in the diagnostic-wrapping channel
+when fixing.
+
+**TS2417 (static-side extends) — confirmed leak, repro on BOTH planes** (the check fires on
+emit since the factory's base parameter carries the base statics — the `super.<baseStatic>`
+work). `class Req { static tag: string = "r" }` + `@mixin() class Marked extends Req { static
+tag: number = 1 }`:
+
+- emit: `Class static side 'typeof __Marked$class' incorrectly extends base class static side
+  'ClassStatics<typeof Req>'` — BOTH names are generated artifacts (the factory's inner runtime
+  class; the factory parameter's statics constituent). Expected: `'typeof Marked'` / `'typeof Req'`.
+- source view: `Class static side 'typeof Marked' incorrectly extends base class static side
+  'typeof }'` — the class side is right, the base renders as the collapsed-cast `'}'` again.
+
+The code path is pinned in `mixin-static-super.t.ts` ("INCOMPATIBLE static override…" asserts
+only the TS2417 code, not the message — tighten those pins when fixing this). Likely resolution: rewrite the offending name in the diagnostic-wrapping channel
 (`wrapProgramDiagnostics` already intercepts program diagnostics) — map a generated heritage
 name (`__X$base`/`$empty`, the factory intersection text, the collapsed-range render) back to
 the user's own base name (or the mixin's name for a mixin-contributed layer). Needs a message
@@ -155,18 +169,6 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
-
-### Required-base statics inside a mixin's own static (`super.new` / `super.<baseStatic>`)
-
-On the EMIT plane a mixin's static method cannot reach the required base's statics through
-`super`: the factory's `base` parameter is typed bare `AnyConstructor<Base>` (instance side
-only), so `super.new(...)` / `super.staticRequired()` inside a `static` body is TS2339 — while
-the source-view plane (whose `$base` cast carries the base statics) accepts it: a plane
-divergence. Affects a mixin's own `static new` factory wanting to delegate to `Base.new`
-(workaround: build via `new ThisMixin()` — owning `static new` lifts the direct-`new` brand).
-Fix would type the base parameter as `AnyConstructor<X> & Omit<typeof RequiredBase,
-"prototype">` — a WIDE change (every mixin's static-side override checking against the base
-kicks in), needs its own careful pass.
 
 ### `isolatedDeclarations` compatibility — the `tsc` layer
 

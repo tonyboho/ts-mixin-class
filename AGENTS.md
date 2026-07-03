@@ -647,8 +647,19 @@ Contract1, … {…} return __X$class` (`mixinFactoryHeritageClauses` clones the
 `implements` types onto the inner runtime class — a named DECLARATION, not an expression, so
 legacy member decorators stay legal). An `implements` clause is **type-only — erased in JS**, so
 runtime output is byte-identical, but it makes the checker verify the *real* body against each
-contract. `base` is typed `AnyConstructor<RequiredBase & deps>`, so members inherited from the
-required base / deps are satisfied through `extends base`. This works **uniformly for generic and
+contract. `base` is typed `AnyConstructor<RequiredBase & deps> & ClassStatics<typeof
+RequiredBase> & Omit<ClassStatics<typeof Dep>, "mix" | keyof RuntimeMixinClass>` — instance AND
+static sides (originally instance-only — superseded, kept for context: the statics were added so
+`super.<baseStatic>` / `super.new` type-check inside a mixin's own `static` body, and the
+static-side extends check TS2417 fires on emit exactly as source view always ran it; pinned in
+`mixin-static-super.t.ts`). Members inherited from the required base / deps are satisfied through
+`extends base`. Two invariants ride on the statics: (1) a construction mixin's value cast must
+DROP the `new` inherited through `ReturnType<Factory>` (`Omit<…, "new">` in
+`ConstructionMixinClassValue` / the generic inline cast) or the permissive inherited `Base.new`
+wins overload fallback next to the generated `.new`; (2) dependency statics must strip the
+symbol-keyed markers (`keyof RuntimeMixinClass`) or DECLARATION emit of the exported factory hits
+TS4023/TS4025 (the inner class's static side expands structurally and cannot name the runtime
+module's symbols). This works **uniformly for generic and
 non-generic mixins** — the type parameters are in scope inside the factory (`function <T>(base) {
 class __X$class … implements Container<T> {} … }`), which the earlier `interface extends` /
 top-level-alias forms could not express.

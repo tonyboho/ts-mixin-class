@@ -37,6 +37,7 @@ import {
     createLinearizationPlanLiteral,
     brandedConstructSignatureType,
     createSourceViewConsumerBaseHeadType,
+    expressionToEntityName,
     heritageTypeToTypeReference,
     linearizationMode,
     mixinValueIdentifier,
@@ -978,10 +979,21 @@ function createMixinValueCastType(
                 instanceType
             ))
 
+        // A generic CONSTRUCTION mixin drops the `new` inherited through the factory statics
+        // (the base parameter carries the required base's static side, so `ReturnType<factory>`
+        // inherits the permissive `Base.new` — it would win overload fallback next to the
+        // generated `"new"<T>`), mirroring the non-generic `ConstructionMixinClassValue` omit.
+        const factoryStatics = factory.createTypeReferenceNode(classStaticsName, [ factoryReturnType ])
+
         return factory.createIntersectionTypeNode([
             ...(constructionNewType !== undefined ? [ constructionNewType ] : []),
             constructSignature,
-            factory.createTypeReferenceNode(classStaticsName, [ factoryReturnType ]),
+            constructionNewType === undefined
+                ? factoryStatics
+                : factory.createTypeReferenceNode("Omit", [
+                    factoryStatics,
+                    factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+                ]),
             createMixinApplyType(tsInstance, declaration, typeParameters, instanceType, factoryReturnType),
             createRuntimeMixinClassType(tsInstance, declaration)
         ])
@@ -1100,22 +1112,31 @@ function exportModifiersOf(
     return [ tsInstance.factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ]
 }
 
-// Factory base parameter: AnyConstructor, or AnyConstructor<Dep1<...> & Dep2<...>>
-// for a mixin with dependencies. This gives the body typed super access.
+// Factory base parameter: the INSTANCE side (`AnyConstructor`, or
+// `AnyConstructor<Req & Dep1<...>>`) intersected with the STATIC sides of the required base
+// and the dependencies (`& ClassStatics<typeof Req> & Omit<ClassStatics<typeof Dep>, "mix">`),
+// mirroring the source-view `$base` cast. The instance side gives the body typed
+// `super.<member>` / `this.<member>` access; the static side gives a `static` body typed
+// `super.<baseStatic>` access AND turns on the checker's static-side extends check (TS2417) —
+// both exactly as source view always had them. A dependency's framework `mix` is excluded for
+// the same reason as in the source-view cast: the mixin's own value provides its own `.mix`.
+// The static side uses `typeof <value>`, so statics never thread the mixin's type parameters
+// (a class's static side cannot reference them anyway — TS2302) — a generic required base
+// contributes its raw uninstantiated static side.
 function createBaseParameter(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration,
     context: FileMixinContext
 ): ts.ParameterDeclaration {
-    const factory      = tsInstance.factory
-    const requiredBase = requiredBaseType(tsInstance, declaration)
+    const factory            = tsInstance.factory
+    const requiredBase       = requiredBaseType(tsInstance, declaration)
+    const dependencyHeritage = localMixinHeritageTypes(tsInstance, declaration, context)
 
     const dependencyTypes = [
         ...(requiredBase === undefined
             ? []
             : [ heritageTypeToTypeReference(tsInstance, requiredBase) ]),
-        ...localMixinHeritageTypes(tsInstance, declaration, context)
-            .map((heritageType) => heritageTypeToTypeReference(tsInstance, heritageType))
+        ...dependencyHeritage.map((heritageType) => heritageTypeToTypeReference(tsInstance, heritageType))
     ]
 
     const baseInstanceType =
@@ -1123,14 +1144,45 @@ function createBaseParameter(
         dependencyTypes.length === 1 ? dependencyTypes[0] :
             factory.createIntersectionTypeNode(dependencyTypes)
 
+    const constructorType = factory.createTypeReferenceNode(
+        anyConstructorName,
+        baseInstanceType === undefined ? undefined : [ baseInstanceType ]
+    )
+
+    const staticsTypes = [
+        ...(requiredBase === undefined
+            ? []
+            : [ factory.createTypeReferenceNode(classStaticsName, [
+                factory.createTypeQueryNode(expressionToEntityName(tsInstance, requiredBase.expression))
+            ]) ]),
+        // A dependency's statics also drop the framework marker symbols (`keyof
+        // RuntimeMixinClass`): the class inside the factory inherits its static side from this
+        // parameter type, and DECLARATION emit expands that static side structurally — a
+        // symbol-keyed marker there needs the runtime module's `factory`/`requirements`/`base`
+        // names, which the user's file cannot name (TS4023/TS4025 on the exported factory).
+        ...localMixinRefs(context, dependencyHeritage)
+            .filter((ref) => ref.localValueName !== undefined)
+            .map((ref) => factory.createTypeReferenceNode("Omit", [
+                factory.createTypeReferenceNode(classStaticsName, [
+                    factory.createTypeQueryNode(factory.createIdentifier(ref.localValueName as string))
+                ]),
+                factory.createUnionTypeNode([
+                    factory.createLiteralTypeNode(factory.createStringLiteral("mix")),
+                    factory.createTypeOperatorNode(
+                        tsInstance.SyntaxKind.KeyOfKeyword,
+                        factory.createTypeReferenceNode(runtimeMixinClassName, undefined)
+                    )
+                ])
+            ]))
+    ]
+
     return factory.createParameterDeclaration(
         undefined,
         undefined,
         "base",
         undefined,
-        factory.createTypeReferenceNode(
-            anyConstructorName,
-            baseInstanceType === undefined ? undefined : [ baseInstanceType ]
-        )
+        staticsTypes.length === 0
+            ? constructorType
+            : factory.createIntersectionTypeNode([ constructorType, ...staticsTypes ])
     )
 }

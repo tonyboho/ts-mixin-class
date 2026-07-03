@@ -126,6 +126,7 @@ lives in `mixin-consumer-parity.t.ts` and `construction-mixin-config-shapes.t.ts
 | 4.5 | Required base mismatch (unrelated base) rejected | ✅ | `type-errors.ts`, `source-transform-diagnostics.t.ts`, `tsserver-diagnostics.t.ts` |
 | 4.6 | Required base still enforced after generic-`T` erasure (`.mix(Unrelated)`) | ✅ | `generic-mixin-required-base.t.ts` |
 | 4.7 | Required base enforced at **runtime** through the transformer-emitted `.mix` (unrelated base throws; related descendant applies) — distinct plane from the raw-helper guard in `runtime-helper.t.ts` | ✅ | `required-base-runtime-guard.t.ts` |
+| 4.8 | **Base / dependency STATICS through `super` in a mixin's own `static` body** (`super.<baseStatic>`, `super.new` delegation to `Base.new`, `super.<depStatic>`, generic required base): the factory's `base` parameter carries the static sides (`& ClassStatics<typeof Req> & Omit<ClassStatics<typeof Dep>, "mix" \| keyof RuntimeMixinClass>`), so this type-checks on the EMIT plane exactly as source view always did — and, symmetrically, an INCOMPATIBLE static override is **TS2417 on both planes** (emit used to pass it silently) | ✅ | `mixin-static-super.t.ts`, `fixture-suite/src/mixin-static-super.t.ts` |
 
 ## 5. Manual application (`.mix(Base)`)
 

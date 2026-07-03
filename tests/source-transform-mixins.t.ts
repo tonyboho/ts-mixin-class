@@ -231,8 +231,9 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed, "function <T>(base: AnyConstructor<SourceClass1<T>>)",
-        "Dependent mixin base parameter is typed with the dependency")
+    t.match(printed,
+        "function <T>(base: AnyConstructor<SourceClass1<T>> & Omit<ClassStatics<typeof SourceClass1>, \"mix\" | keyof RuntimeMixinClass>)",
+        "Dependent mixin base parameter is typed with the dependency's instance AND static sides")
     t.match(printed, "class __ChildMixin$class extends base",
         "Dependent mixin factory declares the named runtime class")
     t.match(printed, "return __ChildMixin$class",
@@ -324,8 +325,8 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
 
     t.match(printed, "interface RequiredMixin extends RequiredBase",
         "Generated interface keeps the required base as an instance constraint")
-    t.match(printed, "function (base: AnyConstructor<RequiredBase>)",
-        "Mixin factory parameter is constrained to the required base")
+    t.match(printed, "function (base: AnyConstructor<RequiredBase> & ClassStatics<typeof RequiredBase>)",
+        "Mixin factory parameter is constrained to the required base, instance AND static sides")
     t.match(printed, "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
         "Value const registers the required runtime base")
     t.match(printed, "class __Consumer$base<__mixinRequiredBase0 extends never>",

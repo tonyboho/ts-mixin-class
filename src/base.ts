@@ -2,6 +2,11 @@ export type AnyConstructor<T extends object = object> = new (...args: any[]) => 
 
 export type ClassStatics<C> = Omit<C, "prototype">
 
+// NB an emitted factory does NOT satisfy this type nominally — its parameter is annotated with
+// the mixin's precise base (`AnyConstructor<Req & Deps> & ClassStatics<typeof Req> & …`, see
+// `createBaseParameter`), narrower than this slot under `strictFunctionTypes` parameter
+// contravariance. The emit bridges it with the `as unknown as MixinFactory` cast on the
+// `defineMixinClass` argument; the per-definition annotation carries the real checking.
 export type MixinFactory = (base: AnyConstructor<any>) => AnyConstructor<any>
 
 export type MixinApplication<

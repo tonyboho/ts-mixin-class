@@ -119,9 +119,9 @@ it("a user's own 'static new' on a construction CLASS overrides the generated fa
 
 it("a user's own 'static new' on a construction MIXIN overrides the generated factory in both planes", async (t: Test) => {
     // Owning `static new` also lifts the direct-`new` brand (the user owns construction now) —
-    // so the factory body can build via `new Titled()`. NB `super.new(...)` inside a mixin
-    // STATIC is not available on the emit plane (the factory's `base` parameter carries no
-    // statics) — see TODO.md "Required-base statics inside a mixin's own static".
+    // so the factory body can build via `new Titled()`. Delegating via `super.new(...)` works
+    // too (the factory's `base` parameter carries the base statics) — pinned separately in
+    // mixin-static-super.t.ts; this test keeps the direct-`new` body as its own case.
     const source = trimIndent(`
         import { Base, mixin } from "ts-mixin-class"
 

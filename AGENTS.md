@@ -680,6 +680,23 @@ diagnostic breakdown). A filtered audit over all 1273 non-heritage/non-base pert
 line drifts and 0 column mismatches. Do **not** fix this by changing which tree emit uses — both
 alternatives were proven to break (runtime JS / invented diagnostics).
 
+**Name rewrite at the same seam** (`diagnostic-name-rewrite.ts`): checker messages that embed a
+base-class NAME show generated artifacts after the transform — `'__X$base'` on emit; in source
+view the collapsed `$base` range renders as `'}'`/`'typeof }'` or the metadata-cast intersection
+text (`'Machine & Greeter'`) — because the checker prints a type's name from its declaration
+name node's SOURCE TEXT (source-view invariant #10). `rewriteGeneratedNameDiagnostics` (called
+after the position remap, per-diagnostic gated on an artifact pattern) resolves the member at
+the span against the ORIGINAL file (both planes carry original positions there) and walks the
+class's mixin layers in C3 order over the REGISTRY (reusing `linearizationCache`), then the real
+base chain — the first DECLARING layer is the name in the message; no owner → the user-level
+combined display. `typeof __X$class`/`ClassStatics<typeof R>` unwrap textually. All quoted-name
+replacements are exact-keyed and fire only when a replacement resolved. TS2416 fires TWICE by
+construction (the user's `implements` reference + the generated heritage); the rewrite makes the
+artifact twin byte-identical and an exact-duplicate pass drops it — do not "fix" the double
+report upstream, the twin is load-bearing for the implements conformance check. Guards:
+`diagnostic-base-names.t.ts`, the §2.23 pins in `compiler-option-edges.t.ts`,
+`mixin-static-super.t.ts` (TS2417).
+
 ## Emit-path implements conformance
 
 The sweep also exposed that the value-cast (emit) and real-class (source-view) trees are not

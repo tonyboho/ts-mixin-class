@@ -13,6 +13,7 @@ import {
 } from "./construction-config.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { expandMixinClass } from "./mixin-expand.js"
+import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
 import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
 import { localMixinHeritageTypesFromFacts } from "./mixin-refs.js"
 import { linearizeDependencies } from "./linearization.js"
@@ -341,12 +342,21 @@ function wrapProgramDiagnostics(
     tsInstance: TypeScript,
     program: ts.Program,
     originalProgram: ts.Program,
-    nativeDiagnostics: NativeMixinDiagnostic[]
+    nativeDiagnostics: NativeMixinDiagnostic[],
+    crossFile: CrossFileContext | undefined,
+    options: TransformOptions
 ): ts.Program {
     const originalGetSyntactic   = program.getSyntacticDiagnostics.bind(program)
     const originalGetSemantic    = program.getSemanticDiagnostics.bind(program)
     const originalGetDeclaration = program.getDeclarationDiagnostics.bind(program)
     const originalEmit           = program.emit.bind(program)
+
+    // Checker messages that embed a generated base/factory NAME (or a collapsed-range render)
+    // are mapped back to the user's own names after the position remap — see
+    // `diagnostic-name-rewrite.ts`. Gated per diagnostic on a cheap artifact-pattern test.
+    const rewriteNames = <Diagnostic extends ts.Diagnostic>(diagnostics: Diagnostic[]): Diagnostic[] => {
+        return rewriteGeneratedNameDiagnostics(tsInstance, diagnostics, originalProgram, crossFile, options)
+    }
 
     program.getSyntacticDiagnostics   = (sourceFile, cancellationToken) => {
         return remapDiagnostics(tsInstance, originalGetSyntactic(sourceFile, cancellationToken))
@@ -358,12 +368,12 @@ function wrapProgramDiagnostics(
             tsInstance,
             originalProgram,
             nativeDiagnostics,
-            remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken)),
+            rewriteNames(remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken))),
             sourceFile
         )
     }
     program.getDeclarationDiagnostics = (sourceFile, cancellationToken) => {
-        return remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken))
+        return rewriteNames(remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken)))
     }
     program.emit                      = (targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers) => {
         // Strip the redundant generated `static new` factories from JS emit (they only
@@ -572,7 +582,7 @@ export default function transformProgram(
         compilerOptions,
         nextHost,
         undefined
-    ), program, nativeDiagnostics)
+    ), program, nativeDiagnostics, crossFile, options)
 }
 
 export function createMixinClassCompilerHost(

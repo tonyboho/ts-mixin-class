@@ -131,18 +131,25 @@ const markedOverrides = trimIndent(`
 
 it("noImplicitOverride EXTENDS to mixin-member overrides: unmarked → TS4114 (spec decision)", async (t: Test) => {
     // A mixin member IS inherited after the transform, so the option demands the marker even
-    // though the source class has no `extends` clause (plain TS would not). Known cosmetic
-    // gap: the message names the GENERATED base (`__Worker$base` / `}`), not the mixin — see
-    // TODO.md "Generated base names leak into CHECKER diagnostic messages".
-    const emit = await build(unmarkedOverrides, { noImplicitOverride: true })
+    // though the source class has no `extends` clause (plain TS would not). The message names
+    // the MIXIN whose member is overridden ('Greeter'), on both planes and for both the
+    // consumer (Worker) and the mixin-over-dependency (Loud) — not the generated base
+    // (`__Worker$base` on emit / the collapsed-render `'}'` in source view).
+    const emit       = await build(unmarkedOverrides, { noImplicitOverride: true })
+    const emitOutput = commandOutput(emit)
 
     t.ne(emit.exitCode, 0, "emit: rejected")
-    t.match(commandOutput(emit), "TS4114", "…with the override-modifier demand, on the consumer")
+    t.match(emitOutput, "TS4114", "…with the override-modifier demand, on the consumer")
+    t.match(emitOutput, "base class 'Greeter'", `…naming the overridden mixin.\n${emitOutput}`)
+    t.notMatch(emitOutput, "$base", "no generated base name leaks")
 
-    const sourceView = await build(unmarkedOverrides, { noImplicitOverride: true, noEmit: true })
+    const sourceView       = await build(unmarkedOverrides, { noImplicitOverride: true, noEmit: true })
+    const sourceViewOutput = commandOutput(sourceView)
 
     t.ne(sourceView.exitCode, 0, "source view: rejected the same")
-    t.match(commandOutput(sourceView), "TS4114", "…with the same code")
+    t.match(sourceViewOutput, "TS4114", "…with the same code")
+    t.match(sourceViewOutput, "base class 'Greeter'", `…naming the same mixin.\n${sourceViewOutput}`)
+    t.notMatch(sourceViewOutput, "base class '}'", "no collapsed-position render leaks")
 })
 
 it("`override` on a mixin-member override satisfies noImplicitOverride (consumer AND mixin-over-dependency)", async (t: Test) => {

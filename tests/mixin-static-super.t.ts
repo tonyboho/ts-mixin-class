@@ -130,11 +130,20 @@ it("an INCOMPATIBLE static override on a mixin is TS2417 on both planes", async 
 
     t.ne(emit.exitCode, 0, "emit: rejected (used to pass silently)")
     t.match(emitOutput, "TS2417", `the static-side extends check fires on emit too.\n${emitOutput}`)
+    // The message names the USER's classes, not the generated factory artifacts
+    // (`typeof __Marked$class` / `ClassStatics<typeof Tagged>` before the rewrite).
+    t.match(emitOutput, "'typeof Marked'", "…naming the user's class")
+    t.match(emitOutput, "'typeof Tagged'", "…and the user's base")
+    t.notMatch(emitOutput, "$class", "no generated factory-class name leaks")
+    t.notMatch(emitOutput, "ClassStatics<", "no factory-parameter constituent leaks")
 
     const sourceViewOutput = commandOutput(sourceView)
 
     t.ne(sourceView.exitCode, 0, "source view: rejected, as it always was")
     t.match(sourceViewOutput, "TS2417", `both planes agree on the code.\n${sourceViewOutput}`)
+    t.match(sourceViewOutput, "'typeof Marked'", "source view names the user's class")
+    t.match(sourceViewOutput, "'typeof Tagged'", "…and the user's base")
+    t.notMatch(sourceViewOutput, "typeof }", "no collapsed-cast render leaks")
 })
 
 const dependencyStatics = trimIndent(`

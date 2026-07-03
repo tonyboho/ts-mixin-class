@@ -32,66 +32,6 @@ qualified heritage expressions, registry lookup through the checker's alias chai
 and in the generated `$base` interface heritage). Alternative fallback if support stays out:
 a native diagnostic ("qualified mixin reference is not supported — import the mixin by name").
 
-### Generated base names leak into CHECKER diagnostic messages (found via `noImplicitOverride`)
-
-The checker names the base class in several of its own messages, and after the transform that
-name is a generated artifact, not what the user wrote. Minimal repro (`noImplicitOverride:
-true` in the compiler options):
-
-```ts
-import { mixin } from "ts-mixin-class"
-
-@mixin()
-class Greeter {
-    greet(): string { return "hi" }
-}
-
-class Worker implements Greeter {
-    greet(): string { return "hello" }   // ← the un-marked override
-}
-```
-
-- expected message: `…overrides a member in the base class 'Greeter'` (the mixin whose member
-  is overridden — the only base-ish name that exists in the user's source);
-- actual, emit plane (`tsc`): `…in the base class '__Worker$base'`;
-- actual, source view (`tsc --noEmit` / IDE): `…in the base class '}'`.
-
-And with a REAL base (`class Robot extends Machine implements Greeter` overriding `Machine`'s
-member): expected `'Machine'`, actual `'__Robot$base'` (emit) / `'Machine & Greeter'` (source
-view). Pass-8 probes; the code path is pinned in `compiler-option-edges.t.ts` (which asserts
-only the TS4114 code, not the message — tighten those pins when fixing this).
-
-- **emit plane**: the base renders as the synthetic heritage — `'__Worker$base'`,
-  `'__Robot$base'` — even when the user's class has a REAL base (`class Robot extends Machine`
-  → the message should say `'Machine'`);
-- **source view**: worse — the `$base` interface's collapsed zero-width range makes the name
-  render as `'}'` (the character at the collapsed position), or as the intersection text
-  `'Machine & Greeter'`.
-
-The diagnostic is correct in substance (the member IS an override); only the NAME is wrong. Any
-other checker message that embeds the base-class name presumably leaks the same way (TS2415
-"incorrectly extends", TS2417 static-side, TS4113/4117 override family, …) — sweep for them
-when fixing.
-
-**TS2417 (static-side extends) — confirmed leak, repro on BOTH planes** (the check fires on
-emit since the factory's base parameter carries the base statics — the `super.<baseStatic>`
-work). `class Req { static tag: string = "r" }` + `@mixin() class Marked extends Req { static
-tag: number = 1 }`:
-
-- emit: `Class static side 'typeof __Marked$class' incorrectly extends base class static side
-  'ClassStatics<typeof Req>'` — BOTH names are generated artifacts (the factory's inner runtime
-  class; the factory parameter's statics constituent). Expected: `'typeof Marked'` / `'typeof Req'`.
-- source view: `Class static side 'typeof Marked' incorrectly extends base class static side
-  'typeof }'` — the class side is right, the base renders as the collapsed-cast `'}'` again.
-
-The code path is pinned in `mixin-static-super.t.ts` ("INCOMPATIBLE static override…" asserts
-only the TS2417 code, not the message — tighten those pins when fixing this). Likely resolution: rewrite the offending name in the diagnostic-wrapping channel
-(`wrapProgramDiagnostics` already intercepts program diagnostics) — map a generated heritage
-name (`__X$base`/`$empty`, the factory intersection text, the collapsed-range render) back to
-the user's own base name (or the mixin's name for a mixin-contributed layer). Needs a message
-REWRITE (string surgery on `messageText`), not just a span fix, so keep it conservative:
-substitute only exact generated-name matches.
-
 ### `@ts-expect-error` cannot shield an erroring mixin heritage (investigated — full mechanism)
 
 Found in pass 9, root-caused afterwards. A consumer with a constraint-violating mixin argument

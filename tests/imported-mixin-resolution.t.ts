@@ -295,3 +295,127 @@ it("resolves a mixin declared in a local NAMESPACE (implements NS.Tagger)", asyn
 
     t.equal(result.exitCode, 0, `local-namespace-qualified mixin reference compiles (mixin resolved).\n${commandOutput(result)}`)
 })
+
+// A TYPE-ONLY namespace import (`import type * as lib`): the namespace object is erased from
+// JS, so the qualified value reference cannot ride on it — the transform routes the value
+// through a GENERATED value import (`import { Logger as __lib$Logger$mixinValue }`), exactly
+// as it does for a type-only NAMED import. Pins the `binding.typeOnly` branch of
+// `addQualifiedMixinRefs`, which no other test exercised.
+it("routes a TYPE-ONLY namespace import's value through a generated import (import type * as lib)", async (t: Test) => {
+    const { result, consumerJs } = await build([
+        { fileName: "logger.ts", text: loggerMixin },
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import type * as lib from "./logger"
+
+            export class Service implements lib.Logger {
+                record(): void { super.log("a") }
+                get count(): number { return this.logged.length }
+            }
+        `) }
+    ])
+
+    t.equal(result.exitCode, 0, `type-only namespace-qualified reference compiles.\n${commandOutput(result)}`)
+    t.match(consumerJs, `import { Logger as __lib$Logger$mixinValue } from "./logger"`,
+        `the value rides through a generated import, not the erased namespace.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(consumerJs, "[__lib$Logger$mixinValue]", "the generated value name is used in the chain")
+})
+
+// TWO namespace imports exposing the SAME member name (`libA.Widget` / `libB.Widget`): each
+// qualified reference must resolve through ITS OWN namespace binding to the right declaring
+// module — the dotted key (`libA.Widget` vs `libB.Widget`) keeps them distinct, so neither
+// consumer collapses onto the other's mixin (the qualified twin of the same-named §10.14).
+it("resolves two namespace imports exposing the SAME member name to their own modules", async (t: Test) => {
+    const widget = (marker: string): string => trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        export class Widget {
+            ${marker}(): string { return "${marker}" }
+        }
+    `)
+
+    const { result, consumerJs } = await build([
+        { fileName: "widget-a.ts", text: widget("a") },
+        { fileName: "widget-b.ts", text: widget("b") },
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import * as libA from "./widget-a"
+            import * as libB from "./widget-b"
+
+            export class UsesA implements libA.Widget {
+                ownA(): string { return super.a() }
+            }
+
+            export class UsesB implements libB.Widget {
+                ownB(): string { return super.b() }
+            }
+        `) }
+    ])
+
+    t.equal(result.exitCode, 0, `same-named members from two namespaces compile.\n${commandOutput(result)}`)
+    t.match(consumerJs, "__mixinChainLinearized__(__UsesA$empty, [libA.Widget]",
+        `the first consumer applies libA's Widget.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(consumerJs, "__mixinChainLinearized__(__UsesB$empty, [libB.Widget]",
+        "the second consumer applies libB's Widget")
+})
+
+// A THREE-level qualified name (`Outer.Inner.Deep`) is NOT resolved — only the two-level
+// `ns.Member` form is supported (deeper chains would need nested-namespace modelling). The
+// boundary must DEGRADE GRACEFULLY: the consumer is left untransformed, so plain TypeScript
+// reports the ordinary incorrect-`implements` error (TS2420) — never a crash, never a broken
+// half-transform.
+it("degrades gracefully on a three-level qualified name (no crash, plain TS2420)", async (t: Test) => {
+    const { result } = await build([
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import { mixin } from "ts-mixin-class"
+
+            namespace Outer {
+                export namespace Inner {
+                    @mixin()
+                    export class Deep {
+                        deep(): string { return "deep" }
+                    }
+                }
+            }
+
+            export class Service implements Outer.Inner.Deep {
+                use(): string { return this.deep() }
+            }
+        `) }
+    ])
+
+    t.ne(result.exitCode, 0, `an unresolved three-level name is a plain type error.\n${commandOutput(result)}`)
+    t.match(commandOutput(result), "TS2420", "reports the ordinary incorrect-implements error, no crash")
+})
+
+// A CONSTRUCTION-base mixin referenced through a namespace import (§10.1d × §7): the consumer
+// extends Base and implements `lib.Ticket`, staying construction-enabled — the qualified
+// mixin's required config key flows into the consumer's generated `.new`, and the runtime
+// chain references the value as `lib.Ticket`.
+it("keeps a construction consumer of a namespace-qualified mixin construction-enabled", async (t: Test) => {
+    const { result, consumerJs } = await build([
+        { fileName : "ticket.ts", text     : trimIndent(`
+            import { Base, mixin } from "ts-mixin-class"
+
+            @mixin()
+            export class Ticket extends Base {
+                public label!: string
+            }
+        `) },
+        { fileName : "consumer.ts", text     : trimIndent(`
+            import { Base } from "ts-mixin-class"
+            import * as lib from "./ticket"
+
+            export class Order extends Base implements lib.Ticket {
+                public priority: number = 1
+            }
+
+            export const order = Order.new({ label: "hot", priority: 2 })
+
+            // @ts-expect-error the required 'label' config key flows in from the qualified mixin
+            export const bad = Order.new({ priority: 2 })
+        `) }
+    ])
+
+    t.equal(result.exitCode, 0, `construction × namespace-qualified mixin compiles.\n${commandOutput(result)}`)
+    t.match(consumerJs, "lib.Ticket", `the chain references the qualified construction mixin.\n--- consumer.js ---\n${consumerJs}`)
+})

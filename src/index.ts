@@ -16,6 +16,7 @@ import { expandMixinClass } from "./mixin-expand.js"
 import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
 import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
 import { localMixinHeritageTypesFromFacts, resolveLocalMixinHeritageRef } from "./mixin-refs.js"
+import { dottedExpressionText } from "./expand-util.js"
 import { linearizeDependencies } from "./linearization.js"
 import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
@@ -868,21 +869,38 @@ export function transformSourceFile(
     // reports nothing — so push a NATIVE diagnostic spanned on the heritage reference. A use from
     // a DIFFERENT (deferred) scope — e.g. a function body applying a later top-level mixin — is
     // legal at runtime (the parents differ), and an imported mixin has no declaration here.
-    const pushMixinUsedBeforeDeclarationDiagnostics = (classFacts: ClassFacts, statement: ts.Statement): void => {
+    const pushMixinUsedBeforeDeclarationDiagnostics = (
+        classFacts: ClassFacts,
+        statement: ts.Statement,
+        siblings: readonly ts.Statement[]
+    ): void => {
         for (const heritageType of localMixinHeritageTypesFromFacts(tsInstance, classFacts, context)) {
-            const expression = heritageType.expression
+            const expression    = heritageType.expression
+            const referenceText = dottedExpressionText(tsInstance, expression)
 
-            if (!tsInstance.isIdentifier(expression)) {
+            if (referenceText === undefined) {
                 continue
             }
 
             const appliedDeclaration = resolveLocalMixinHeritageRef(tsInstance, heritageType, context)?.declaration
 
-            if (
-                appliedDeclaration === undefined ||
-                appliedDeclaration.parent !== statement.parent ||
-                appliedDeclaration.pos <= statement.pos
-            ) {
+            if (appliedDeclaration === undefined) {
+                continue
+            }
+
+            // The mixin's declaration must live in the CONSUMER's own statement list to be a TDZ
+            // hazard — the declaration itself for a bare name (`implements Tagged`), or the
+            // enclosing `namespace` statement for a qualified one (`implements NS.Tagger` above the
+            // namespace reads `NS.Tagger` off a still-undefined `var NS`). Found by POSITION
+            // containment over the sibling list, NOT a `.parent` walk: on the emit plane the
+            // program-provided AST has no parent pointers (only positions survive), so the parent
+            // check silently collapsed and false-fired on a DEFERRED-scope use (a top-level mixin
+            // applied from a nested block — legal at runtime). A mixin in a different scope is not
+            // a sibling here, so it is correctly ignored.
+            const owningSibling = siblings.find((sibling) =>
+                sibling.pos <= appliedDeclaration.pos && appliedDeclaration.end <= sibling.end)
+
+            if (owningSibling === undefined || owningSibling === statement || owningSibling.pos <= statement.pos) {
                 continue
             }
 
@@ -895,8 +913,8 @@ export function transformSourceFile(
                 code        : mixinDiagnosticCode.MixinUsedBeforeDeclaration,
                 category    : tsInstance.DiagnosticCategory.Error,
                 messageText : "Mixin used before its declaration. " +
-                    `Class ${classFacts.name ?? "<anonymous>"} implements ${expression.text}, ` +
-                    `but @mixin ${expression.text} is declared later in the same scope, so the generated ` +
+                    `Class ${classFacts.name ?? "<anonymous>"} implements ${referenceText}, ` +
+                    `but @mixin ${referenceText} is declared later in the same scope, so the generated ` +
                     "runtime reference would run before the mixin's definition. " +
                     "Declare the mixin before the class that applies it."
             })
@@ -1373,13 +1391,13 @@ export function transformSourceFile(
         }
     }
 
-    const expandClassStatement = (statement: ts.Statement): ts.Statement[] => {
+    const expandClassStatement = (statement: ts.Statement, siblings: readonly ts.Statement[]): ts.Statement[] => {
         const classFacts = tsInstance.isClassDeclaration(statement)
             ? facts.classesByDeclaration.get(statement)
             : undefined
 
         if (classFacts !== undefined) {
-            pushMixinUsedBeforeDeclarationDiagnostics(classFacts, statement)
+            pushMixinUsedBeforeDeclarationDiagnostics(classFacts, statement, siblings)
             pushMixinMemberKindOverrideDiagnostics(classFacts, statement)
             pushPartialAccessorOverrideDiagnostics(classFacts, statement)
         }
@@ -1471,7 +1489,7 @@ export function transformSourceFile(
         const out: ts.Statement[] = []
 
         for (const statement of statements) {
-            const expanded = expandClassStatement(statement)
+            const expanded = expandClassStatement(statement, statements)
 
             if (expanded.length !== 1 || expanded[0] !== statement) {
                 changed = true
@@ -1590,7 +1608,7 @@ export function transformSourceFile(
     // scope). No-op-safe — a file with no nested class keeps the original flat, top-level pass.
     const expandedStatements = facts.hasNestedClasses
         ? [ ...expandStatementList(sourceFile.statements) ]
-        : sourceFile.statements.flatMap(expandClassStatement)
+        : sourceFile.statements.flatMap((statement) => expandClassStatement(statement, sourceFile.statements))
 
     if (!expandedAnything) {
         return sourceFile

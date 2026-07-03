@@ -328,8 +328,19 @@ Violating any of these produces confusing tsserver errors or crashes.
     - **A class applying a local mixin declared LATER in the same statement list** gets a native
       diagnostic (`TS990008`, spanned on the heritage reference): the generated VALUE reference
       would hit the const TDZ. Emit-plane TS2448 remaps to the import line and source view reports
-      nothing, so the native channel is the only faithful signal. Deferred-scope uses stay legal
-      (`pushMixinUsedBeforeDeclarationDiagnostics` checks parent identity + position).
+      nothing, so the native channel is the only faithful signal. Deferred-scope uses stay legal.
+      Covers QUALIFIED refs too (`implements NS.Tagger` above the `namespace NS` block — the
+      generated `NS.Tagger` reads off a still-`undefined` `var NS`): the guard finds the mixin's
+      owning SIBLING statement (the `namespace` for a qualified ref, the class itself for a bare
+      one) by POSITION containment over the consumer's statement list and fires only when that
+      sibling starts after the consumer. Superseded (kept for context): it used to compare
+      `appliedDeclaration.parent` identity + position — but the emit-plane program AST has NO
+      parent pointers (only positions survive parse; binding may not have run), so `undefined !==
+      undefined` collapsed the parent guard and the check false-fired on a legal deferred-scope
+      use (a top-level mixin applied from a nested block) AND skipped qualified refs entirely.
+      The position-based sibling lookup (`pushMixinUsedBeforeDeclarationDiagnostics` takes the
+      statement list from `expandClassStatement`) is plane-robust — same lesson as
+      `resolveLexicalMixinRef`: prefer positions over parent pointers in the transform.
     - **The generated siblings are bound declarations, so scope-level identifier COMPLETIONS would
       offer them** (`__X$base/$empty/$mixin`); the `language-service-plugin` filters them out of
       `getCompletionsAtPosition` (same policy as its navigation-span filtering). Guard:

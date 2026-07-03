@@ -455,3 +455,72 @@ it("reports a consumer declared before its mixin in the same scope with a native
         await fixture.dispose()
     }
 })
+
+// The QUALIFIED twin of the guard above: a consumer using a LOCAL-namespace mixin
+// (`implements NS.Tagger`) declared ABOVE the namespace statement. The generated value
+// reference (`NS.Tagger` in the runtime chain) evaluates while `var NS` is still
+// undefined — a guaranteed runtime TypeError instead of the bare-name const TDZ. The guard
+// resolves the dotted reference and compares the namespace STATEMENT's position (the
+// declaration's ancestor in the consumer's own statement list), so a consumer BELOW the
+// namespace and a DEFERRED-scope use stay legal.
+it("reports a consumer declared before its mixin's namespace with a native diagnostic", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : [
+                'import { mixin } from "ts-mixin-class"',
+                "",
+                "export class Early implements NS.Tagger {",
+                "}",
+                "",
+                "export function deferredIsFine(): string {",
+                "    class LaterIsFine implements NS.Tagger {}",
+                "",
+                "    return new LaterIsFine().tag()",
+                "}",
+                "",
+                "namespace NS {",
+                "    @mixin()",
+                "    export class Tagger {",
+                "        tag(): string { return \"t\" }",
+                "    }",
+                "}",
+                "",
+                "export class BelowIsFine implements NS.Tagger {",
+                "}",
+                ""
+            ].join("\n")
+        } ]
+    })
+
+    try {
+        const expectedParts = [
+            "TS990008",
+            "is declared later in the same scope",
+            "Declare the mixin before",
+            // The span lands on the consumer's qualified heritage reference (`NS.Tagger` on
+            // line 3), naming the dotted reference.
+            "source.ts(3,31)",
+            "NS.Tagger"
+        ]
+
+        const sourceViewOutput = commandOutput(await runFixtureTypecheck(fixture))
+
+        assertMessageParts(t, sourceViewOutput, expectedParts)
+        t.notMatch(sourceViewOutput, "source.ts(7", "a deferred-scope qualified use of the later namespace is not flagged")
+        t.notMatch(sourceViewOutput, "source.ts(19", "a consumer below the namespace is not flagged")
+
+        const emitOutput = commandOutput(await runCommand(
+            "node",
+            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
+            fixture.directory
+        ))
+
+        assertMessageParts(t, emitOutput, expectedParts)
+        t.notMatch(emitOutput, "source.ts(7", "emit plane: the deferred-scope use stays legal")
+        t.notMatch(emitOutput, "source.ts(19", "emit plane: the below-the-namespace consumer stays legal")
+    } finally {
+        await fixture.dispose()
+    }
+})

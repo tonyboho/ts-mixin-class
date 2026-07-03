@@ -143,30 +143,47 @@ it("a module-LOCAL construction mixin does not leak its config alias (parity twi
     t.notMatch(dts, "export type InternalConfig", `the alias export tracks the mixin's own.\n${dts}`)
 })
 
-it("a public PARAMETER PROPERTY on a construction MIXIN's constructor is a config key of its own .new", async (t: Test) => {
+it("a public PARAMETER PROPERTY on a construction MIXIN's constructor is NOT a config key — by design", async (t: Test) => {
+    // The mixin twin of `construction-parameter-property.t.ts`: config keys come from
+    // declared class members; a parameter property stays a runtime/interface member whose
+    // value comes from the constructor (the native-construct step). The declared `name!`
+    // keeps the config non-empty so the key set is actually checked (an all-optional EMPTY
+    // config accepts any object literal — the trap that hid this contract).
     const source = trimIndent(`
         import { Base, mixin } from "ts-mixin-class"
 
         @mixin()
         export class Tagged extends Base {
+            public name!: string
+
             constructor(public tag: string = "untagged") {
                 super()
             }
         }
 
-        const tagged = Tagged.new({ tag: "spec" })
+        const tagged = Tagged.new({ name: "spec" })
 
-        const read: string = tagged.tag
+        const readTag: string = tagged.tag
+        const readName: string = tagged.name
 
-        void read
+        // @ts-expect-error the required declared field is a config key…
+        Tagged.new({})
+
+        // @ts-expect-error …while the parameter property is NOT one (excess key).
+        Tagged.new({ name: "spec", tag: "custom" })
+
+        void [ readTag, readName ]
     `)
 
     const result = await buildConstructionSource(source)
 
     t.equal(result.exitCode, 0,
-        `the parameter property is accepted (optionally) by the mixin's own .new.\n${commandOutput(result)}`)
+        `the mixin's own .new accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`)
 
     const dts = await readConstructionConfigDts(source)
 
-    t.match(dts, "tag?: string", `TaggedConfig carries the parameter property as an optional key.\n${dts}`)
+    // The EXACT alias — a loose "tag?: string" substring would false-match the factory's
+    // emitted constructor signature.
+    t.match(dts, 'export type TaggedConfig = Pick<Tagged, "name">',
+        `TaggedConfig keys are exactly the declared members — no parameter property.\n${dts}`)
 })

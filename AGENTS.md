@@ -241,7 +241,7 @@ Violating any of these produces confusing tsserver errors or crashes.
     (synthesized) name is `nodeIsMissing` too — neither recovers the name. In the position-preserving
     source-view plane (no reprint) the only way to display a generated name is to give it REAL
     matching text the checker can read. (Emit is immune: it reprints real text and reparses.) The
-    construction config alias depends on this — its current realization is Construction invariant #9.
+    construction config alias depends on this — its current realization is Construction invariant #10.
 
 11. **Source view is position-preserving WITHOUT a source map — never insert *visible* text inside a
     position-preserved span.** The source-view plane does not reprint+remap (that is the emit path);
@@ -256,7 +256,7 @@ Violating any of these produces confusing tsserver errors or crashes.
     line. This is the load-bearing reason the construction direct-`new` ban for a class with its OWN
     constructor is **emit-only** (the own constructor's signature governs `new`, so the brand must
     poison its parameter — visible text — which only emit tolerates; the no-constructor case brands
-    `$base` off-screen and holds in both planes). See Construction invariant #5.
+    `$base` off-screen and holds in both planes). See Construction invariant #6.
 
 12. **A nested `@mixin` / consumer (declared in a function body or block) expands by recursing
     into nested statement lists; SOURCE VIEW must MUTATE the containing block's `statements` IN
@@ -474,7 +474,18 @@ instance type) has its own rules:
    `Omit<typeof Mixin, "prototype" | "new">` (`createMixinStaticsType`), not `ClassStatics<typeof
    Mixin>`. The consumer's own `new` wins.
 
-4. **Config-key required-ness comes from the definite-assignment `!`, not the initializer or `?`.**
+4. **Config keys come from DECLARED class members only — constructor parameter properties are
+   NOT config keys, by design.** `collectClassMemberFacts` (`source-file-facts.ts`) walks
+   `declaration.members` (public fields + settable accessors); a parameter property is a
+   ParameterDeclaration inside the constructor and is deliberately not collected — it stays a
+   runtime/interface member whose value comes from the constructor (the native-construct step).
+   PIN THE ALIAS TEXT (`Pick<X, "declared">`), never a loose `.d.ts` substring: `tag?: string`
+   also occurs in the emitted `constructor(tag?: string)` signature, which is how two pins were
+   green against an EMPTY config (`Partial<Pick<X, never>>` accepts any object literal with no
+   key checking). Guard: `construction-parameter-property.t.ts`,
+   `construction-mixin-config-shapes.t.ts` (the mixin twin).
+
+5. **Config-key required-ness comes from the definite-assignment `!`, not the initializer or `?`.**
    `public id!: T` is a **required** config key; every other public field is **optional** (the `?`
    token is irrelevant to the config — it is ordinary TS optionality). Only `public` members enter
    the config. Required-ness is read from `member.exclamationToken` in `source-file-facts.ts`,
@@ -500,7 +511,7 @@ instance type) has its own rules:
      an initializer expression and a punctuation token carry no symbol to resolve. The whole stress
      + tsserver suite is the arbiter (it stays green).
 
-5. **Direct `new` on a construction class is disabled by a *branded construct signature*, not a
+6. **Direct `new` on a construction class is disabled by a *branded construct signature*, not a
    `protected` constructor.** A construction class's heritage cast head replaces the public construct
    signature with `new (use_the_static_new_factory: { readonly "<guidance>": never }) => <base
    instance>` plus inline `Omit<typeof Base, "prototype">` statics (`constructionHeadType` /
@@ -548,7 +559,7 @@ instance type) has its own rules:
      emit remap extrapolates its column to the line end, one past source-view. `stress-diagnostic-parity`
      guards both (it perturbs `@mixin` names, which cascade into a subclass's generated config).
 
-6. **A base contributes its *fully accumulated* config to a subclass's `.new`, not just its own
+7. **A base contributes its *fully accumulated* config to a subclass's `.new`, not just its own
    fields.** A construction class can extend another construction class, which may itself be a
    consumer (it extends a further base **and** implements mixins). The generated `.new` config for
    the subclass must fold in, recursively: the base's `extends` chain, every mixin the base consumes
@@ -562,7 +573,7 @@ instance type) has its own rules:
    because the only fixtures were one level deep (`X extends Base` directly); keep
    `construction-deep-subclass.t.ts` and the cross-file deep-subclass test honest.
 
-7. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
+8. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
    consumed as published declarations, not source. (i) A `.d.ts` mixin's required base lives in its
    `RuntimeMixinClass<Base>` marker, not an `extends` clause; `collectDeclarationFileMixinCandidates`
    reads it back (and drops the package base from the merged `interface … extends Base` dependency
@@ -574,7 +585,7 @@ instance type) has its own rules:
    reads the config off the `Pick`/`Partial` (still no recursion through the extends chain). Both are
    guarded by the declaration tests in `source-transform-cross-file-construction.t.ts`.
 
-8. **The generated `static new` name needs a real source span in source view.** A FAILING
+9. **The generated `static new` name needs a real source span in source view.** A FAILING
    `.new(...)` call elaborates the failure against the *implementation* overload
    (`addImplementationSuccessElaboration`), computing an error span on its `new` name. A
    factory-fresh name (pos/end = -1) trips `getErrorSpanForNode` (`skipTrivia(-1)` overruns the node
@@ -584,7 +595,7 @@ instance type) has its own rules:
    node keeps its own per-overload range for the overload-adjacency check. Guarded by the "without
    crashing the compiler" test.
 
-9. **The exported `<Name>Config` alias is a sibling, anchored OUTSIDE the class.** Every construction
+10. **The exported `<Name>Config` alias is a sibling, anchored OUTSIDE the class.** Every construction
    class (consumer, plain `Base` descendant, and construction-base mixin — emit *and* source view)
    emits an exported `type <Name>Config<TParams> = <the config>` and the `static new` references it
    (`static new(props: <Name>Config)`), so `.new(...)` errors name the alias instead of a verbose

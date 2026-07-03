@@ -4,38 +4,54 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 import { buildConstructionSource, readConstructionConfigDts } from "./construction-build-util.js"
 import { commandOutput, trimIndent } from "./util.js"
 
-// §7 × §1.20: a PUBLIC PARAMETER PROPERTY on a construction class's own constructor
-// (`constructor(public tag: string = …)`) declares a real public assignable instance member —
-// so it must be a `.new` config key, exactly like a declared public field. It is always
-// OPTIONAL in the config: the constructor runs first (the native-construct step of `.new`,
-// §9.1) and supplies the default; `Object.assign` then overrides it with the config value.
+// §7.17: a PUBLIC PARAMETER PROPERTY on a construction class's own constructor
+// (`constructor(public tag: string = …)`) is NOT a `.new` config key — BY DESIGN. Config
+// keys come from declared class members (fields and settable accessors); a parameter
+// property stays an ordinary runtime/interface member whose value comes from the
+// constructor (the native-construct step of `.new`, §9.1). To make it configurable,
+// declare a class field.
+//
+// The declared `name!` field alongside it is load-bearing: it keeps the config NON-empty,
+// so the pins below actually check the key set (an all-optional EMPTY config type accepts
+// any object literal without excess-key checking — the trap that hid this contract).
 
 const parameterPropertySource = trimIndent(`
     import { Base } from "ts-mixin-class"
 
     export class Ticket extends Base {
+        public name!: string
+
         constructor(public tag: string = "untagged") {
             super()
         }
     }
 
-    const explicit = Ticket.new({ tag: "spec" })
-    const defaulted = Ticket.new({})
+    const made = Ticket.new({ name: "spec" })
 
-    const read: string = explicit.tag
+    const readTag: string = made.tag
+    const readName: string = made.name
 
-    void [ read, defaulted ]
+    // @ts-expect-error the required declared field is a config key…
+    Ticket.new({})
+
+    // @ts-expect-error …while the parameter property is NOT one (excess key).
+    Ticket.new({ name: "spec", tag: "custom" })
+
+    void [ readTag, readName ]
 `)
 
-it("a public parameter property on a construction class is a .new config key", async (t: Test) => {
+it("a public parameter property on a construction class is NOT a .new config key", async (t: Test) => {
     const result = await buildConstructionSource(parameterPropertySource)
 
     t.equal(result.exitCode, 0,
-        `the parameter property is accepted (optionally) by .new.\n${commandOutput(result)}`)
+        `the config accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`)
 })
 
-it("the parameter property appears in the generated <Class>Config", async (t: Test) => {
+it("the generated <Class>Config carries only the declared field", async (t: Test) => {
     const dts = await readConstructionConfigDts(parameterPropertySource)
 
-    t.match(dts, "tag?: string", `TicketConfig carries the parameter property as an optional key.\n${dts}`)
+    // The EXACT alias (not a substring of the whole .d.ts — the emitted
+    // `constructor(tag?: string)` signature would false-match a loose pin).
+    t.match(dts, 'export type TicketConfig = Pick<Ticket, "name">',
+        `TicketConfig keys are exactly the declared members — no parameter property.\n${dts}`)
 })

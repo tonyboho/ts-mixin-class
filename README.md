@@ -320,6 +320,9 @@ The static `new` constructor accepts a single object argument - a config for the
 
 A type for this argument is derived as a combination of all properties of the class with the `public` modifier. Properties without the `public` modifier are not included in the config type and cannot be provided for instantiation. A property marked with `!` is required in the config type; every other public property is optional. Unlike the standard TypeScript rule, a `!` property may still carry an initializer — it is applied during the native constructor call and lets the JS engine settle on a stable "shape" for the property.
 
+Constructor parameter properties (`constructor(public tag: string = "")`) are never config
+keys — declare a class field instead.
+
 The config type is created as a phantom declaration using your class name plus a `Config` suffix. It is exported if your class itself is
 exported. You can use this type normally in the code.
 

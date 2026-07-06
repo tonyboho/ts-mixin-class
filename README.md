@@ -5,7 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/ts-mixin-class.svg)](https://www.npmjs.com/package/ts-mixin-class)
 [![license](https://img.shields.io/npm/l/ts-mixin-class.svg)](./LICENSE)
 
-**▶ [Try it online in StackBlitz](https://stackblitz.com/~/github.com/tonyboho/ts-mixin-class-example?file=src/main.ts)**.
+**▶ [Try it online in StackBlitz](https://stackblitz.com/~/github.com/tonyboho/ts-mixin-class-example?file=src/basic.ts)**.
 
 `ts-mixin-class` adds practical multiple inheritance to TypeScript classes.
 
@@ -130,6 +130,7 @@ class Right implements Root {
     }
 }
 
+@mixin()
 class Combined implements Left, Right {
     print(): string {
         return `Combined > ${super.print()}`

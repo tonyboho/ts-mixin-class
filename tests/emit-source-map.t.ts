@@ -575,9 +575,202 @@ it("generated declarations in an exported consumer's .d.ts carry no source mappi
     assertUnmapped(t, "static new Config parameter", decoded, dtsText, "ConsumerConfig): Consumer")
     assertUnmapped(t, "exported Config alias", decoded, dtsText, "type ConsumerConfig = ", "type ".length)
 
+    // PUNCTUATION inside the generated declarations — positions that start no identifier
+    // are invisible to the token-agreement check, so they leaked onto user `}` lines while
+    // their column fitted within the line (the identifier pins above never caught them).
+    assertUnmapped(t, "static new opening paren", decoded, dtsText, "new(props?: ConsumerConfig", "new".length)
+    assertUnmapped(t, "Config alias type operator", decoded, dtsText, "Partial<Pick<", "Partial".length)
+
+    // ...while a generated position whose mapping lands on the START of a user token is a
+    // deliberate derived-from pin and survives: the heritage type argument points at the
+    // user's base name, the collision brand at the consumer class statement.
+    assertExactMapping(
+        t, "generated heritage type argument -> user base name", decoded,
+        dtsText, "__Consumer$base<[", exportedConsumerText, "Consumer extends Base", "__Consumer$base".length, "Consumer extends ".length
+    )
+    assertExactMapping(
+        t, "collision brand string -> consumer class statement", decoded,
+        dtsText, "\"Static mixin member collision", exportedConsumerText, "export class Consumer"
+    )
+
     // User declarations still map exactly around the generated machinery.
     assertExactMapping(t, "consumer field", decoded, dtsText, "tag: string;", exportedConsumerText, "tag: string = ")
     assertExactMapping(t, "consumer method", decoded, dtsText, "describe(): string;", exportedConsumerText, "describe(): string {")
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Segment-agreement audit: EVERY mapped segment must agree with the original text — an
+// identifier-starting generated position must find the same word at its mapped original
+// position (tsc's synthesized-token conventions tolerated), and a punctuation position must
+// find the same character (quote style normalized by the printer tolerated). Any
+// disagreement is generated code pinned onto a user line. Shapes chosen to exercise the
+// distinct machinery: full construction + config alias, machinery-flavoured user words
+// (the coincidental-agreement risk), accessors + generics, and a dense single-line file.
+
+const conventionWords = new Set([ "constructor", "declare", "get", "set", "export", "async", "this" ])
+const quoteCharacters = new Set([ "\"", "'", "`" ])
+
+function assertSegmentAgreement(
+    t: Test,
+    description: string,
+    segments: DecodedSegment[],
+    generatedText: string,
+    originalText: string
+): void {
+    const generatedLines      = generatedText.split("\n")
+    const originalLines       = originalText.split("\n")
+    const offenders: string[] = []
+
+    for (const segment of segments) {
+        if (segment.sourceLine === undefined || segment.sourceCharacter === undefined) {
+            continue
+        }
+
+        const generatedLine = generatedLines[segment.generatedLine] ?? ""
+        const originalLine  = originalLines[segment.sourceLine] ?? ""
+        const generatedWord = identifierAtPosition(generatedLine, segment.generatedCharacter)
+        const where         = `gen ${segment.generatedLine + 1}:${segment.generatedCharacter} -> ` +
+            `src ${segment.sourceLine + 1}:${segment.sourceCharacter}`
+
+        if (generatedWord !== undefined) {
+            if (!originalLine.startsWith(generatedWord, segment.sourceCharacter) &&
+                !conventionWords.has(generatedWord) && !generatedWord.endsWith("_base")
+            ) {
+                offenders.push(`${where}: generated word ${JSON.stringify(generatedWord)} vs original ` +
+                    JSON.stringify(originalLine.slice(segment.sourceCharacter, segment.sourceCharacter + generatedWord.length + 6)))
+            }
+
+            continue
+        }
+
+        const generatedChar = generatedLine[segment.generatedCharacter]
+        const originalChar  = originalLine[segment.sourceCharacter]
+
+        if (generatedChar === undefined || generatedChar.trim() === "" ||
+            originalChar === undefined || originalChar.trim() === ""
+        ) {
+            continue
+        }
+
+        // A non-identifier generated position mapping onto the START of a user token is a
+        // deliberate derived-from pin (e.g. a generated heritage onto the user's base name).
+        if (identifierAtPosition(originalLine, segment.sourceCharacter) !== undefined) {
+            continue
+        }
+
+        if (generatedChar !== originalChar &&
+            !(quoteCharacters.has(generatedChar) && quoteCharacters.has(originalChar))
+        ) {
+            offenders.push(`${where}: generated char ${JSON.stringify(generatedChar)} vs original ` +
+                `${JSON.stringify(originalChar)} on ${JSON.stringify(originalLine.trim().slice(0, 40))}`)
+        }
+    }
+
+    t.equal(offenders.length, 0, `${description}: every mapped segment agrees with the original text` +
+        (offenders.length > 0 ? `; offenders:\n${offenders.join("\n")}` : ""))
+}
+
+const identifierCharacterPattern = /[A-Za-z0-9_$À-￿]/
+
+function identifierAtPosition(lineText: string, character: number): string | undefined {
+    if (character > 0 && identifierCharacterPattern.test(lineText[character - 1] ?? "")) {
+        return undefined
+    }
+
+    let end = character
+
+    while (end < lineText.length && identifierCharacterPattern.test(lineText[end])) {
+        end += 1
+    }
+
+    return end > character ? lineText.slice(character, end) : undefined
+}
+
+const coincidenceText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Setup {
+        initialize(props?: unknown): void {
+            void props
+        }
+
+        configure(): string {
+            return "mix new base initialize props"
+        }
+    }
+
+    export class Machine extends Base implements Setup {
+        run(): string {
+            return this.configure()
+        }
+    }
+
+    export const machine = Machine.new({})
+`)
+
+const accessorGenericText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Holder<V> {
+        public stored: V | undefined = undefined
+
+        get value(): V | undefined {
+            return this.stored
+        }
+
+        set value(next: V | undefined) {
+            this.stored = next
+        }
+
+        take(): V | undefined {
+            return this.stored
+        }
+    }
+
+    export class Box extends Base implements Holder<number> {
+        grab(): number | undefined {
+            return this.take()
+        }
+    }
+
+    export const box = Box.new({})
+`)
+
+it("every mapped segment agrees with the original text across machinery shapes", async (t: Test) => {
+    const shapes  = [
+        { fileName: "exported-construction.ts", text: exportedConsumerText },
+        { fileName: "coincidence.ts", text: coincidenceText },
+        { fileName: "accessor-generic.ts", text: accessorGenericText },
+        { fileName: "dense.ts", text: denseText }
+    ]
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true, declaration: true, declarationMap: true },
+        sourceFiles            : shapes
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    for (const { fileName, text } of shapes) {
+        const stem = fileName.slice(0, -".ts".length)
+
+        for (const kind of [ "js", "d.ts" ] as const) {
+            const generated = await readOutput(fixture, `dist/${stem}.${kind}`)
+            const map       = JSON.parse(await readOutput(fixture, `dist/${stem}.${kind}.map`)) as SourceMapJson
+            const decoded   = decodeSegments(map.mappings)
+
+            assertSegmentsWithinOriginal(t, `${stem}.${kind}.map`, decoded, text)
+            assertSegmentAgreement(t, `${stem}.${kind}.map`, decoded, generated, text)
+        }
+    }
 
     await fixture.dispose()
 })

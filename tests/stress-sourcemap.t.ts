@@ -142,6 +142,9 @@ function identifierAt(lineText: string, character: number): string | undefined {
     return end > character ? lineText.slice(character, end) : undefined
 }
 
+// The printer normalizes quote style, so any quote maps onto any quote.
+const quoteCharacters = new Set([ "\"", "'", "`" ])
+
 type MapScan = {
     checkedMaps       : number,
     checkedSegments   : number,
@@ -216,7 +219,28 @@ function scanMaps(
 
             const generatedWord = identifierAt(generatedLines[segment.generatedLine] ?? "", segment.generatedCharacter)
 
+            // A position that starts no identifier still must AGREE: the raw character at
+            // the generated position must match the original one (printer quote style
+            // tolerated) — generated punctuation pinned onto a user line slips past the
+            // word check otherwise (the `static new(`-onto-`}` leak class). An original
+            // position that STARTS an identifier is exempt: that is a deliberate
+            // derived-from pin (e.g. a generated heritage onto the user's base name).
             if (generatedWord === undefined) {
+                const generatedChar = (generatedLines[segment.generatedLine] ?? "")[segment.generatedCharacter]
+                const originalChar  = originalLines[segment.sourceLine][segment.sourceCharacter]
+
+                if (generatedChar !== undefined && generatedChar.trim() !== "" &&
+                    originalChar !== undefined && originalChar.trim() !== "" &&
+                    identifierAt(originalLines[segment.sourceLine], segment.sourceCharacter) === undefined &&
+                    generatedChar !== originalChar &&
+                    !(quoteCharacters.has(generatedChar) && quoteCharacters.has(originalChar))
+                ) {
+                    const samples = scan.mismatches.get(`char ${generatedChar}`) ?? []
+
+                    samples.push(`${where}: generated char ${JSON.stringify(generatedChar)} vs original ${JSON.stringify(originalChar)}`)
+                    scan.mismatches.set(`char ${generatedChar}`, samples)
+                }
+
                 continue
             }
 

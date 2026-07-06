@@ -301,10 +301,29 @@ function translatePrintedPosition(
         return undefined
     }
 
-    const printedWord = identifierAt(source.printedLines[printedLine] ?? "", printedCharacter)
+    const printedLineText = source.printedLines[printedLine] ?? ""
+    const printedWord     = identifierAt(printedLineText, printedCharacter)
 
     if (printedWord !== undefined &&
         printedWord !== identifierAt(source.originalLines[anchor.sourceLine] ?? "", character)
+    ) {
+        return undefined
+    }
+
+    // A position that starts NO identifier still must agree: the raw printed character has
+    // to be the character at the translated original position (quote style excepted — the
+    // printer normalizes it). Generated punctuation anchored through a collapsed gap-range
+    // entry lands within the user line's bounds otherwise — the `static new(`-onto-`}`
+    // leak class the word check above cannot see. One exemption: an original position that
+    // STARTS an identifier is a deliberate derived-from pin (the transform ranges generated
+    // references onto the user token they come from — e.g. the branded base expression onto
+    // the user's base name), and those must survive; a mapping onto a non-token position
+    // (`}`, mid-word) never carries that meaning and is dropped.
+    const originalLineText = source.originalLines[anchor.sourceLine] ?? ""
+
+    if (printedWord === undefined &&
+        identifierAt(originalLineText, character) === undefined &&
+        !charactersAgree(printedLineText[printedCharacter], originalLineText[character])
     ) {
         return undefined
     }
@@ -313,6 +332,23 @@ function translatePrintedPosition(
 }
 
 const identifierCharPattern = /[A-Za-z0-9_$]/
+const quoteCharacters       = new Set([ "\"", "'", "`" ])
+
+// Non-identifier printed positions verify by raw character: whitespace and end-of-line
+// count as one class (so CRLF tails and absent semicolons still agree), any quote matches
+// any quote (the printer normalizes quote style), everything else must be the very same
+// character.
+function charactersAgree(printedChar: string | undefined, originalChar: string | undefined): boolean {
+    const printed  = printedChar === undefined || printedChar.trim() === "" ? undefined : printedChar
+    const original = originalChar === undefined || originalChar.trim() === "" ? undefined : originalChar
+
+    if (printed === undefined || original === undefined) {
+        return printed === original
+    }
+
+    return printed === original ||
+        quoteCharacters.has(printed) && quoteCharacters.has(original)
+}
 
 // The identifier starting exactly at `character`, or `undefined` when the position does not
 // begin one (punctuation, whitespace, or the middle of a word — a mid-word position cannot

@@ -108,6 +108,38 @@ quickinfo reports `any`. The class name itself, its type parameters, and its mem
 correctly in every case. For the affected consumers, navigate from the base class's own
 declaration or another usage instead.
 
+**Probe-verified escape routes (2026-07-06, tsc 6.0.3, plain-TS probes — turn into fixture
+tests when implementing):**
+
+- **Generic consumers — the trilemma has a fourth exit.** The blocked horn was TS2562 ("base
+  class expressions cannot reference class type parameters") — but that bans `T` only in the
+  base *expression*; a heritage *type argument* referencing `T` is legal (`class C<T> extends
+  Array<T>`). So give the navigable single-source cast a GENERIC construct signature and pass
+  `T` as the heritage type argument:
+  `class Consumer<T> extends (Base as unknown as (new <U>(...args: any[]) => Base & Holder<U> &
+  Greeter) & Omit<typeof Base, "prototype" | "new">)<T>`. Verified clean: `super.<generic mixin
+  member>` threads `T`, statics survive, `override` and `implements` resolve, instantiation is
+  exact (`@ts-expect-error` fires on a wrong-type read).
+- **Construction consumers.** The direct-`new` brand rides INSIDE the cast's construct
+  signature — `new <U>(brand: Brand) => Base & Holder<U>` (the mirror of the emitted
+  `__X$base_base` type). Verified clean: `new Consumer()` and a forged brand both error,
+  `super.initialize(...)` resolves, generated `static new` + generics thread. Combines with the
+  generic route in one cast.
+- **Qualified bases (`ns.Base`).** Not fundamental — the `isIdentifier` gate exists because a
+  shallow clone leaves the inner `Base` at `[-1, -1]`. Deep-pin the property-access clone per
+  child (`ns` and `Base` each onto their source ranges); precedent: qualified mixin references
+  (namespace imports) already do child-level positioning.
+- **Residual + universal fallback.** Diagnostic-validation consumers (broken code only) keep
+  `$base`. If any case resists the type-level routes, the companion language-service plugin can
+  serve navigation from transform-recorded metadata (source span → real target), the same way
+  it already remaps config-alias phantom spans.
+
+Implementation cautions (same sharp edges as the existing non-generic cast): the cast must stay
+single-source (a competing construct signature strands mixin members → TS2720/TS4112); the cast
+type nodes stay SYNTHETIC (collapsing re-reads `Omit<…, "prototype" | "new">` literals from
+source and degrades to `any`); heritage type-argument positioning must not strand source
+characters (invariant #5) — stress arbitrates.
+
 ### 5. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)

@@ -9,9 +9,7 @@
 
 `ts-mixin-class` adds practical multiple inheritance to TypeScript classes.
 
-You write normal classes, mark reusable inheritance units with `@mixin()`, and list
-the mixins from a consumer class in `implements`. The transformer turns that into a
-linear runtime inheritance chain before TypeScript checks and emits the program.
+You write normal classes, mark them with `@mixin()`, and use them for multiple inheritance through the native `implements` keyword.
 
 The inheritance order is resolved with C3 linearization, the same method-resolution
 order algorithm used by Python. That gives predictable `super` calls, deduplicates
@@ -99,9 +97,14 @@ pnpm run prepare
 
 ## Linearization
 
-When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build
-one runtime inheritance chain. C3 keeps local ordering intact, deduplicates shared
-dependencies, and makes `super` calls follow the same order everywhere.
+When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build a
+runtime inheritance chain, keeping the following invariants:
+
+- the consumer comes before the mixins it includes, so its members override theirs and
+  its `super` calls reach into them;
+- the local order in every `implements` clause is preserved deeply across the
+  consumer's hierarchy, otherwise a type-check linearization error is issued;
+- shared dependencies are deduplicated.
 
 ```ts
 import { mixin } from "ts-mixin-class"
@@ -137,7 +140,7 @@ new Combined().print()
 // "Combined > Left > Right > Root"
 ```
 
-The order is computed once at compile time and emitted as a compact plan, so at runtime the
+The linearized order is computed once at compile time and emitted as a compact plan, so at runtime the
 chain can be assembled by replaying that plan rather than running the full C3 algorithm. Two
 compile-time flags (implemented as environment variables) control this:
 
@@ -330,7 +333,7 @@ A type for this argument is derived as a combination of all properties of the cl
 Constructor parameter properties (`constructor(public tag: string = "")`) are never config
 keys — declare a class field instead.
 
-The config type is created as a phantom declaration using your class name plus a `Config` suffix. It is exported if your class itself is
+The config type is created as a phantom type declaration using your class name plus a `Config` suffix. It is exported if your class itself is
 exported. You can use this type normally in the code.
 
 ```ts
@@ -358,7 +361,7 @@ const model = Model.new({ id : "42" })
 const cfg: ModelConfig = { id : "35", name : "He-Man" }
 
 // @ts-expect-error - unknown config name
-Model.new({ id : "42", nope : "nope" })
+Model.new({ id : "42", kind : "nope" })
 
 // @ts-expect-error - missing required `id` config
 Model.new({ name : "He-Man" })

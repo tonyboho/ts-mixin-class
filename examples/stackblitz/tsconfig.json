@@ -11,6 +11,9 @@
             {
                 "transform": "ts-mixin-class",
                 "transformProgram": true
+            },
+            {
+                "name": "ts-mixin-class/language-service-plugin"
             }
         ]
     },

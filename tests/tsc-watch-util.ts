@@ -21,14 +21,23 @@ export type TscWatch = {
     dispose      : () => void
 }
 
-export function startTscWatch(directory: string, tsconfigFile: string): TscWatch {
+export function startTscWatch(
+    directory: string,
+    tsconfigFile: string,
+    options: { emit?: boolean } = {}
+): TscWatch {
     // `--preserveWatchOutput` stops tsc from clearing the screen (no ANSI cursor codes between
     // builds); `--pretty false` drops color codes so the output is plain, greppable text;
     // `--noEmit` keeps it a pure type-check watch — faster, and nothing is written into the
-    // watched directory to risk retriggering the watcher.
+    // watched directory to risk retriggering the watcher. A test that asserts EMITTED
+    // artifacts (e.g. source maps across rebuilds) opts into emit; the output lands in
+    // `outDir`, which the watcher does not watch.
     const child = spawn(
         "node",
-        [ tscBin, "-w", "-p", tsconfigFile, "--preserveWatchOutput", "--pretty", "false", "--noEmit" ],
+        [
+            tscBin, "-w", "-p", tsconfigFile, "--preserveWatchOutput", "--pretty", "false",
+            ...(options.emit === true ? [] : [ "--noEmit" ])
+        ],
         { cwd: directory }
     )
 

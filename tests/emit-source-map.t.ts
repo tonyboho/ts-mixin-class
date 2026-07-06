@@ -1,10 +1,11 @@
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 import ts from "typescript"
 
+import { startTscWatch } from "./tsc-watch-util.js"
 import { commandOutput, createTypeScriptFixture, packageRoot, runCommand, trimIndent } from "./util.js"
 import type { TypeScriptFixture } from "./util.js"
 
@@ -218,6 +219,37 @@ function assertArtifactTokensUnmapped(
         (offenders.length > 0 ? `; offenders:\n${offenders.join("\n")}` : ""))
 }
 
+// COMPLETENESS: a map whose segments are all correct but sparse would still pass the
+// checks above — a debugger could not break on the lines it lost. Every original line
+// holding a `return` statement (always executable user code) must appear among the map's
+// source lines.
+function assertReturnLinesCovered(
+    t: Test,
+    description: string,
+    segments: DecodedSegment[],
+    originalText: string
+): void {
+    const mappedLines       = new Set(segments
+        .filter((segment) => segment.sourceLine !== undefined)
+        .map((segment) => segment.sourceLine))
+    const missing: number[] = []
+
+    for (const [ index, line ] of originalText.split("\n").entries()) {
+        const trimmed = line.trim()
+
+        if ((trimmed.startsWith("return ") || trimmed === "return") && !mappedLines.has(index)) {
+            missing.push(index + 1)
+        }
+    }
+
+    t.equal(
+        missing.length,
+        0,
+        `${description}: every original \`return\` line is reachable through the map` +
+            (missing.length > 0 ? `; missing lines: ${missing.join(", ")}` : "")
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Fixture plumbing
 
@@ -255,6 +287,7 @@ it("the emitted .js.map composes back to exact original positions", async (t: Te
 
     assertSegmentsWithinOriginal(t, "js.map", decoded, sourceText)
     assertArtifactTokensUnmapped(t, "js.map", decoded, jsText)
+    assertReturnLinesCovered(t, "js.map", decoded, sourceText)
 
     // A mixin method declaration and a statement inside its body.
     assertExactMapping(t, "mixin method name", decoded, jsText, "greet() {", sourceText, "greet(): string {")
@@ -463,6 +496,437 @@ it("the emitted .d.ts.map composes back to exact original positions", async (t: 
 
     // The only exported declaration sits AFTER every generated insertion (max drift zone).
     assertExactMapping(t, "declaration of afterAll", decoded, dtsText, "afterAll: ", sourceText, "afterAll: ")
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Runtime plane: what the user actually debugs with
+
+// A mixin method that throws, reached through a consumer method — Node's
+// `--enable-source-maps` must print the ORIGINAL `.ts` positions in the stack.
+const throwingText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Thrower {
+        boom(): string {
+            throw new Error("mixin-boom")
+        }
+    }
+
+    class Runner extends Base implements Thrower {
+        run(): string {
+            return this.boom()
+        }
+    }
+
+    const runner = Runner.new({})
+
+    try {
+        runner.run()
+    } catch (error) {
+        console.log((error as Error).stack)
+    }
+`)
+
+it("node --enable-source-maps prints original positions in stack traces", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [ { fileName: "throwing.ts", text: throwingText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const run = await runCommand(
+        "node",
+        [ "--enable-source-maps", path.join("dist", "throwing.js") ],
+        fixture.directory
+    )
+
+    t.equal(run.exitCode, 0, `the emitted JS runs.\n${commandOutput(run)}`)
+
+    const stackLines = [ ...run.stdout.matchAll(/throwing\.ts:(\d+):\d+/g) ].map((match) => Number(match[1]))
+
+    t.isGreater(stackLines.length, 0, `the stack is rewritten to the original .ts file.\n${run.stdout}`)
+
+    const throwLine = positionOf(throwingText, "throw new Error").line + 1
+    const callLine  = positionOf(throwingText, "return this.boom()").line + 1
+
+    t.true(stackLines.includes(throwLine), `the throw site maps to throwing.ts:${throwLine}.\n${run.stdout}`)
+    t.true(stackLines.includes(callLine), `the consumer call site maps to throwing.ts:${callLine}.\n${run.stdout}`)
+
+    // The fixture directory is left for potential re-runs; the OS temp dir is cleaned on exit.
+    void fixture
+})
+
+// ---------------------------------------------------------------------------
+// Same-basename files in different directories: the source<->remap pairing must wire each
+// map to ITS OWN file (the pairing involves a base-name check — identical basenames with
+// different contents are exactly the case that would expose cross-wiring).
+
+const aliceModelText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class AliceMixin {
+        aliceGreet(): string {
+            return "alice"
+        }
+    }
+
+    class AliceUser implements AliceMixin {
+        aliceDescribe(): string {
+            return super.aliceGreet()
+        }
+    }
+
+    export const alice: string = new AliceUser().aliceDescribe()
+`)
+
+const bobModelText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    class BobMixin {
+        bobGreet(): string {
+            return "bob"
+        }
+    }
+
+    class BobUser implements BobMixin {
+        bobDescribe(): string {
+            return super.bobGreet()
+        }
+    }
+
+    export const bob: string = new BobUser().bobDescribe()
+`)
+
+it("two same-named files in different directories each compose against their own source", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [
+            { fileName: "a/model.ts", text: aliceModelText },
+            { fileName: "b/model.ts", text: bobModelText }
+        ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    for (const [ directory, text, needle ] of [
+        [ "a", aliceModelText, "aliceGreet() {" ],
+        [ "b", bobModelText, "bobGreet() {" ]
+    ] as const) {
+        const jsText  = await readOutput(fixture, `dist/${directory}/model.js`)
+        const map     = JSON.parse(await readOutput(fixture, `dist/${directory}/model.js.map`)) as SourceMapJson
+        const decoded = decodeSegments(map.mappings)
+
+        assertSegmentsWithinOriginal(t, `${directory}/model.js.map`, decoded, text)
+        assertReturnLinesCovered(t, `${directory}/model.js.map`, decoded, text)
+        assertExactMapping(
+            t, `${directory}/model.js.map method`, decoded,
+            jsText, needle, text, needle.replace("() {", "(): string {")
+        )
+    }
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Drift zones BETWEEN insertions: several mixins/consumers interleaved with plain user
+// code, plus a consumer nested inside a function body. The single-mixin fixture above only
+// exercises the tail; here every gap between generated insertions is pinned.
+
+const multiText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class First {
+        firstHello(): string {
+            return "first"
+        }
+    }
+
+    export function between(): string {
+        return "between"
+    }
+
+    @mixin()
+    class Second implements First {
+        secondHello(): string {
+            return \`second \${super.firstHello()}\`
+        }
+    }
+
+    class MidConsumer extends Base implements Second {
+        midway(): string {
+            return this.secondHello()
+        }
+    }
+
+    export function wrapper(): string {
+        class Inner extends Base implements First {
+            innerHello(): string {
+                return \`inner \${this.firstHello()}\`
+            }
+        }
+
+        return Inner.new({}).innerHello()
+    }
+
+    export const finale: string = wrapper() + MidConsumer.new({}).midway()
+`)
+
+it("statements between generated insertions map exactly (multi-mixin file)", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [ { fileName: "multi.ts", text: multiText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const jsText  = await readOutput(fixture, "dist/multi.js")
+    const map     = JSON.parse(await readOutput(fixture, "dist/multi.js.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "multi js.map", decoded, multiText)
+    assertArtifactTokensUnmapped(t, "multi js.map", decoded, jsText)
+    assertReturnLinesCovered(t, "multi js.map", decoded, multiText)
+
+    // Between the first and second insertions.
+    assertExactMapping(t, "function between insertions", decoded, jsText, 'return "between"', multiText, 'return "between"')
+    // Between the second insertion and the consumer.
+    assertExactMapping(t, "second mixin method", decoded, jsText, "secondHello() {", multiText, "secondHello(): string {")
+    // The mid-file consumer.
+    assertExactMapping(t, "mid-file consumer body", decoded, jsText, "return this.secondHello()", multiText, "return this.secondHello()")
+    // The consumer NESTED inside a function body.
+    assertExactMapping(t, "nested consumer method", decoded, jsText, "innerHello() {", multiText, "innerHello(): string {")
+    assertExactMapping(t, "nested consumer construction", decoded, jsText, "Inner.new({}).innerHello()", multiText, "Inner.new({}).innerHello()")
+    // The tail after the LAST insertion.
+    assertExactMapping(t, "trailing finale", decoded, jsText, "const finale = ", multiText, "const finale: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Unicode: CJK identifiers do not match the ASCII identifier pattern of the
+// token-agreement filter, so their mappings ride on position arithmetic alone; emoji take
+// two UTF-16 units; the inline-map variant round-trips non-ASCII text through base64.
+
+const unicodeText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class 问候 {
+        名字: string = "Ada"
+
+        打招呼(): string {
+            return \`你好 🎉 \${this.名字}\`
+        }
+    }
+
+    class 客人 extends Base implements 问候 {
+        自我介绍(): string {
+            return \`🚀 \${this.打招呼()}\`
+        }
+    }
+
+    export const 结果: string = 客人.new({}).自我介绍()
+`)
+
+it("CJK identifiers and emoji strings map exactly", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [ { fileName: "unicode.ts", text: unicodeText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const jsText  = await readOutput(fixture, "dist/unicode.js")
+    const map     = JSON.parse(await readOutput(fixture, "dist/unicode.js.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "unicode js.map", decoded, unicodeText)
+    assertArtifactTokensUnmapped(t, "unicode js.map", decoded, jsText)
+    assertReturnLinesCovered(t, "unicode js.map", decoded, unicodeText)
+
+    assertExactMapping(t, "CJK mixin method", decoded, jsText, "打招呼() {", unicodeText, "打招呼(): string {")
+    assertExactMapping(t, "emoji template body", decoded, jsText, "你好 🎉 ${", unicodeText, "你好 🎉 ${", "你好 🎉 ${".length)
+    assertExactMapping(t, "CJK consumer method", decoded, jsText, "自我介绍() {", unicodeText, "自我介绍(): string {")
+    assertExactMapping(t, "CJK trailing export", decoded, jsText, "const 结果 = ", unicodeText, "const 结果: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+it("the inline map round-trips non-ASCII sources through base64", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { inlineSourceMap: true, inlineSources: true },
+        sourceFiles            : [ { fileName: "unicode.ts", text: unicodeText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const jsText = await readOutput(fixture, "dist/unicode.js")
+    const marker = "//# sourceMappingURL=data:application/json;base64,"
+    const at     = jsText.lastIndexOf(marker)
+
+    t.true(at >= 0, "the emitted .js carries an inline source map")
+
+    const map     = JSON.parse(
+        Buffer.from(jsText.slice(at + marker.length).trim(), "base64").toString("utf8")
+    ) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "unicode inline map", decoded, unicodeText)
+    t.equal(map.sourcesContent?.[0], unicodeText, "sourcesContent embeds the ORIGINAL non-ASCII text")
+    assertExactMapping(t, "inline CJK export", decoded, jsText, "const 结果 = ", unicodeText, "const 结果: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// CRLF line endings: the reprint normalizes newlines, but columns and line numbers of the
+// composed map must stay in the CRLF file's own coordinates.
+
+it("a CRLF source file maps exactly", async (t: Test) => {
+    const crlfText = sourceText.replace(/\n/g, "\r\n")
+    const fixture  = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [ { fileName: "crlf.ts", text: crlfText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const jsText  = await readOutput(fixture, "dist/crlf.js")
+    const map     = JSON.parse(await readOutput(fixture, "dist/crlf.js.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "crlf js.map", decoded, crlfText)
+    assertReturnLinesCovered(t, "crlf js.map", decoded, crlfText)
+
+    assertExactMapping(t, "crlf mixin method", decoded, jsText, "greet() {", crlfText, "greet(): string {")
+    assertExactMapping(t, "crlf consumer method", decoded, jsText, "describe() {", crlfText, "describe(): string {")
+    assertExactMapping(t, "crlf trailing export", decoded, jsText, "const afterAll = ", crlfText, "const afterAll: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// The NodeNext plane (the Bundler-default suite was once structurally blind to it) and
+// declaration-only emit — both must compose the same way.
+
+it("a NodeNext (type: module) build composes its maps the same way", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { module: "NodeNext", moduleResolution: "NodeNext", sourceMap: true },
+        sourceFiles            : [ { fileName: "source.ts", text: sourceText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `NodeNext build succeeds.\n${commandOutput(build)}`)
+
+    const jsText  = await readOutput(fixture, "dist/source.js")
+    const map     = JSON.parse(await readOutput(fixture, "dist/source.js.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "NodeNext js.map", decoded, sourceText)
+    assertReturnLinesCovered(t, "NodeNext js.map", decoded, sourceText)
+    assertExactMapping(t, "NodeNext consumer method", decoded, jsText, "describe() {", sourceText, "describe(): string {")
+    assertExactMapping(t, "NodeNext trailing export", decoded, jsText, "const afterAll = ", sourceText, "const afterAll: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+it("declaration-only emit composes the .d.ts.map", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { declaration: true, declarationMap: true, emitDeclarationOnly: true },
+        sourceFiles            : [ { fileName: "source.ts", text: sourceText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `declaration-only build succeeds.\n${commandOutput(build)}`)
+
+    const dtsText = await readOutput(fixture, "dist/source.d.ts")
+    const map     = JSON.parse(await readOutput(fixture, "dist/source.d.ts.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "declaration-only d.ts.map", decoded, sourceText)
+    assertExactMapping(t, "declaration-only afterAll", decoded, dtsText, "afterAll: ", sourceText, "afterAll: ")
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Watch mode: after an edit, the SECOND build's map must compose against the EDITED text —
+// a stale remap kept from the first program would shift every position below the edit.
+
+it("a tsc --watch rebuild composes the map against the edited text", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [ { fileName: "watched.ts", text: sourceText } ]
+    })
+    const watch   = startTscWatch(fixture.directory, fixture.tsconfigFile, { emit: true })
+
+    try {
+        await watch.waitForBuild()
+
+        const firstMap = JSON.parse(await readOutput(fixture, "dist/watched.js.map")) as SourceMapJson
+        const firstJs  = await readOutput(fixture, "dist/watched.js")
+
+        assertSegmentsWithinOriginal(t, "watch first build", decodeSegments(firstMap.mappings), sourceText)
+        assertExactMapping(
+            t, "watch first build consumer method", decodeSegments(firstMap.mappings),
+            firstJs, "describe() {", sourceText, "describe(): string {"
+        )
+
+        // Shift every line below the top by two, and grow the mixin body by one statement —
+        // both the whole-file offset and an intra-class shift must land in the new map.
+        const editedText = `// edited\n\n${sourceText}`.replace(
+            "greet(): string {",
+            "greet(): string {\n        void 0"
+        )
+
+        await writeFile(path.join(fixture.directory, "watched.ts"), editedText)
+        await watch.waitForBuild()
+
+        const secondMap = JSON.parse(await readOutput(fixture, "dist/watched.js.map")) as SourceMapJson
+        const secondJs  = await readOutput(fixture, "dist/watched.js")
+        const decoded   = decodeSegments(secondMap.mappings)
+
+        assertSegmentsWithinOriginal(t, "watch rebuild", decoded, editedText)
+        assertReturnLinesCovered(t, "watch rebuild", decoded, editedText)
+        assertExactMapping(t, "watch rebuild mixin body", decoded, secondJs, "hello ${", editedText, "hello ${", "hello ${".length)
+        assertExactMapping(t, "watch rebuild consumer method", decoded, secondJs, "describe() {", editedText, "describe(): string {")
+        assertExactMapping(t, "watch rebuild trailing export", decoded, secondJs, "const afterAll = ", editedText, "const afterAll: ", "const ".length)
+    } finally {
+        watch.dispose()
+    }
 
     await fixture.dispose()
 })

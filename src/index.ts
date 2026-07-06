@@ -64,6 +64,7 @@ import {
     deepCloneNode,
     generatedTextRange,
     hasDifferentAstShape,
+    preserveSourceFileVersion,
     preserveTextRange,
     preserveTopLevelStatementRanges,
     printSourceFileWithMappings,
@@ -726,6 +727,11 @@ export function createMixinClassCompilerHost(
                     true,
                     scriptKindFromFileName(tsInstance, fileName)
                 )
+
+                // The reprinted file replaces the host's one inside the program, so it must
+                // carry the host file's `version` — the builder pipeline (`tsc --watch`
+                // with emit) asserts on it.
+                preserveSourceFileVersion(printedSourceFile, sourceFile)
 
                 // Remember how to translate diagnostics computed over this reprinted text
                 // back to the real source, so the program wrapper can fix emit-path line

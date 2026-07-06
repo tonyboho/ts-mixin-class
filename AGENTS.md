@@ -792,10 +792,20 @@ maps to the (user) class header, a hoisted field initializer to the field name, 
 their `override` modifier, and declaration emit's synthesized `declare const <Class>_base` (a
 class extending an EXPRESSION — the runtime chain or the construction direct-`new` brand) keeps
 its reference mapped to the user's base name. Guards: `emit-source-map.t.ts` (exact per-token
-pins incl. those conventions, artifact-token ban, bounds, untouched byte-identity, inline +
-declaration variants) and `stress-sourcemap.t.ts` (corpus sweep: bounds, token agreement with
-the tolerated-word set DERIVED from a plugin-less baseline of the same corpus, untouched
-identity — "untouched" detected exactly: the program serves the file with its on-disk text).
+pins incl. those conventions, artifact-token ban, bounds, `return`-line completeness, untouched
+byte-identity, inline + declaration + declaration-only + NodeNext variants, drift zones BETWEEN
+insertions incl. a function-nested consumer, same-basename files in different directories,
+CJK identifiers — outside the ASCII token filter — and emoji columns, CRLF sources,
+runtime stack traces via `node --enable-source-maps`, and a `tsc --watch` emit rebuild mapping
+against the EDITED text) and `stress-sourcemap.t.ts` (corpus sweep under BOTH
+`useDefineForClassFields` values: bounds, token agreement with the tolerated-word set DERIVED
+from a plugin-less baseline of the same corpus, `return`-line completeness, untouched identity —
+"untouched" detected exactly: the program serves the file with its on-disk text — a byte-exact
+VLQ-encoder round-trip over every baseline map, plus a seeded identifier-perturbation pass,
+replayable with `MIXIN_STRESS_SEED`). The watch plane found a pre-existing crash: `tsc --watch`
+WITH emit builds a BuilderProgram, which asserts every source file carries the host's `version`
+— a reprinted file must inherit it (`preserveSourceFileVersion`; every prior watch test ran
+`--noEmit` and was structurally blind to this, the same lesson as `impliedNodeFormat`).
 
 ## Emit-path implements conformance
 

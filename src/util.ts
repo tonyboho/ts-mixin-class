@@ -503,6 +503,20 @@ export function hasDifferentAstShape(
     return rightStack.length !== 0
 }
 
+// The builder/watch pipeline requires every program source file to carry the host's
+// `version` (`Debug Failure. Program intended to be used with Builder should have source
+// files with versions set` otherwise — it only surfaces under `tsc --watch` WITH emit,
+// the one mode the printed path serves that builds a BuilderProgram). A transform-created
+// file must inherit the version of the file it replaces.
+export function preserveSourceFileVersion(
+    sourceFile: ts.SourceFile,
+    originalSourceFile: ts.SourceFile
+): ts.SourceFile {
+    ;(sourceFile as SourceFileWithVersion).version = (originalSourceFile as SourceFileWithVersion).version
+
+    return sourceFile
+}
+
 export function setParentRecursivePreservingVersion(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,

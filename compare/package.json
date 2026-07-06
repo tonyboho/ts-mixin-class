@@ -5,7 +5,7 @@
     "description": "Empirical runtime comparison of TypeScript mixin libraries (not published).",
     "scripts": {
         "prepare": "ts-patch install -s",
-        "build": "tspc -p tsconfig.tsmc.json; tsc -p tsconfig.json; exit 0",
+        "build": "tspc -p tsconfig.json; exit 0",
         "compare": "npm run build && node run.mjs",
         "conflict": "tspc -p tsconfig.conflict.json"
     },

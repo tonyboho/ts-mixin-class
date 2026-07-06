@@ -10,7 +10,8 @@
     "noEmitOnError": false,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "linearization"
+    "rootDir": "src",
+    "plugins": [{ "transform": "ts-mixin-class", "transformProgram": true }]
   },
-  "include": ["linearization"]
+  "include": ["src"]
 }

@@ -9,7 +9,6 @@ const record = (line) => {
 }
 
 const files = []
-try { for (const f of readdirSync("dist-tsmc")) if (f.endsWith(".js")) files.push(`dist-tsmc/${f}`) } catch {}
 try { for (const f of readdirSync("dist")) if (f.endsWith(".js") && f !== "polyfill.js") files.push(`dist/${f}`) } catch {}
 
 for (const f of files) {

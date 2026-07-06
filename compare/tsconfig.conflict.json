@@ -8,5 +8,5 @@
     "noEmit": true,
     "plugins": [{ "transform": "ts-mixin-class", "transformProgram": true }]
   },
-  "include": ["conflict-tsmc"]
+  "include": ["conflict"]
 }

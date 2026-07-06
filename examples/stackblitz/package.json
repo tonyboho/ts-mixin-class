@@ -3,7 +3,8 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "start": "tspc -p tsconfig.json && node dist/main.js",
+        "prepare": "ts-patch install -s",
+        "start": "npm run prepare && tspc -p tsconfig.json && node dist/main.js",
         "build": "tspc -p tsconfig.json"
     },
     "dependencies": {

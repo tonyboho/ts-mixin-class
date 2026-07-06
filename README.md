@@ -488,6 +488,9 @@ methodology can be seen [here](compare/). `⚠️` means partial support.
 
 A few things the library does not support yet.
 
+- **Tested only with TypeScript 6.0.3.** The transformer is pinned to that compiler
+  version (the `typescript` peer dependency); other versions are not yet verified.
+
 - **Mixin members can't be `private`, `protected`, `#private`, or `abstract`.** Mixins are
   shared between classes by their structure, and these modifiers are tied to one specific
   class, so they don't compose. Use ordinary members, or keep private state in a non-mixin

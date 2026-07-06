@@ -1000,3 +1000,66 @@ for (const st of out.statements) {
 
 `transformSourceFile` is single-file (no registry), so cross-file resolution (imported mixins,
 cross-file construction bases) is *not* exercised — for those, drive a real multi-file build.
+
+---
+
+# Repository workflow
+
+General conventions for working in this repo (package-internal architecture is documented
+above; this section is the repo-level workflow).
+
+## TypeScript
+
+Source that lands in version control is TypeScript. Use JavaScript only where you must, and for
+throw-away scripts.
+
+## Linter / stylistic issues
+
+Don't fix stylistic issues (ESLint warnings, including `@stylistic` and alignment rules) by hand
+one by one. Run `pnpm run lint:fix` and let it format. Remaining warnings after that can be
+ignored. Lint is formatting-only — run `lint:fix` BEFORE the build/test pass, never re-run tests
+just because of a lint change.
+
+## Comments
+
+Comments are written in English.
+
+## Build artefacts
+
+Treat `/dist` and other build output as disposable — remove and re-create freely. Once
+`pnpm run build` completes cleanly, assume the sources are correctly in `/dist`; don't manually
+verify individual files landed.
+
+## Dependencies
+
+Add dependencies with `pnpm` and always pin an exact version, not a range. Shared versions
+(`typescript`, `ts-patch`, `@bryntum/siesta`, `@types/node`) live in the `catalog:` of
+`pnpm-workspace.yaml`.
+
+## .gitignore
+
+Prefer exact repo-root-anchored paths (`/dist`, not `dist`) so only the intended directory is
+matched.
+
+## @bryntum/siesta tests
+
+For internal launches add `--no-color`. Siesta tests are plain Node executables — to run one,
+launch its compiled file directly: `node dist/tests/<name>.t.js`.
+
+## Writing changesets
+
+A changeset (a file in `.changeset/`, consumed by `pnpm run bump`) is a **user-facing release
+note**, not a development log. Two rules:
+
+1. **If the change is internal plumbing, do NOT write a changeset at all.** Refactors, test
+   coverage, renames, new fixtures, benchmark tweaks, doc edits — anything that leaves the
+   package's observable behavior identical. A change earns a changeset only when it **fixes a
+   bug, changes behavior, or changes the spec** the user relies on.
+2. **If it IS user-facing, write it briefly, in the user's language.** One or two sentences:
+   what now works, what is now rejected, what error they will see. Drop the internals — no
+   generated-symbol names, no function/module names, no description of *how* it works inside.
+   Keep what the user actually types or sees: public API, compiler options, and TypeScript
+   diagnostic codes. Match the length and tone of the existing entries in `CHANGELOG.md`.
+
+Example — good: "A `@mixin` may now declare its own constructor; it runs during construction."
+Bad (internal, no changeset): "Refactored scope indexing into `classScopesByName`."

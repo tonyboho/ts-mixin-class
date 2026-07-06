@@ -1,0 +1,13 @@
+packages:
+  - "."
+  - "tests/fixture-suite"
+  - "tests/declaration-fixture-suite"
+
+overrides:
+  "ts-patch>typescript": "6.0.3"
+
+catalog:
+  "@bryntum/siesta": "6.0.0-beta-1"
+  "@types/node": "25.6.0"
+  "ts-patch": "4.0.1"
+  "typescript": "6.0.3"

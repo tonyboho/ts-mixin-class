@@ -1,6 +1,13 @@
+/.idea
+/.ai
+/.pnpm-store
 /dist
 /language-service-plugin/index.cjs
 /node_modules
+/tests/fixture-suite/node_modules
+/tests/fixture-suite/dist
+/tests/declaration-fixture-suite/node_modules
+/tests/declaration-fixture-suite/dist
 /bench/fixtures/generated
 /bench/results
 /bench/profiles

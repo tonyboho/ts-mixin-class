@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "lib": [
+            "ES2022"
+        ],
+        "types": [
+            "node"
+        ],
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "erasableSyntaxOnly": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": [
+        "changelog-date.ts",
+        "sync-readme-versions.ts",
+        "release-preflight.ts"
+    ]
+}

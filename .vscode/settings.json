@@ -1,0 +1,6 @@
+{
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.tsserver.log": "off",
+    "chatgpt.commentCodeLensEnabled": false
+}

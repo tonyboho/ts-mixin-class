@@ -5,6 +5,8 @@
 [![npm downloads](https://img.shields.io/npm/dm/ts-mixin-class.svg)](https://www.npmjs.com/package/ts-mixin-class)
 [![license](https://img.shields.io/npm/l/ts-mixin-class.svg)](./LICENSE)
 
+**▶ [Try it online in StackBlitz](https://stackblitz.com/github/tonyboho/ts-mixin-class-example)** — no install, runs in the browser.
+
 `ts-mixin-class` adds practical multiple inheritance to TypeScript classes.
 
 You write normal classes, mark reusable inheritance units with `@mixin()`, and list

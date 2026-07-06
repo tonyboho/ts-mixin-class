@@ -467,9 +467,9 @@ filling.
 ## Comparison
 
 How `ts-mixin-class` compares to other TypeScript mixin libraries. The behavioural columns
-are produced by **actually running** each library — the harness is in [`compare/`](compare/).
-`⚠️` is partial support; `n/a` dedup means a mixin was dropped, so there was nothing to
-deduplicate.
+are produced by **actually running** each library — for the harness and the detailed
+methodology, see [`compare/`](compare/). `⚠️` is partial support; `n/a` dedup means a mixin
+was dropped, so there was nothing to deduplicate.
 
 | Library | Native syntax | Reaches all mixins | Dedup | C3 order | Rejects bad order | `instanceof` | Generics | Zero runtime |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |

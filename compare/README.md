@@ -4,6 +4,25 @@ A small, standalone harness that compares TypeScript mixin libraries by **actual
 running** them, rather than trusting their docs. Not published (private package; the root
 `package.json` `files` field does not include this folder).
 
+## Results
+
+| Library | Native syntax | Reaches all mixins | Dedup | C3 order | Rejects bad order | `instanceof` | Generics | Zero runtime |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| **ts-mixin-class** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| @alizurchik/ts-mixin | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | ⚠️ | ❌ |
+| @open-wc/dedupe-mixin | ❌ | ✅ | ✅ | ❌ | ❌ | ⚠️ | ⚠️ | ❌ |
+| mixedin | ❌ | ❌ | n/a | ❌ | ❌ | ✅ | ✅ | ❌ |
+| mixin-types | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ | ✅ | ❌ |
+| mixwith | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| polytype | ❌ | ❌ | n/a | ❌ | ❌ | ✅ | ✅ | ❌ |
+| ts-mixer | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ⚠️ | ❌ |
+| typed-mixins | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ❌ | ❌ |
+| typescript-mix | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | ❌ | ❌ |
+| typescript-mixin | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ✅ | ❌ |
+
+`run.mjs` regenerates this table. The behavioural columns come from running the code; the
+rest are structural — see below.
+
 ## Run it
 
 ```shell

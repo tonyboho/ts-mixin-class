@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 
-// Run every probe, capture its three lines: "<lib> | basic|deep|bad: <text>".
+// Run every probe, capture its lines: "<lib> | basic|deep|bad|instanceof: <text>".
 const results = {}
 const record = (line) => {
     const m = line.match(/^(.+?) \| (basic|deep|bad|instanceof):\s*(.*)$/)
@@ -30,7 +30,7 @@ for (const f of files) {
     }
 }
 
-// Derive the feature columns from the observed outputs.
+// ── Behavioural columns — derived from what each library actually did at runtime ──
 const both = (s = "") => /Left/.test(s) && /Right/.test(s)
 const reachesAll = (r) => both(r.basic) ? "✅" : "❌"
 const dedup = (r) => {
@@ -42,22 +42,42 @@ const c3 = (r) => (r.deep ?? "").trim() === "Combined > Left > Right > Shared > 
 const rejects = (r) => /REJECTED/.test(r.bad ?? "") ? "✅" : "❌"
 const iof = (r) => /✅ all/.test(r.instanceof ?? "") ? "✅" : /partial/.test(r.instanceof ?? "") ? "⚠️" : "❌"
 
+// ── Structural columns — how the code is WRITTEN / what it costs (NOT observable at runtime,
+//    so these are set by hand, not derived from the probes above) ──
+//   native = plain classes + native `implements`/`extends`, no factory or decorator wrappers
+//   zero   = composition happens at compile time, no runtime cost
+//   gen    = full generic mixins & consumers  (⚠️ = only with manual workarounds)
+const structural = {
+    "ts-mixin-class":        { native: "✅", zero: "✅", gen: "✅" },
+    "@alizurchik/ts-mixin":  { native: "❌", zero: "❌", gen: "⚠️" },
+    "@open-wc/dedupe-mixin": { native: "❌", zero: "❌", gen: "⚠️" },
+    "mixedin":               { native: "❌", zero: "❌", gen: "✅" },
+    "mixin-types":           { native: "❌", zero: "❌", gen: "✅" },
+    "mixwith":               { native: "❌", zero: "❌", gen: "❌" },
+    "polytype":              { native: "❌", zero: "❌", gen: "✅" },
+    "ts-mixer":              { native: "❌", zero: "❌", gen: "⚠️" },
+    "typed-mixins":          { native: "❌", zero: "❌", gen: "❌" },
+    "typescript-mix":        { native: "❌", zero: "❌", gen: "❌" },
+    "typescript-mixin":      { native: "❌", zero: "❌", gen: "✅" },
+}
+const st = (l, k) => structural[l]?.[k] ?? "?"
+
 const libs = Object.keys(results).sort((a, b) =>
     a === "ts-mixin-class" ? -1 : b === "ts-mixin-class" ? 1 : a.localeCompare(b))
 
-console.log("Empirical results — every cell is produced by actually running the library.")
-console.log("basic: Root <- Left, Right    deep: Base <- Shared <- Left, Right    bad: impossible order\n")
+console.log("Behavioural columns (Reaches all mixins, Dedup, C3 order, Rejects bad order, instanceof) are")
+console.log("produced by running each library. Native / Zero runtime / Generics are structural (set by hand).\n")
 
 const rows = [
-    ["Library", "All mixins (basic)", "Dedup (deep)", "C3 order (deep)", "Rejects bad order", "instanceof"],
-    ["---", ":-:", ":-:", ":-:", ":-:", ":-:"],
+    ["Library", "Native `implements`", "Reaches all mixins", "Dedup", "C3 order", "Rejects bad order", "instanceof", "Generics", "Zero runtime"],
+    ["---", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:"],
     ...libs.map((l) => {
         const r = results[l]
-        return [l === "ts-mixin-class" ? `**${l}**` : l, reachesAll(r), dedup(r), c3(r), rejects(r), iof(r)]
+        return [
+            l === "ts-mixin-class" ? `**${l}**` : l,
+            st(l, "native"), reachesAll(r), dedup(r), c3(r), rejects(r), iof(r), st(l, "gen"), st(l, "zero"),
+        ]
     }),
 ]
 const w = rows[0].map((_, i) => Math.max(...rows.map((row) => row[i].length)))
 for (const row of rows) console.log("| " + row.map((c, i) => c.padEnd(w[i])).join(" | ") + " |")
-
-console.log("\nRaw super-chain output per library:")
-for (const l of libs) console.log(`  ${l.padEnd(22)} basic=[${results[l].basic ?? "—"}]  deep=[${results[l].deep ?? "—"}]`)

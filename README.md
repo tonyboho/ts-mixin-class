@@ -464,6 +464,38 @@ filling.
 ```
 
 
+## Comparison
+
+How `ts-mixin-class` compares to other TypeScript mixin libraries.
+
+The probe composes four mixins — `Root`, and `Left`, `Right` that build on it, and a
+`Combined` that uses both — then walks them through `super`. Correct C3 order is
+`Combined > Left > Right > Root`; a deeper variant with a shared intermediate ancestor
+also exposes whether a library deduplicates it and keeps the order. The **behavioural**
+columns below (Reaches all mixins, Dedup, C3 order, Rejects bad order, `instanceof`) are
+produced by **actually running each library** — see [`compare/`](compare/) (`npm run
+compare`). Native `implements`, Zero runtime, and Generics are structural — how you write
+the code and what it costs.
+
+| Library | Native `implements` | Reaches all mixins | Dedup | C3 order | Rejects bad order | `instanceof` | Generics | Zero runtime |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| **ts-mixin-class** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| @alizurchik/ts-mixin | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | ⚠️ | ❌ |
+| @open-wc/dedupe-mixin | ❌ | ✅ | ✅ | ❌ | ❌ | ⚠️ | ⚠️ | ❌ |
+| mixedin | ❌ | ❌ | n/a | ❌ | ❌ | ✅ | ✅ | ❌ |
+| mixin-types | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ | ✅ | ❌ |
+| mixwith | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| polytype | ❌ | ❌ | n/a | ❌ | ❌ | ✅ | ✅ | ❌ |
+| ts-mixer | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ⚠️ | ❌ |
+| typed-mixins | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ❌ | ❌ |
+| typescript-mix | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | ❌ | ❌ |
+| typescript-mixin | ❌ | ❌ | n/a | ❌ | ❌ | ⚠️ | ✅ | ❌ |
+
+`n/a` dedup means the library dropped a mixin from the chain (or has no chain), so there
+was nothing to deduplicate. `⚠️` marks partial support (e.g. `instanceof` that holds for
+some bases only, or generics that need manual workarounds).
+
+
 ## Limitations
 
 A few things the library does not support yet.

@@ -15,9 +15,13 @@ Every library is compiled with a **real compiler**, never esbuild/tsx:
 
 ```shell
 npm install
-npm run compare     # builds everything, prints each library's linearization
+npm run compare     # builds everything, runs every probe, prints the comparison table
 npm run conflict    # shows ts-mixin-class rejecting an impossible order (TS990007)
 ```
+
+`run.mjs` runs each probe and prints the feature table. The behavioural columns (reaches
+all mixins, dedup, C3 order, rejects bad order, `instanceof`) are derived from what the
+libraries actually did; Native / Zero runtime / Generics are structural and set by hand.
 
 ## The probe
 

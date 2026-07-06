@@ -6,7 +6,7 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 import ts from "typescript"
 
 import transformProgram from "../src/index.js"
-import { runWithinBudget } from "./stress/budget.js"
+import { resolveStressBudget, runWithinBudget } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 import { packageRoot } from "./util.js"
 
@@ -429,7 +429,7 @@ it("emit and source-view report diagnostics at the same source positions across 
                     `${JSON.stringify([ ...(ideColumns.get(columnKey(columnMismatch)) ?? []) ])}`
             ].join("\n")
         }
-    }, { durationMs: 8000, maxIterations: 24 })
+    }, resolveStressBudget({ durationMs: 8000, maxIterations: 24 }))
 
     if (failure !== undefined) {
         t.fail(failure)

@@ -4,7 +4,7 @@ import ts from "typescript"
 
 import { transformSourceFile } from "../src/index.js"
 import { loadCorpus } from "./stress/corpus.js"
-import { runWithinBudget } from "./stress/budget.js"
+import { resolveStressBudget, runWithinBudget } from "./stress/budget.js"
 import { resolveSeed, SeededRandom } from "./stress/rng.js"
 
 // Randomized stress test for the program transform under editor-like editing.
@@ -189,7 +189,7 @@ it("transform survives randomized editor-like edits across the fixture corpus", 
 
             deleteRoundTrip(buffer, sourceView, position, removed, label)
         }
-    })
+    }, resolveStressBudget())
 
     if (failure !== undefined) {
         t.fail(failure)

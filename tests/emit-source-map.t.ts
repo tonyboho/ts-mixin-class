@@ -882,6 +882,211 @@ it("declaration-only emit composes the .d.ts.map", async (t: Test) => {
 })
 
 // ---------------------------------------------------------------------------
+// Text-shape edges: a BOM (tsc strips it — map coordinates are relative to the stripped
+// text), a shebang (tsc PRESERVES it as the output's first line, shifting every generated
+// line), a file ending WITHOUT a trailing newline (the EOF boundary — the original bug's
+// beyond-EOF plane), and a whole mixin+consumer packed onto ONE line (same-line anchoring
+// with the column caps doing all the work). One fixture, one build, per-file maps.
+
+const denseText = [
+    `import { mixin } from "ts-mixin-class"`,
+    `import { Base } from "ts-mixin-class/base"`,
+    `@mixin() class Greeter { greet(): string { return "hi" } } export class Consumer extends Base implements Greeter { use(): string { return this.greet() + "!" } }`,
+    ``
+].join("\n")
+
+it("BOM, shebang, missing EOF newline and a single-line source all map exactly", async (t: Test) => {
+    const shebangText = `#!/usr/bin/env node\n${sourceText}`
+    const noEofText   = sourceText.trimEnd()
+    const fixture     = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true },
+        sourceFiles            : [
+            { fileName: "bom.ts", text: `\uFEFF${sourceText}` },
+            { fileName: "shebang.ts", text: shebangText },
+            { fileName: "noeof.ts", text: noEofText },
+            { fileName: "dense.ts", text: denseText }
+        ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    // BOM: stripped before parsing, so the map is relative to the BOM-less text.
+    const bomJs  = await readOutput(fixture, "dist/bom.js")
+    const bomMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/bom.js.map")) as SourceMapJson).mappings)
+
+    assertSegmentsWithinOriginal(t, "BOM js.map", bomMap, sourceText)
+    assertReturnLinesCovered(t, "BOM js.map", bomMap, sourceText)
+    assertExactMapping(t, "BOM consumer method", bomMap, bomJs, "describe() {", sourceText, "describe(): string {")
+    assertExactMapping(t, "BOM trailing export", bomMap, bomJs, "const afterAll = ", sourceText, "const afterAll: ", "const ".length)
+
+    // Shebang: kept as line 0 of the output, so every generated line is shifted by one —
+    // and the original positions include the shebang line too.
+    const shebangJs  = await readOutput(fixture, "dist/shebang.js")
+    const shebangMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/shebang.js.map")) as SourceMapJson).mappings)
+
+    t.true(shebangJs.startsWith("#!/usr/bin/env node\n"), "the shebang survives as the output's first line")
+    assertSegmentsWithinOriginal(t, "shebang js.map", shebangMap, shebangText)
+    assertReturnLinesCovered(t, "shebang js.map", shebangMap, shebangText)
+    assertExactMapping(t, "shebang mixin body", shebangMap, shebangJs, "hello ${", shebangText, "hello ${", "hello ${".length)
+    assertExactMapping(t, "shebang trailing export", shebangMap, shebangJs, "const afterAll = ", shebangText, "const afterAll: ", "const ".length)
+
+    // No trailing newline: the max-drift zone ends exactly AT the unterminated last line.
+    const noEofJs  = await readOutput(fixture, "dist/noeof.js")
+    const noEofMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/noeof.js.map")) as SourceMapJson).mappings)
+
+    assertSegmentsWithinOriginal(t, "no-EOF-newline js.map", noEofMap, noEofText)
+    assertReturnLinesCovered(t, "no-EOF-newline js.map", noEofMap, noEofText)
+    assertExactMapping(t, "no-EOF-newline trailing export", noEofMap, noEofJs, "const afterAll = ", noEofText, "const afterAll: ", "const ".length)
+
+    // Dense single line: the mixin body, the generated machinery and the consumer all
+    // translate through ONE printed line — the same-line column caps carry everything.
+    const denseJs  = await readOutput(fixture, "dist/dense.js")
+    const denseMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/dense.js.map")) as SourceMapJson).mappings)
+
+    assertSegmentsWithinOriginal(t, "dense js.map", denseMap, denseText)
+    assertArtifactTokensUnmapped(t, "dense js.map", denseMap, denseJs)
+    assertExactMapping(t, "dense mixin return", denseMap, denseJs, `"hi"`, denseText, `"hi"`)
+    assertExactMapping(t, "dense consumer return", denseMap, denseJs, `this.greet() + "!"`, denseText, `this.greet() + "!"`)
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// `outFile` bundling: ONE map whose `sources` lists every input — two of them reprinted.
+// This is the only shape where `resolveSourceRemaps` pairs multiple remaps inside a single
+// map (positional + base-name matching), so each source's segments must translate against
+// its OWN original, and none may leak into a neighbour's coordinates.
+
+it("an outFile bundle composes every reprinted source inside the single map", async (t: Test) => {
+    const betaText = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        @mixin()
+        class Tagger {
+            label(): string {
+                return "tag"
+            }
+        }
+
+        export class Item extends Base implements Tagger {
+            show(): string {
+                return this.label()
+            }
+        }
+    `)
+    const fixture  = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : {
+            // `outFile` needs a non-ES module kind, which in turn needs the pre-Bundler
+            // resolution — both deprecated in TS 6, but still emitting. The subpath import
+            // resolves via `paths` because node10 resolution cannot read `exports` maps.
+            ignoreDeprecations : "6.0",
+            module             : "AMD",
+            moduleResolution   : "Node10",
+            outFile            : "dist/bundle.js",
+            outDir             : undefined,
+            sourceMap          : true,
+            baseUrl            : ".",
+            paths              : {
+                "ts-mixin-class"      : [ "node_modules/ts-mixin-class/dist/src/index.d.ts" ],
+                "ts-mixin-class/base" : [ "node_modules/ts-mixin-class/dist/src/base.d.ts" ]
+            }
+        },
+        sourceFiles : [
+            { fileName: "plain.ts", text: plainText },
+            { fileName: "alpha.ts", text: sourceText },
+            { fileName: "beta.ts", text: betaText }
+        ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `outFile build succeeds.\n${commandOutput(build)}`)
+
+    const jsText    = await readOutput(fixture, "dist/bundle.js")
+    const map       = JSON.parse(await readOutput(fixture, "dist/bundle.js.map")) as SourceMapJson
+    const decoded   = decodeSegments(map.mappings)
+    const originals = new Map<number, { label: string, text: string }>()
+
+    for (const [ index, source ] of map.sources.entries()) {
+        const text = source.endsWith("plain.ts") ? plainText
+            : source.endsWith("alpha.ts") ? sourceText
+                : source.endsWith("beta.ts") ? betaText
+                    : undefined
+
+        t.true(text !== undefined, `map source ${JSON.stringify(source)} is one of the inputs`)
+
+        if (text !== undefined) {
+            originals.set(index, { label: baseNameOf(source), text })
+        }
+    }
+
+    t.equal(map.sources.length, 3, "the bundle map lists all three inputs")
+
+    for (const [ index, original ] of originals) {
+        const ownSegments = decoded.filter((segment) => segment.sourceIndex === index)
+
+        assertSegmentsWithinOriginal(t, `bundle map / ${original.label}`, ownSegments, original.text)
+        assertReturnLinesCovered(t, `bundle map / ${original.label}`, ownSegments, original.text)
+    }
+
+    assertArtifactTokensUnmapped(t, "bundle map", decoded, jsText)
+    assertExactMapping(t, "bundle plain body", decoded, jsText, "value * 2", plainText, "value * 2")
+    assertExactMapping(t, "bundle alpha consumer body", decoded, jsText, "${this.greet()", sourceText, "${this.greet()", 2)
+    assertExactMapping(t, "bundle beta consumer body", decoded, jsText, "this.label()", betaText, "this.label()")
+
+    await fixture.dispose()
+})
+
+function baseNameOf(fileName: string): string {
+    return fileName.slice(fileName.lastIndexOf("/") + 1)
+}
+
+// ---------------------------------------------------------------------------
+// `incremental`: the `.tsbuildinfo` travels through the same composing `writeFile` as the
+// maps and must pass through unscathed, and a rebuild after an edit must compose against
+// the EDITED text (the builder reuses program state; the remap must not go stale).
+
+it("an incremental rebuild composes the map and keeps .tsbuildinfo intact", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true, incremental: true, tsBuildInfoFile: "dist/build.tsbuildinfo" },
+        sourceFiles            : [ { fileName: "source.ts", text: sourceText } ]
+    })
+
+    const firstBuild = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(firstBuild.exitCode, 0, `first incremental build succeeds.\n${commandOutput(firstBuild)}`)
+    t.true(
+        JSON.parse(await readOutput(fixture, "dist/build.tsbuildinfo")) !== null,
+        "the .tsbuildinfo written through the composing writeFile is valid JSON"
+    )
+
+    const editedText = `// edited\n\n${sourceText}`
+
+    await writeFile(path.join(fixture.directory, "source.ts"), editedText)
+
+    const secondBuild = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(secondBuild.exitCode, 0, `incremental rebuild succeeds.\n${commandOutput(secondBuild)}`)
+
+    const jsText  = await readOutput(fixture, "dist/source.js")
+    const map     = JSON.parse(await readOutput(fixture, "dist/source.js.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "incremental rebuild js.map", decoded, editedText)
+    assertReturnLinesCovered(t, "incremental rebuild js.map", decoded, editedText)
+    assertExactMapping(t, "incremental rebuild consumer method", decoded, jsText, "describe() {", editedText, "describe(): string {")
+    assertExactMapping(t, "incremental rebuild trailing export", decoded, jsText, "const afterAll = ", editedText, "const afterAll: ", "const ".length)
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
 // Watch mode: after an edit, the SECOND build's map must compose against the EDITED text —
 // a stale remap kept from the first program would shift every position below the edit.
 

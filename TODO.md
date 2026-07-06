@@ -49,15 +49,6 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### Upstream: interface-accessor `this` crash — reported, waiting for the fix
-
-Reported as [microsoft/TypeScript#63619](https://github.com/microsoft/TypeScript/issues/63619)
-(2026-07-06). Plain TS — no transform involved: `interface I { get self(): this }` crashes the
-checker (`reading 'flags'` in `getConditionalFlowTypeOfType`); a 6.0 regression, 5.9.3 clean.
-Our side is defended: the generated mixin interface falls back to a PROPERTY signature for
-this-typed accessors (`containsThisType` in `interface-members.ts`, pinned by
-`mixin-accessor-edges.t.ts`); remove the fallback once the fix ships in the pinned TS.
-
 ### Real-fixture declaration-time benchmark (mixins vs plain classes)
 
 Measure the actual load-time cost the mixin runtime adds over plain TypeScript classes, on a

@@ -232,12 +232,15 @@ function accessorSignatures(
     const signatures: ts.TypeElement[] = []
 
     // WORKAROUND for an upstream TypeScript checker CRASH (verified on 6.0.3, plain TS — no
-    // transform involved): a `this` type anywhere inside an INTERFACE accessor's annotation
+    // transform involved), reported as https://github.com/microsoft/TypeScript/issues/63619:
+    // a `this` type anywhere inside an INTERFACE accessor's annotation
     // (`interface I { get self(): this }`, nested positions included) makes
     // `getTypeFromThisTypeNode` return undefined and `getConditionalFlowTypeOfType` throws.
     // A method signature and a PROPERTY signature with the same `this` type are fine — so a
     // this-typed accessor falls back to the pre-§1.27 property form (narrowing at the consumer
     // is identical; only the accessor-ness and a split pair's write type are collapsed).
+    // Removable only when every supported TS version carries the upstream fix — as long as an
+    // affected version (6.0.3) stays supported, the fallback stays.
     if (containsThisType(tsInstance, getter?.type) ||
         containsThisType(tsInstance, setter?.parameters[0]?.type)
     ) {

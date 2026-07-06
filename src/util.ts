@@ -31,12 +31,13 @@ type SourceMapGenerator = {
 type EmitTextWriter = {
     getText(): string
 }
-type DecodedMapping = {
+export type DecodedSourceMapMapping = {
     generatedLine      : number,
     generatedCharacter : number,
     sourceIndex?       : number,
     sourceLine?        : number,
-    sourceCharacter?   : number
+    sourceCharacter?   : number,
+    nameIndex?         : number
 }
 type TypeScriptWithEmitInternals = TypeScript & {
     createTextWriter(newLine: string): EmitTextWriter,
@@ -47,7 +48,13 @@ type TypeScriptWithEmitInternals = TypeScript & {
         sourcesDirectoryPath: string,
         generatorOptions: { sourceMap: boolean }
     ): SourceMapGenerator,
-    decodeMappings(mappings: string): Iterable<DecodedMapping>
+    decodeMappings(mappings: string): Iterable<DecodedSourceMapMapping>
+}
+
+// Decode a source map `mappings` string into absolute line/character segments, via the
+// TypeScript-internal VLQ decoder (the encoder counterpart lives in `emit-source-map.ts`).
+export function decodeSourceMapMappings(tsInstance: TypeScript, mappings: string): DecodedSourceMapMapping[] {
+    return [ ...(tsInstance as TypeScriptWithEmitInternals).decodeMappings(mappings) ]
 }
 type PrinterWithWriteFile = ts.Printer & {
     writeFile(

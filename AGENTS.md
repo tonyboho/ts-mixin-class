@@ -756,6 +756,47 @@ completion entry). Guards: `diagnostic-base-names.t.ts`, the §2.23 pins in
 `compiler-option-edges.t.ts`, `mixin-static-super.t.ts` (TS2417),
 `tsserver-construction-config-alias.t.ts` (the nested hover + the `.new` name surfaces).
 
+## Emit-path source-map composition
+
+Same root cause as the diagnostic remap, applied to **emitted source maps**: the emit plane
+compiles the reprinted text under the original file name, so the map tsc writes is
+`generated (JS / .d.ts) → printed` while the file on disk holds the ORIGINAL text — before the
+fix every user position below the first generated insertion drifted, up to **beyond the original
+EOF** (breakpoints on wrong lines, lying stack traces). `emit-source-map.ts` composes the second
+leg at the `program.emit` seam in `wrapProgramDiagnostics`: when the compilation asks for maps at
+all (`sourceMap` / `inlineSourceMap` / `declarationMap`), the emit's `writeFile` is wrapped —
+every `*.map` (and the base64 data-URI map inside a `.js` under `inlineSourceMap`) is decoded
+(TS-internal `decodeMappings` via `util.ts`), each segment's source position is rewritten through
+the reprinted file's attached `DiagnosticRemap`, re-encoded (own base64-VLQ encoder — TS exposes
+no encoder), and written to the caller's `writeFile` or, on the plain-`tsc` path, the host's.
+`inlineSources` gets the ORIGINAL text substituted into `sourcesContent` (tsc embedded the
+reprint). A file the transform leaves untouched passes through **byte-identical** to a
+plugin-less build.
+
+Two policies differ from the diagnostic remap on purpose:
+
+- **Same-line only, no preceding-line fallback.** A printed line with no remap entries is fully
+  generated; its segments are DROPPED (the debugger falls back to raw generated output — the
+  standard behaviour for generated code). The diagnostic remap's preceding-entry fallback would
+  pin generated statements onto user lines.
+- **Token agreement.** The remap also carries entries for generated statements collapsed onto
+  gap ranges (the diagnostics' `'}'` family) and for generated references pinned onto user spans
+  (`extends __X$base` onto the user's base name). When the printed position starts an
+  identifier, the identifier at the translated original position must be the same word, else the
+  segment is dropped — user identifiers survive the reprint verbatim; generated names never
+  match their collapsed anchors. Punctuation stays unverified (quote-style normalization must
+  not drop real mappings).
+
+tsc's own conventions survive composition where the words agree: a synthesized `constructor`
+maps to the (user) class header, a hoisted field initializer to the field name, `get`/`set` to
+their `override` modifier, and declaration emit's synthesized `declare const <Class>_base` (a
+class extending an EXPRESSION — the runtime chain or the construction direct-`new` brand) keeps
+its reference mapped to the user's base name. Guards: `emit-source-map.t.ts` (exact per-token
+pins incl. those conventions, artifact-token ban, bounds, untouched byte-identity, inline +
+declaration variants) and `stress-sourcemap.t.ts` (corpus sweep: bounds, token agreement with
+the tolerated-word set DERIVED from a plugin-less baseline of the same corpus, untouched
+identity — "untouched" detected exactly: the program serves the file with its on-disk text).
+
 ## Emit-path implements conformance
 
 The sweep also exposed that the value-cast (emit) and real-class (source-view) trees are not

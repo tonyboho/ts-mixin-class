@@ -12,6 +12,7 @@ import {
     resolveCrossFileConstructionBase
 } from "./construction-config.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
+import { composeEmittedSourceMap } from "./emit-source-map.js"
 import { expandMixinClass } from "./mixin-expand.js"
 import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
 import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
@@ -345,12 +346,20 @@ function wrapProgramDiagnostics(
     originalProgram: ts.Program,
     nativeDiagnostics: NativeMixinDiagnostic[],
     crossFile: CrossFileContext | undefined,
-    options: TransformOptions
+    options: TransformOptions,
+    compilerHost: ts.CompilerHost
 ): ts.Program {
     const originalGetSyntactic   = program.getSyntacticDiagnostics.bind(program)
     const originalGetSemantic    = program.getSemanticDiagnostics.bind(program)
     const originalGetDeclaration = program.getDeclarationDiagnostics.bind(program)
     const originalEmit           = program.emit.bind(program)
+    const compilerOptions        = program.getCompilerOptions()
+    // Source maps the inner emit computes are `generated -> printed` (it compiled the
+    // reprinted text); only when the compilation asks for maps at all is the write path
+    // intercepted to compose the second leg (`printed -> original`) into every map.
+    const composeSourceMaps = compilerOptions.sourceMap === true ||
+        compilerOptions.inlineSourceMap === true ||
+        compilerOptions.declarationMap === true
 
     // Checker messages that embed a generated base/factory NAME (or a collapsed-range render)
     // are mapped back to the user's own names after the position remap — see
@@ -391,7 +400,31 @@ function wrapProgramDiagnostics(
                     stripGeneratedStaticNew(tsInstance)
                 ]
             }
-        const result                                                = originalEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, mergedTransformers)
+        // The composing write path: rewrite every emitted source map through the reprinted
+        // file's remap, then hand the (possibly rewritten) text to the caller's `writeFile`
+        // or — when none was given, the plain-`tsc` path — to the host's, which is exactly
+        // where the default emit pipeline would have written.
+        const sink: ts.WriteFileCallback               = writeFile ??
+            ((emittedFileName, text, writeByteOrderMark, onError, sourceFiles, data) => {
+                compilerHost.writeFile(emittedFileName, text, writeByteOrderMark, onError, sourceFiles, data)
+            })
+        const composingWriteFile: ts.WriteFileCallback = (emittedFileName, text, writeByteOrderMark, onError, sourceFiles, data) => {
+            sink(
+                emittedFileName,
+                composeEmittedSourceMap(tsInstance, emittedFileName, text, sourceFiles, diagnosticRemapOf),
+                writeByteOrderMark,
+                onError,
+                sourceFiles,
+                data
+            )
+        }
+        const result                                   = originalEmit(
+            targetSourceFile,
+            composeSourceMaps ? composingWriteFile : writeFile,
+            cancellationToken,
+            emitOnlyDtsFiles,
+            mergedTransformers
+        )
 
         return {
             ...result,
@@ -583,7 +616,7 @@ export default function transformProgram(
         compilerOptions,
         nextHost,
         undefined
-    ), program, nativeDiagnostics, crossFile, options)
+    ), program, nativeDiagnostics, crossFile, options, nextHost)
 }
 
 export function createMixinClassCompilerHost(

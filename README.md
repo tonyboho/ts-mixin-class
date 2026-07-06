@@ -477,7 +477,7 @@ produced by **actually running each library** — see [`compare/`](compare/) (`n
 compare`). Native `implements`, Zero runtime, and Generics are structural — how you write
 the code and what it costs.
 
-| Library | Native `implements` | Reaches all mixins | Dedup | C3 order | Rejects bad order | `instanceof` | Generics | Zero runtime |
+| Library | Native syntax | Reaches all mixins | Dedup | C3 order | Rejects bad order | `instanceof` | Generics | Zero runtime |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | **ts-mixin-class** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | @alizurchik/ts-mixin | ❌ | ❌ | n/a | ❌ | ❌ | ❌ | ⚠️ | ❌ |

@@ -69,7 +69,7 @@ console.log("Behavioural columns (Reaches all mixins, Dedup, C3 order, Rejects b
 console.log("produced by running each library. Native / Zero runtime / Generics are structural (set by hand).\n")
 
 const rows = [
-    ["Library", "Native `implements`", "Reaches all mixins", "Dedup", "C3 order", "Rejects bad order", "instanceof", "Generics", "Zero runtime"],
+    ["Library", "Native syntax", "Reaches all mixins", "Dedup", "C3 order", "Rejects bad order", "instanceof", "Generics", "Zero runtime"],
     ["---", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:", ":-:"],
     ...libs.map((l) => {
         const r = results[l]

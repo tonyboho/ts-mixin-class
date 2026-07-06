@@ -1,5 +1,11 @@
 # ts-mixin-class
 
+## 0.0.9 - 2026-07-06
+
+### Patch Changes
+
+- Point package metadata at the standalone repository.
+
 ## 0.0.8 - 2026-07-03
 
 ### Patch Changes

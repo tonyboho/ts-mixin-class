@@ -1,0 +1,16 @@
+{
+    "name": "ts-mixin-class-example",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "start": "tspc -p tsconfig.json && node dist/main.js",
+        "build": "tspc -p tsconfig.json"
+    },
+    "dependencies": {
+        "ts-mixin-class": "0.0.8"
+    },
+    "devDependencies": {
+        "ts-patch": "4.0.1",
+        "typescript": "6.0.3"
+    }
+}

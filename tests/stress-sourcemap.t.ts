@@ -189,7 +189,7 @@ function scanMaps(
             continue
         }
 
-        const mappedSourceLines = new Set<number>()
+        const generatedLinesOf = new Map<number, number[]>()
 
         for (const segment of decodeSegments(map.mappings)) {
             if (segment.sourceLine === undefined || segment.sourceCharacter === undefined) {
@@ -197,7 +197,11 @@ function scanMaps(
             }
 
             scan.checkedSegments += 1
-            mappedSourceLines.add(segment.sourceLine)
+
+            const segmentTargets = generatedLinesOf.get(segment.sourceLine) ?? []
+
+            segmentTargets.push(segment.generatedLine)
+            generatedLinesOf.set(segment.sourceLine, segmentTargets)
 
             const where = `${path.basename(fileName)}: generated ` +
                 `${segment.generatedLine + 1}:${segment.generatedCharacter} -> ` +
@@ -231,13 +235,27 @@ function scanMaps(
             }
         }
 
-        // Completeness — only the runnable-code map carries executable lines.
+        // Completeness — only the runnable-code map carries executable lines. Reachability
+        // alone is not enough: at least one generated line mapping to the `return` line must
+        // itself contain `return`, so a debugger's reverse lookup (how breakpoints bind)
+        // lands on the actual statement.
         if (fileName.endsWith(".js.map")) {
             for (const [ index, line ] of originalLines.entries()) {
                 const trimmed = line.trim()
 
-                if ((trimmed.startsWith("return ") || trimmed === "return") && !mappedSourceLines.has(index)) {
+                if (!trimmed.startsWith("return ") && trimmed !== "return") {
+                    continue
+                }
+
+                const targets = generatedLinesOf.get(index)
+
+                if (targets === undefined) {
                     scan.coverageOffenders.push(`${path.basename(fileName)}: original return line ${index + 1} unreachable`)
+                } else if (!targets.some((generatedLine) => (generatedLines[generatedLine] ?? "").includes("return"))) {
+                    scan.coverageOffenders.push(
+                        `${path.basename(fileName)}: original return line ${index + 1} maps only to ` +
+                        `generated lines without \`return\` (${targets.join(", ")})`
+                    )
                 }
             }
         }

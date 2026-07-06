@@ -289,9 +289,17 @@ function translatePrintedPosition(
         : Number.POSITIVE_INFINITY
     const character = Math.min(
         Math.max(0, anchor.sourceCharacter + (printedCharacter - anchor.generatedCharacter)),
-        capped,
-        (source.originalLines[anchor.sourceLine] ?? "").length
+        capped
     )
+
+    // A column past the original line's end cannot exist there: the anchor is a generated
+    // statement collapsed onto a gap range (e.g. the mixin's closing `}`), and the queried
+    // printed position lies inside the generated span — clamping would pin generated code
+    // onto that user line (the leak the token-agreement check below cannot catch when the
+    // position starts no identifier). Drop the segment instead.
+    if (character > (source.originalLines[anchor.sourceLine] ?? "").length) {
+        return undefined
+    }
 
     const printedWord = identifierAt(source.printedLines[printedLine] ?? "", printedCharacter)
 

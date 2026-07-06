@@ -222,31 +222,52 @@ function assertArtifactTokensUnmapped(
 // COMPLETENESS: a map whose segments are all correct but sparse would still pass the
 // checks above — a debugger could not break on the lines it lost. Every original line
 // holding a `return` statement (always executable user code) must appear among the map's
-// source lines.
+// source lines — AND at least one of the generated lines mapping to it must itself contain
+// `return`, so a debugger's reverse lookup (original -> generated, how breakpoints bind)
+// lands on the actual statement rather than an unrelated mapped fragment.
 function assertReturnLinesCovered(
     t: Test,
     description: string,
     segments: DecodedSegment[],
-    originalText: string
+    originalText: string,
+    generatedText: string
 ): void {
-    const mappedLines       = new Set(segments
-        .filter((segment) => segment.sourceLine !== undefined)
-        .map((segment) => segment.sourceLine))
-    const missing: number[] = []
+    const generatedLines    = generatedText.split("\n")
+    const generatedLinesOf  = new Map<number, number[]>()
+    const missing: string[] = []
+
+    for (const segment of segments) {
+        if (segment.sourceLine === undefined) {
+            continue
+        }
+
+        const lines = generatedLinesOf.get(segment.sourceLine) ?? []
+
+        lines.push(segment.generatedLine)
+        generatedLinesOf.set(segment.sourceLine, lines)
+    }
 
     for (const [ index, line ] of originalText.split("\n").entries()) {
         const trimmed = line.trim()
 
-        if ((trimmed.startsWith("return ") || trimmed === "return") && !mappedLines.has(index)) {
-            missing.push(index + 1)
+        if (!trimmed.startsWith("return ") && trimmed !== "return") {
+            continue
+        }
+
+        const mapped = generatedLinesOf.get(index)
+
+        if (mapped === undefined) {
+            missing.push(`${index + 1} (unreachable)`)
+        } else if (!mapped.some((generatedLine) => (generatedLines[generatedLine] ?? "").includes("return"))) {
+            missing.push(`${index + 1} (maps only to generated lines without \`return\`: ${mapped.join(", ")})`)
         }
     }
 
     t.equal(
         missing.length,
         0,
-        `${description}: every original \`return\` line is reachable through the map` +
-            (missing.length > 0 ? `; missing lines: ${missing.join(", ")}` : "")
+        `${description}: every original \`return\` line reaches a generated \`return\`` +
+            (missing.length > 0 ? `; offenders: ${missing.join("; ")}` : "")
     )
 }
 
@@ -287,7 +308,7 @@ it("the emitted .js.map composes back to exact original positions", async (t: Te
 
     assertSegmentsWithinOriginal(t, "js.map", decoded, sourceText)
     assertArtifactTokensUnmapped(t, "js.map", decoded, jsText)
-    assertReturnLinesCovered(t, "js.map", decoded, sourceText)
+    assertReturnLinesCovered(t, "js.map", decoded, sourceText, jsText)
 
     // A mixin method declaration and a statement inside its body.
     assertExactMapping(t, "mixin method name", decoded, jsText, "greet() {", sourceText, "greet(): string {")
@@ -501,6 +522,67 @@ it("the emitted .d.ts.map composes back to exact original positions", async (t: 
 })
 
 // ---------------------------------------------------------------------------
+// An EXPORTED consumer fills the .d.ts with the full generated machinery: the
+// `__Consumer$base` / `__Consumer$base_base` heritage chain, the `static new` signature and
+// the exported `<Name>Config` alias. None of those generated tokens may map onto a user
+// line — the observed leak was the `extends __Consumer$base_base` value anchoring onto the
+// mixin's closing `}` through a collapsed gap-range entry (its printed position starts no
+// identifier, so the token-agreement check alone could not reject it).
+
+const exportedConsumerText = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+    import { Base } from "ts-mixin-class/base"
+
+    @mixin()
+    class Greeter {
+        public name: string = "Ada"
+
+        greet(): string {
+            return \`hello \${this.name}\`
+        }
+    }
+
+    export class Consumer extends Base implements Greeter {
+        public tag: string = ""
+
+        describe(): string {
+            return \`\${this.greet()} [\${this.tag}]\`
+        }
+    }
+
+    export const one = Consumer.new({ name: "Grace", tag: "x" })
+`)
+
+it("generated declarations in an exported consumer's .d.ts carry no source mapping", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { sourceMap: true, declaration: true, declarationMap: true },
+        sourceFiles            : [ { fileName: "source.ts", text: exportedConsumerText } ]
+    })
+
+    const build = await runCommand("node", [ tscBin, "-p", fixture.tsconfigFile ], fixture.directory)
+
+    t.equal(build.exitCode, 0, `build succeeds.\n${commandOutput(build)}`)
+
+    const dtsText = await readOutput(fixture, "dist/source.d.ts")
+    const map     = JSON.parse(await readOutput(fixture, "dist/source.d.ts.map")) as SourceMapJson
+    const decoded = decodeSegments(map.mappings)
+
+    assertSegmentsWithinOriginal(t, "exported-consumer d.ts.map", decoded, exportedConsumerText)
+    assertArtifactTokensUnmapped(t, "exported-consumer d.ts.map", decoded, dtsText)
+
+    // The generated `static new` signature and the exported Config alias.
+    assertUnmapped(t, "static new Config parameter", decoded, dtsText, "ConsumerConfig): Consumer")
+    assertUnmapped(t, "exported Config alias", decoded, dtsText, "type ConsumerConfig = ", "type ".length)
+
+    // User declarations still map exactly around the generated machinery.
+    assertExactMapping(t, "consumer field", decoded, dtsText, "tag: string;", exportedConsumerText, "tag: string = ")
+    assertExactMapping(t, "consumer method", decoded, dtsText, "describe(): string;", exportedConsumerText, "describe(): string {")
+
+    await fixture.dispose()
+})
+
+// ---------------------------------------------------------------------------
 // Runtime plane: what the user actually debugs with
 
 // A mixin method that throws, reached through a consumer method — Node's
@@ -630,7 +712,7 @@ it("two same-named files in different directories each compose against their own
         const decoded = decodeSegments(map.mappings)
 
         assertSegmentsWithinOriginal(t, `${directory}/model.js.map`, decoded, text)
-        assertReturnLinesCovered(t, `${directory}/model.js.map`, decoded, text)
+        assertReturnLinesCovered(t, `${directory}/model.js.map`, decoded, text, jsText)
         assertExactMapping(
             t, `${directory}/model.js.map method`, decoded,
             jsText, needle, text, needle.replace("() {", "(): string {")
@@ -703,7 +785,7 @@ it("statements between generated insertions map exactly (multi-mixin file)", asy
 
     assertSegmentsWithinOriginal(t, "multi js.map", decoded, multiText)
     assertArtifactTokensUnmapped(t, "multi js.map", decoded, jsText)
-    assertReturnLinesCovered(t, "multi js.map", decoded, multiText)
+    assertReturnLinesCovered(t, "multi js.map", decoded, multiText, jsText)
 
     // Between the first and second insertions.
     assertExactMapping(t, "function between insertions", decoded, jsText, 'return "between"', multiText, 'return "between"')
@@ -764,7 +846,7 @@ it("CJK identifiers and emoji strings map exactly", async (t: Test) => {
 
     assertSegmentsWithinOriginal(t, "unicode js.map", decoded, unicodeText)
     assertArtifactTokensUnmapped(t, "unicode js.map", decoded, jsText)
-    assertReturnLinesCovered(t, "unicode js.map", decoded, unicodeText)
+    assertReturnLinesCovered(t, "unicode js.map", decoded, unicodeText, jsText)
 
     assertExactMapping(t, "CJK mixin method", decoded, jsText, "打招呼() {", unicodeText, "打招呼(): string {")
     assertExactMapping(t, "emoji template body", decoded, jsText, "你好 🎉 ${", unicodeText, "你好 🎉 ${", "你好 🎉 ${".length)
@@ -824,7 +906,7 @@ it("a CRLF source file maps exactly", async (t: Test) => {
     const decoded = decodeSegments(map.mappings)
 
     assertSegmentsWithinOriginal(t, "crlf js.map", decoded, crlfText)
-    assertReturnLinesCovered(t, "crlf js.map", decoded, crlfText)
+    assertReturnLinesCovered(t, "crlf js.map", decoded, crlfText, jsText)
 
     assertExactMapping(t, "crlf mixin method", decoded, jsText, "greet() {", crlfText, "greet(): string {")
     assertExactMapping(t, "crlf consumer method", decoded, jsText, "describe() {", crlfText, "describe(): string {")
@@ -853,7 +935,7 @@ it("a NodeNext (type: module) build composes its maps the same way", async (t: T
     const decoded = decodeSegments(map.mappings)
 
     assertSegmentsWithinOriginal(t, "NodeNext js.map", decoded, sourceText)
-    assertReturnLinesCovered(t, "NodeNext js.map", decoded, sourceText)
+    assertReturnLinesCovered(t, "NodeNext js.map", decoded, sourceText, jsText)
     assertExactMapping(t, "NodeNext consumer method", decoded, jsText, "describe() {", sourceText, "describe(): string {")
     assertExactMapping(t, "NodeNext trailing export", decoded, jsText, "const afterAll = ", sourceText, "const afterAll: ", "const ".length)
 
@@ -918,7 +1000,7 @@ it("BOM, shebang, missing EOF newline and a single-line source all map exactly",
     const bomMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/bom.js.map")) as SourceMapJson).mappings)
 
     assertSegmentsWithinOriginal(t, "BOM js.map", bomMap, sourceText)
-    assertReturnLinesCovered(t, "BOM js.map", bomMap, sourceText)
+    assertReturnLinesCovered(t, "BOM js.map", bomMap, sourceText, bomJs)
     assertExactMapping(t, "BOM consumer method", bomMap, bomJs, "describe() {", sourceText, "describe(): string {")
     assertExactMapping(t, "BOM trailing export", bomMap, bomJs, "const afterAll = ", sourceText, "const afterAll: ", "const ".length)
 
@@ -929,7 +1011,7 @@ it("BOM, shebang, missing EOF newline and a single-line source all map exactly",
 
     t.true(shebangJs.startsWith("#!/usr/bin/env node\n"), "the shebang survives as the output's first line")
     assertSegmentsWithinOriginal(t, "shebang js.map", shebangMap, shebangText)
-    assertReturnLinesCovered(t, "shebang js.map", shebangMap, shebangText)
+    assertReturnLinesCovered(t, "shebang js.map", shebangMap, shebangText, shebangJs)
     assertExactMapping(t, "shebang mixin body", shebangMap, shebangJs, "hello ${", shebangText, "hello ${", "hello ${".length)
     assertExactMapping(t, "shebang trailing export", shebangMap, shebangJs, "const afterAll = ", shebangText, "const afterAll: ", "const ".length)
 
@@ -938,7 +1020,7 @@ it("BOM, shebang, missing EOF newline and a single-line source all map exactly",
     const noEofMap = decodeSegments((JSON.parse(await readOutput(fixture, "dist/noeof.js.map")) as SourceMapJson).mappings)
 
     assertSegmentsWithinOriginal(t, "no-EOF-newline js.map", noEofMap, noEofText)
-    assertReturnLinesCovered(t, "no-EOF-newline js.map", noEofMap, noEofText)
+    assertReturnLinesCovered(t, "no-EOF-newline js.map", noEofMap, noEofText, noEofJs)
     assertExactMapping(t, "no-EOF-newline trailing export", noEofMap, noEofJs, "const afterAll = ", noEofText, "const afterAll: ", "const ".length)
 
     // Dense single line: the mixin body, the generated machinery and the consumer all
@@ -1031,7 +1113,7 @@ it("an outFile bundle composes every reprinted source inside the single map", as
         const ownSegments = decoded.filter((segment) => segment.sourceIndex === index)
 
         assertSegmentsWithinOriginal(t, `bundle map / ${original.label}`, ownSegments, original.text)
-        assertReturnLinesCovered(t, `bundle map / ${original.label}`, ownSegments, original.text)
+        assertReturnLinesCovered(t, `bundle map / ${original.label}`, ownSegments, original.text, jsText)
     }
 
     assertArtifactTokensUnmapped(t, "bundle map", decoded, jsText)
@@ -1079,7 +1161,7 @@ it("an incremental rebuild composes the map and keeps .tsbuildinfo intact", asyn
     const decoded = decodeSegments(map.mappings)
 
     assertSegmentsWithinOriginal(t, "incremental rebuild js.map", decoded, editedText)
-    assertReturnLinesCovered(t, "incremental rebuild js.map", decoded, editedText)
+    assertReturnLinesCovered(t, "incremental rebuild js.map", decoded, editedText, jsText)
     assertExactMapping(t, "incremental rebuild consumer method", decoded, jsText, "describe() {", editedText, "describe(): string {")
     assertExactMapping(t, "incremental rebuild trailing export", decoded, jsText, "const afterAll = ", editedText, "const afterAll: ", "const ".length)
 
@@ -1125,7 +1207,7 @@ it("a tsc --watch rebuild composes the map against the edited text", async (t: T
         const decoded   = decodeSegments(secondMap.mappings)
 
         assertSegmentsWithinOriginal(t, "watch rebuild", decoded, editedText)
-        assertReturnLinesCovered(t, "watch rebuild", decoded, editedText)
+        assertReturnLinesCovered(t, "watch rebuild", decoded, editedText, secondJs)
         assertExactMapping(t, "watch rebuild mixin body", decoded, secondJs, "hello ${", editedText, "hello ${", "hello ${".length)
         assertExactMapping(t, "watch rebuild consumer method", decoded, secondJs, "describe() {", editedText, "describe(): string {")
         assertExactMapping(t, "watch rebuild trailing export", decoded, secondJs, "const afterAll = ", editedText, "const afterAll: ", "const ".length)

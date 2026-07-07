@@ -190,3 +190,40 @@ it("a user 'static new' on a NON-construction mixin is an ordinary factory", asy
 
     t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
 })
+
+// The complement of the override behaviour above (§7.21): the GENERATED `.new` is
+// reachable from a static helper inside the class's own body — construction class AND
+// construction mixin.
+it("a static helper calling the GENERATED .new from inside the class body", async (t: Test) => {
+    const result = await build(trimIndent(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        export class Job extends Base {
+            public name: string = ""
+
+            static make(name: string): Job {
+                return Job.new({ name })
+            }
+        }
+
+        @mixin()
+        export class Task extends Base {
+            public title: string = ""
+
+            static make(title: string): Task {
+                return Task.new({ title })
+            }
+        }
+
+        const job  = Job.make("build")
+        const task = Task.make("deploy")
+
+        const jobName: string   = job.name
+        const taskTitle: string = task.title
+
+        void [ jobName, taskTitle ]
+    `))
+
+    t.equal(result.exitCode, 0,
+        `the generated .new is reachable from the class's own statics (class AND mixin).\n${commandOutput(result)}`)
+})

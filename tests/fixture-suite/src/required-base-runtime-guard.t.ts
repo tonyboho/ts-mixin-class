@@ -6,7 +6,7 @@ import { mixin } from "ts-mixin-class"
 // §4.5 runtime boundary: the required-base constraint is enforced at *runtime* too,
 // not only by the compiler. `.mix(Unrelated)` where `Unrelated` does not descend from
 // the mixin's required base throws (`applyRuntimeMixin` -> `classExtends` is false).
-// The compile-time rejection is covered by `generic-mixin-required-base.t.ts`, and the
+// The compile-time rejection is covered by `generic-mixin-type-params.t.ts`, and the
 // raw runtime helper (`mixinChain` + `defineMixinClass`) by `runtime-helper.t.ts`. This
 // probes the *transformer-emitted* `.mix` of a real `@mixin()` class end-to-end — a
 // distinct plane: a regression in how the emitted `.mix` wires through to the guard

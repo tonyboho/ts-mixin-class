@@ -372,186 +372,9 @@ const initializeOverrideText = trimIndent(`
     void created
 `)
 
-it("tsserver reports no TS2320 in the editor for a consumer of mixins overriding initialize", async (t: Test) => {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: initializeOverrideText } ]
-    })
-
-    try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                initializeOverrideText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
-
-        t.notOk(
-            diagnostics.some((diagnostic) => diagnostic.code === 2320),
-            "The construction consumer's generated base interface does not raise a TS2320 initialize merge conflict"
-        )
-    } finally {
-        await fixture.dispose()
-    }
-})
-
-// A construction mixin that applies several initialize-overriding mixins WITHOUT its own
-// override. Its generated `__Combined$base` interface extends Base + the mixins and gets
-// the protocol member injected; in the editor that must suppress TS2320 and the synthetic
-// member must not crash navigation.
-const mixinMergeText = trimIndent(`
-    import { mixin } from "ts-mixin-class"
-    import { Base } from "ts-mixin-class/base"
-
-    @mixin()
-    class A extends Base {
-        public a!: string = ""
-        override initialize(config: AConfig): void { super.initialize(config) }
-    }
-
-    @mixin()
-    class B extends Base {
-        public b!: number = 0
-        override initialize(config: BConfig): void { super.initialize(config) }
-    }
-
-    @mixin()
-    class Combined extends Base implements A, B {
-        public x!: boolean = false
-    }
-
-    class Holder extends Base implements Combined {
-        public h!: string = ""
-    }
-
-    const created = Holder.new({ a : "x", b : 1, x : true, h : "h" })
-
-    // The merged config requires every contributed field; the @ts-expect-error directives
-    // double as assertions in the editor too - an unused one surfaces as TS2578.
-
-    // @ts-expect-error - 'a' (from mixin A) is required in the merged config
-    const missingA = Holder.new({ b : 1, x : true, h : "h" })
-    // @ts-expect-error - 'b' (from mixin B) is required in the merged config
-    const missingB = Holder.new({ a : "x", x : true, h : "h" })
-    // @ts-expect-error - 'x' (from mixin Combined) is required in the merged config
-    const missingX = Holder.new({ a : "x", b : 1, h : "h" })
-    // @ts-expect-error - 'h' (Holder's own field) is required in the merged config
-    const missingH = Holder.new({ a : "x", b : 1, x : true })
-
-    void [ created, missingA, missingB, missingX, missingH ]
-`)
-
-it("tsserver reports no merge/config errors in the editor for a construction mixin merging initialize-overriding mixins", async (t: Test) => {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: mixinMergeText } ]
-    })
-
-    try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                mixinMergeText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
-
-        // No TS2320 (the merge is fixed) and no TS2578 (every @ts-expect-error is used, i.e.
-        // the merged config really does require each contributed field).
-        t.equal(
-            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
-            "",
-            "A construction mixin merging initialize-overriding mixins is clean in the editor; the merged config requires every contributed field"
-        )
-    } finally {
-        await fixture.dispose()
-    }
-})
-
-// A three-level chain where every level overrides `initialize` with its own config and the
-// middle one is a construction mixin (`extends Base implements Mixin1`). Its `__Mixin2$base`
-// interface extends Base + Mixin1 but - unlike the emit structural interface - never carries
-// the class's own `initialize`, so it needs the protocol member injected even though Mixin2
-// declares `initialize`. This is editor-only: emit is clean even without the fix, so only a
-// source-view diagnostics check guards it.
-const chainText = trimIndent(`
-    import { mixin } from "ts-mixin-class"
-    import { Base } from "ts-mixin-class/base"
-
-    @mixin()
-    class Mixin1 extends Base {
-        public one!: string = ""
-        override initialize(config: Mixin1Config): void { super.initialize(config) }
-    }
-
-    @mixin()
-    class Mixin2 extends Base implements Mixin1 {
-        public two!: number = 0
-        override initialize(config: Mixin2Config): void { super.initialize(config) }
-    }
-
-    class Consumer extends Base implements Mixin2 {
-        public three!: boolean = false
-        override initialize(config: ConsumerConfig): void { super.initialize(config) }
-    }
-
-    const created = Consumer.new({ one : "x", two : 1, three : true })
-
-    // The merged config requires every contributed field and rejects unknown ones; an
-    // expect-error directive that does not fire surfaces as TS2578 below.
-
-    // @ts-expect-error - 'one' (from Mixin1) is required in the merged config
-    const missingOne = Consumer.new({ two : 1, three : true })
-    // @ts-expect-error - 'two' (from Mixin2) is required in the merged config
-    const missingTwo = Consumer.new({ one : "x", three : true })
-    // @ts-expect-error - 'three' (Consumer's own field) is required in the merged config
-    const missingThree = Consumer.new({ one : "x", two : 1 })
-    // @ts-expect-error - 'nope' is not a known config property
-    const unexpected = Consumer.new({ one : "x", two : 1, three : true, nope : 0 })
-
-    void [ created, missingOne, missingTwo, missingThree, unexpected ]
-`)
-
-it("tsserver reports no merge/config errors in the editor for a chain where a construction mixin overrides initialize and depends on another", async (t: Test) => {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: chainText } ]
-    })
-
-    try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                chainText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
-
-        // No TS2320 (the chain's `__Mixin2$base` merge is fixed) and no TS2578 (every
-        // expect-error directive is used, i.e. the merged config requires each field and
-        // rejects unknown ones).
-        t.equal(
-            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
-            "",
-            "A construction mixin in a chain is clean in the editor; the merged config requires every field and rejects unknown ones"
-        )
-    } finally {
-        await fixture.dispose()
-    }
-})
+// The diagnostics-plane siblings (no TS2320 / merged-config requirements / static-side
+// cleanliness / the alias named in failing `.new(...)` messages) live in
+// `tsserver-diagnostics.t.ts` — this file owns the NAVIGATION surface of the alias.
 
 it("tsserver rename on a mixin's initialize override responds instead of crashing the checker", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
@@ -584,177 +407,77 @@ it("tsserver rename on a mixin's initialize override responds instead of crashin
     }
 })
 
-// A plain class that extends a construction mixin directly and adds a required config
-// field. Not the idiomatic pattern (prefer `implements`), but supported: the mixin's `new`
-// is a (bivariant) method, so the subclass's `static new(props: EventConfig)` does not clash
-// (TS2417). Guards the editor view (the emit-path probe alone would not cover source view).
-const extendsMixinText = trimIndent(`
-    import { mixin } from "ts-mixin-class"
+// In source view the transform appends each generated `<Name>Config` alias as REAL text past
+// the document end so its name renders natively (diagnostics / hover / quickinfo). That tail
+// is LIVE for the language service, so the companion `language-service-plugin` (wired into the
+// fixture tsconfig, see `createTsconfig`) must hide it from navigation:
+//   - find-references returns NO span past the on-disk document (the appended `Pick<Account,…>`
+//     references the class/fields — those phantom hits must be dropped);
+//   - go-to-definition on the alias REMAPS onto the owning class' name (not the phantom tail,
+//     and not nothing).
+
+const navigationTailText = trimIndent(`
     import { Base } from "ts-mixin-class/base"
 
-    @mixin()
-    class Timestamped extends Base {
-        public createdAt!: Date = new Date()
+    class Account extends Base {
+        public id!: string = ""
+        public balance!: number = 0
+
+        override initialize(config?: AccountConfig): void {
+            super.initialize(config)
+        }
     }
 
-    class Event extends Timestamped {
-        public name!: string = ""
-    }
-
-    const created = Event.new({ createdAt : new Date(), name : "x" })
-
-    // @ts-expect-error - 'name' is required in the subclass config
-    const missingName = Event.new({ createdAt : new Date() })
-
-    void [ created, missingName ]
+    const bad = Account.new({ id : "x" })
+    const ok = Account.new({ id : "x", balance : 1 })
+    void [ bad, ok ]
 `)
 
-it("tsserver reports no static-side errors in the editor when a class extends a construction mixin and adds a required field", async (t: Test) => {
+const navigationTailLineCount = navigationTailText.split("\n").length
+
+type RefBody = { refs?: Array<{ file: string, start: { line: number, offset: number } }> }
+type DefBody = Array<{ file: string, start: { line: number, offset: number } }>
+
+it("editor names the config alias natively and the ls-plugin keeps its appended text out of navigation", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: extendsMixinText } ]
+        sourceFiles            : [ { fileName: "source.ts", text: navigationTailText } ]
     })
 
     try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const session    = openTsServerSession(fixture.directory)
+
+        await session.open(sourceFile, navigationTailText)
+
+        // The failing `.new(...)` diagnostic names the alias NATIVELY (real appended text).
         const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                extendsMixinText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
+            t, await session.request("semanticDiagnosticsSync", { file: sourceFile }))
+        const diagText    = diagnostics.map((d) => d.text ?? "").join("\n")
 
-        // No TS2417 (the static-side `new` stays assignable) and no TS2578 (the expect-error
-        // fires, i.e. the subclass config really requires `name`).
-        t.equal(
-            diagnostics.map((diagnostic) => `TS${diagnostic.code}: ${diagnostic.text}`).join("\n"),
-            "",
-            "Extending a construction mixin and adding a required field is clean in the editor; the subclass config requires the field"
-        )
-    } finally {
-        await fixture.dispose()
-    }
-})
+        t.match(diagText, "AccountConfig", "diagnostic names the alias natively")
+        t.notMatch(diagText, "parameter of type '}'", "no meaningless `}` config type")
 
-// A `.new(...)` call missing a required config key, viewed in the EDITOR. A synthetic
-// `<Name>Config` alias node has no real source text, so TypeScript's alias display
-// (`declarationNameToString` -> reads the name node's SOURCE TEXT) would render it as a
-// meaningless `}` (the class' closing brace it is anchored to). The transform fixes this
-// NATIVELY: in source view it appends each generated alias as REAL text past the document
-// end, so the checker reads the real `<Name>Config` name (the companion language-service
-// plugin then filters / remaps the phantom navigation that appended text would create). This
-// pins that the editor names the alias - the same `PointConfig` the emit plane reports.
-const missingRequiredConfigText = trimIndent(`
-    import { Base } from "ts-mixin-class/base"
+        // find-references on the class name returns NO phantom span past the on-disk document.
+        const accountPosition = navigationTailText.indexOf("class Account") + "class ".length + 1
+        const references      = assertResponseBody<RefBody>(
+            t, await session.request("references", { file: sourceFile, ...positionToLineOffset(navigationTailText, accountPosition) }))
+        const referenceLines  = (references.refs ?? []).map((reference) => reference.start.line)
 
-    class Point extends Base {
-        public readonly x!: number
-        public readonly y!: number
-        public label!: string = ""
-    }
+        t.ne(referenceLines.length, 0, "references are found")
+        t.true(referenceLines.every((line) => line <= navigationTailLineCount),
+            `no reference past the on-disk document (lineCount=${navigationTailLineCount}, got ${JSON.stringify(referenceLines)})`)
 
-    // Missing the required \`x\` config key: the editor must name the config readably.
-    const p = Point.new({ y : 2, label : "origin-ish" })
-    void p
-`)
+        // go-to-definition on the alias reference REMAPS onto the owning class' name.
+        const aliasUse   = navigationTailText.indexOf("config?: AccountConfig") + "config?: ".length + 1
+        const definition = assertResponseBody<DefBody>(
+            t, await session.request("definition", { file: sourceFile, ...positionToLineOffset(navigationTailText, aliasUse) }))
+        const classLine  = positionToLineOffset(navigationTailText, navigationTailText.indexOf("class Account")).line
 
-it("tsserver names the config alias (PointConfig), not a meaningless `}`, for a failing .new(...) in the editor", async (t: Test) => {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: missingRequiredConfigText } ]
-    })
+        t.eq(definition.map((entry) => entry.start.line), [ classLine ],
+            "go-to-definition on the alias lands on the owning class, not the appended tail")
 
-    try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                missingRequiredConfigText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
-
-        const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
-            .map((diagnostic) => diagnostic.text ?? "").join("\n")
-
-        t.match(argError, "parameter of type 'PointConfig'",
-            "The editor names the generated config alias (read from the appended real text)")
-        t.notMatch(argError, "parameter of type '}'",
-            "The editor never shows the meaningless `}` a synthetic alias name would print")
-        t.notMatch(argError, "Pick<Point",
-            "The alias name is shown, not the expanded structural Pick")
-    } finally {
-        await fixture.dispose()
-    }
-})
-
-// A `.new(...)` missing a required config key, viewed in the EDITOR, where the config has BOTH
-// required and optional fields. That combination makes the config type an INTERSECTION
-// (`Pick<C, required> & Partial<Pick<C, optional>>`); TypeScript attaches the alias symbol only
-// to the OUTERMOST node, so the nested "...but required in type X" elaboration would point at the
-// inner `Pick<C, required>` constituent (carrying its own `Pick` alias) instead of the config
-// alias. The transform flattens the intersection through a homomorphic mapped type, so the whole
-// config carries the alias and every elaboration names `<Class>Config`. (An all-required config is
-// a single `Pick` that already names the alias - this pins the required+optional intersection.)
-const intersectionConfigMissingRequiredText = trimIndent(`
-    import { mixin } from "ts-mixin-class"
-    import { Base } from "ts-mixin-class/base"
-
-    class Ledger extends Base {
-        public baseValue!: string = "base"
-    }
-
-    @mixin()
-    class Auditable {
-        public mixinValue!: number = 0
-    }
-
-    class Account extends Ledger implements Auditable {
-        public ownValue!: boolean = false
-        public definiteOwnValue!: string
-        public optionalOwnValue?: boolean
-    }
-
-    // Missing the required \`definiteOwnValue\`; \`optionalOwnValue?\` makes the config an intersection.
-    const a = Account.new({ baseValue : "x", mixinValue : 1, ownValue : true })
-    void a
-`)
-
-it("tsserver names the config alias in the NESTED 'required in type' elaboration too (a required+optional intersection config), not an expanded Pick", async (t: Test) => {
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: intersectionConfigMissingRequiredText } ]
-    })
-
-    try {
-        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t,
-            await runTypeScriptServerRequest(
-                fixture.directory,
-                sourceFile,
-                intersectionConfigMissingRequiredText,
-                "semanticDiagnosticsSync",
-                { file: sourceFile }
-            )
-        )
-
-        const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
-            .map((diagnostic) => diagnostic.text ?? "").join("\n")
-
-        t.match(argError, "parameter of type 'AccountConfig'",
-            "The header names the generated config alias")
-        t.match(argError, "required in type 'AccountConfig'",
-            "The nested `required in type` elaboration also names the alias")
-        t.notMatch(argError, "Pick<Account",
-            "The nested elaboration never expands the alias to its structural Pick")
+        await session.close()
     } finally {
         await fixture.dispose()
     }

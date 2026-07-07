@@ -42,69 +42,6 @@ it("bans `new` on a construction consumer with its own constructor in emit, keep
     t.ne(emitBanned.length, 0, "emit: a direct `new Widget()` is a type error for a with-constructor construction consumer")
 })
 
-it("transformed mixin output typechecks, including generics, statics and super calls", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
-        import { base, factory, mixin, requirements } from "ts-mixin-class"
-
-        @mixin()
-        export class SourceClass1<T> {
-            static staticHelper (x: number): number { return x * 2 }
-
-            value1: string = "value1"
-
-            passThrough1 (a: T): T { return a }
-
-            method1 (): string { return this.value1 }
-
-            makeAnother (): SourceClass1<number> {
-                return new SourceClass1<number>()
-            }
-        }
-
-        @mixin()
-        export class ChildMixin<T> implements SourceClass1<T> {
-            childMethod (a: T): string {
-                return "child/" + String(super.passThrough1(a)) + "/" + super.method1()
-            }
-        }
-
-        const direct = new SourceClass1<number>()
-
-        const v1: number = direct.passThrough1(3)
-        const v2: number = SourceClass1.staticHelper(2)
-        const v3: SourceClass1<number> = direct.makeAnother()
-        const v4 = SourceClass1[factory]
-        const v5 = SourceClass1[requirements]
-        const v6 = SourceClass1[base]
-
-        // @ts-expect-error дженерик T = number, строка не подходит
-        const e1: number = direct.passThrough1("x")
-
-        // @ts-expect-error runtime metadata is exposed through symbols, not string API members.
-        const e2 = SourceClass1.$mixin
-
-        // @ts-expect-error runtime metadata is exposed through symbols, not string API members.
-        const e3 = SourceClass1.$requirements
-
-        // @ts-expect-error runtime metadata is exposed through symbols, not string API members.
-        const e4 = SourceClass1.$requiredBase
-
-        const child = new ChildMixin<boolean>()
-
-        const v7: string = child.childMethod(true)
-        const v8: boolean = child.passThrough1(false)
-
-        // @ts-expect-error childMethod принимает T = boolean
-        const e5: string = child.childMethod("x")
-
-        void [v1, v2, v3, v4, v5, v6, v7, v8, e1, e2, e3, e4, e5]
-    `))
-
-    const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
-
-    t.expect(diagnostics).toEqual([])
-})
-
 it("transformed required-base mixin output typechecks end to end", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { mixin } from "ts-mixin-class"

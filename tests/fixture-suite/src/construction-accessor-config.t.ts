@@ -7,7 +7,7 @@ import { Base } from "ts-mixin-class/base"
 // the accessors still work on the constructed instance. (A *settable* accessor — get/set
 // or set-only — arguably SHOULD be in the config, since `.new`'s runtime `Object.assign`
 // would fire its setter; that desired behavior is currently unmet and pinned by the RED
-// `tests/construction-settable-accessor-config.t.ts`. This fixture only covers the parts
+// `tests/construction-accessor-config-shapes.t.ts`. This fixture only covers the parts
 // that compile today.)
 class Profile extends Base {
     public first!: string = ""

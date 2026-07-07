@@ -9,8 +9,7 @@ import type { CommandResult } from "./util.js"
 // Constructor / member SHAPES around the transform's rewrites: OVERLOADED constructors (the
 // synthetic super() must target only the implementation), a consumer's OWN private surface
 // (#private, private/protected members, a private constructor + static factory — only MIXIN
-// members must be public, §11.1), and a static helper calling the GENERATED `.new` from
-// inside the class body.
+// members must be public, §11.1).
 
 async function build(text: string, compilerOptions?: Record<string, unknown>): Promise<CommandResult> {
     const fixture = await createTypeScriptFixture({
@@ -188,38 +187,4 @@ it("a consumer with a PRIVATE constructor + static factory (singleton pattern)",
     const sourceView = await build(source, { noEmit: true })
 
     t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
-})
-
-it("a static helper calling the GENERATED .new from inside the class body", async (t: Test) => {
-    const result = await build(trimIndent(`
-        import { Base, mixin } from "ts-mixin-class"
-
-        export class Job extends Base {
-            public name: string = ""
-
-            static make(name: string): Job {
-                return Job.new({ name })
-            }
-        }
-
-        @mixin()
-        export class Task extends Base {
-            public title: string = ""
-
-            static make(title: string): Task {
-                return Task.new({ title })
-            }
-        }
-
-        const job  = Job.make("build")
-        const task = Task.make("deploy")
-
-        const jobName: string   = job.name
-        const taskTitle: string = task.title
-
-        void [ jobName, taskTitle ]
-    `))
-
-    t.equal(result.exitCode, 0,
-        `the generated .new is reachable from the class's own statics (class AND mixin).\n${commandOutput(result)}`)
 })

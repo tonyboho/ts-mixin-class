@@ -9,7 +9,7 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 // undefaulted parameter; a regression that reconstructs type parameters by hand (instead of
 // deep-cloning) would silently drop the constraint or default and only this notices. (The
 // defaulted param also exercises the `.mix` signature fix — §6.5 — at runtime; the
-// compile-only spec is `tests/generic-mixin-defaulted-type-param.t.ts`.)
+// compile-only spec is `tests/generic-mixin-type-params.t.ts`.)
 @mixin()
 class Keyed<K extends string, V = number> {
     key!: K

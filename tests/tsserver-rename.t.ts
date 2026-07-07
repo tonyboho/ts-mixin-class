@@ -16,7 +16,6 @@ import {
     superMixinPropertyArgs,
     usageArgs
 } from "./tsserver-editor-util.js"
-import type { RenameResponseBody } from "./tsserver-editor-util.js"
 
 const standaloneConstructionText = trimIndent(`
     import { Base, mixin } from "ts-mixin-class"
@@ -205,73 +204,5 @@ it("tsserver rename updates mixin static members from self and external accesses
         t.match(renamedMethodText, "MixinConsumer.renamedMixinStaticMethod()", "Renames static method external usage")
     } finally {
         await dispose()
-    }
-})
-
-const renameBaseBoundaryText = trimIndent(`
-    import { mixin } from "ts-mixin-class"
-
-    class LocalBase {
-        baseValue: number = 0
-    }
-
-    @mixin()
-    class Feature {
-        feature?: string
-    }
-
-    class Widget extends LocalBase implements Feature {
-        widget?: boolean
-    }
-
-    class GenericWidget<T> extends LocalBase implements Feature {
-        value?: T
-    }
-`)
-
-it("tsserver rename of a base class reaches both a non-generic and a generic consumer's extends clause", async (t: Test) => {
-    // The navigable-base fast path keeps the REAL `LocalBase` identifier in every
-    // consumer's `extends LocalBase` — non-generic AND generic alike (a generic
-    // consumer threads its type parameters through the cast's generic construct
-    // signature instead of falling back to `$base`) — so renaming the base class
-    // updates both occurrences.
-    const fixture = await createTypeScriptFixture({
-        experimentalDecorators : false,
-        sourceFiles            : [ { fileName: "source.ts", text: renameBaseBoundaryText } ]
-    })
-
-    try {
-        const sourceFile = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
-        const declOffset = positionToLineOffset(renameBaseBoundaryText, renameBaseBoundaryText.indexOf("class LocalBase") + "class ".length)
-
-        const body = assertResponseBody<RenameResponseBody>(
-            t,
-            await runTypeScriptServerRequest(fixture.directory, sourceFile, renameBaseBoundaryText, "rename", {
-                file : sourceFile,
-                ...declOffset
-            })
-        )
-
-        t.true(body.info?.canRename, "Base class is renameable")
-
-        const spans = (body.locs ?? [])
-            .filter((loc) => loc.file === sourceFile)
-            .flatMap((loc) => loc.locs)
-
-        const coversBaseNameAt = (extendsIndex: number): boolean => {
-            const { line, offset } = positionToLineOffset(renameBaseBoundaryText, extendsIndex + "extends ".length)
-
-            return spans.some((span) => span.start.line === line && span.start.offset === offset)
-        }
-
-        const nonGenericExtends = renameBaseBoundaryText.indexOf("extends LocalBase")
-        const genericExtends    = renameBaseBoundaryText.indexOf("extends LocalBase", nonGenericExtends + 1)
-
-        t.true(coversBaseNameAt(nonGenericExtends),
-            "Rename reaches the non-generic consumer's `extends LocalBase` (navigable-base fast path)")
-        t.true(coversBaseNameAt(genericExtends),
-            "Rename reaches the generic consumer's `extends LocalBase` (navigable-base fast path, generic form)")
-    } finally {
-        await fixture.dispose()
     }
 })

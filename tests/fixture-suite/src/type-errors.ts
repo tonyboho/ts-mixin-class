@@ -40,7 +40,7 @@ class BadRequiredConsumer extends UnrelatedRequiredConsumerBase implements Requi
 // NATIVE diagnostic (TS990007), which an expect-error directive cannot suppress (native
 // diagnostics are appended after the checker). So a linearization conflict can no longer live in
 // this build-must-pass corpus -- it is covered by the dedicated failing-build tests instead
-// (nontrivial-diamond-linearization.t.ts on both planes, source-transform-cross-package-*).
+// (diamond-linearization.t.ts on both planes, source-transform-cross-package-*).
 
 @mixin()
 class StaticCollisionLeftMixin {

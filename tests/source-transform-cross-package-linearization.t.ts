@@ -217,7 +217,7 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
 // The same conflict as above but with NO consumer: the bad linearization lives entirely in
 // a `@mixin`'s OWN cross-package dependencies. It is reported at compile time across package
 // boundaries (the conflict diagnostic is emitted on the mixin), matching the single-file
-// case in nontrivial-diamond-linearization.t.ts.
+// case in diamond-linearization.t.ts.
 it("detects a mixin-only cross-package linearization conflict (no consumer)", async (t: Test) => {
     const abPackage = await buildDeclarationPackage(t, "linearization-ab", [
         {

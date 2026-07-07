@@ -434,7 +434,7 @@ Violating any of these produces confusing tsserver errors or crashes.
       generic value-cast constructor type, the `.mix` apply function type) — TS1274 allows them
       only on a class/interface/type alias. The generated interface keeps them (the class
       carrying the user's annotations is erased in emit, so the interface is their surviving
-      carrier). `stripVarianceAnnotations` in `util.ts`; guard: `mixin-variance-annotations.t.ts`.
+      carrier). `stripVarianceAnnotations` in `util.ts`; guard: `generic-mixin-type-params.t.ts`.
     - **Mixin members need explicit type annotations** (properties, methods, accessors, method
       parameters) — enforced by `collectMixinClassDiagnostics` (TS990004 family) and stated in
       the README. The reason is architectural: the transformer builds the generated interface
@@ -689,7 +689,7 @@ instance type) has its own rules:
    CJS via `tsconfig.lsplugin.json`, configured as a SECOND editor plugin) drops navigation spans
    starting past the on-disk document length and REMAPS a go-to-definition hit on the appended alias
    back to the owning class. Without it, find-references / rename / definition return phantom tail
-   spans (caught by the `stress-references` plane). Guarded by `tsserver-config-alias-navigation.t.ts`.
+   spans (caught by the `stress-references` plane). Guarded by `tsserver-construction-config-alias.t.ts`.
    It is listed AFTER the class and `positionConstructionConfigAlias` collapses the whole subtree
    to one real anchor at `declaration.end` (the gap just past the closing brace). That anchor is
    load-bearing for EMIT; **source view supersedes the position** — the append swaps in the
@@ -916,7 +916,7 @@ The same crash text has several possible causes; check in this order before assu
 | a diagnostic appears on **unrelated** code after an edit and persists until server restart | the transform threw mid-edit; tsserver serves the untransformed fallback for the whole project (#7). |
 | TS2304 in **emit** *and* TS2562 in **source view**, on a `@mixin` that `extends` a generic base | the mixin's own type parameter leaked into the `RuntimeMixinClass<Base<T>>` marker — must be erased to `any`; see `eraseOwnTypeParameterReferences` (Current gaps → Resolved). |
 | TS2720 / TS4112 on a consumer extending a navigable-base cast | the single-source cast had a competing construct signature (a bare `typeof Base`), stranding the mixin members; statics must be `Omit<…,"prototype"|"new">` bags (Current gaps → heritage navigation). |
-| a failing `.new(...)` shows `parameter of type '}'` **only in the editor** (emit names `<Name>Config`) | TS displays a type alias by reading its declaration name node's SOURCE TEXT; the synthetic alias is anchored at the class' `}`. Source view must append the alias as REAL text past the document end so the real `<Name>Config` name is read (`appendGeneratedConfigAliasesAsRealText`, #9); pinned by `tsserver-config-alias-navigation.t.ts`. |
+| a failing `.new(...)` shows `parameter of type '}'` **only in the editor** (emit names `<Name>Config`) | TS displays a type alias by reading its declaration name node's SOURCE TEXT; the synthetic alias is anchored at the class' `}`. Source view must append the alias as REAL text past the document end so the real `<Name>Config` name is read (`appendGeneratedConfigAliasesAsRealText`, #9); pinned by `tsserver-construction-config-alias.t.ts`. |
 | find-references / rename / go-to-definition return a phantom span **past the file end** in the editor | the appended alias text (#9) is live for the language service; the `language-service-plugin` companion must be configured to drop / remap those spans. The `stress-references` plane catches a missing/broken filter. |
 
 ## Current gaps
@@ -1015,7 +1015,7 @@ reasoning — the REAL root was `factory.cloneNode` SHARING children with the pa
 the `$base` class's subtree collapse then mutated; `consumerBaseClassHeritage` now deep-clones).
 
 Compiler reports heritage base-name errors at the *real* name, so emit is the correct path here.
-Guard: `tsserver-references.t.ts` "navigation on a base type in an extends clause reaches the base
+Guard: `tsserver-base-navigation.t.ts` "navigation on a base type in an extends clause reaches the base
 class". `stress-references` tolerates the residual empties; every *other* empty fails.
 
 ### Downstream-consumer contract coverage (emit under-reports)
@@ -1042,7 +1042,7 @@ inherited interface. Full breakdown: `stress-diagnostic-parity.t.ts` header (dif
   AnyConstructor<RequiredBase<T>>>`, and consumer-diagnostics). Fix:
   `eraseOwnTypeParameterReferences` rewrites the mixin's own type-parameter references inside that
   marker to `any` (`RuntimeMixinClass<Base<any>>`), well-formed in both paths; non-forwarded
-  arguments (`Base<string>`) keep their precision. Guard: `generic-mixin-required-base.t.ts` (both
+  arguments (`Base<string>`) keep their precision. Guard: `generic-mixin-type-params.t.ts` (both
   builds succeed); that the erasure did not loosen enforcement is pinned through the PUBLISHED
   `.mix` signature in `declaration-fixture-suite/src/package-manual-mix-generic.t.ts` — the
   program-local `.mix(Unrelated)` probe it used to live on is banned now (TS990012).
@@ -1063,7 +1063,7 @@ inherited interface. Full breakdown: `stress-diagnostic-parity.t.ts` header (dif
   with `@ts-expect-error` (the `@mixin` decorator is stripped and the file reprinted, displacing the
   directive relative to the generated value statement). A consumer-only conflict (a plain class
   implementing two individually-consistent mixins) suppresses cleanly because consumers have no
-  decorator. Guards: `nontrivial-diamond-linearization.t.ts` (both `--noEmit` and emit),
+  decorator. Guards: `diamond-linearization.t.ts` (both `--noEmit` and emit),
   `source-transform-cross-package-linearization.t.ts`.
 
 ## Debugging

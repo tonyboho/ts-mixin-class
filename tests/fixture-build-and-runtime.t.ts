@@ -184,3 +184,26 @@ it("builds and runs the declaration fixture suite", async (t: Test) => {
         "Run declaration fixture consumer"
     )
 })
+
+// A corpus INVARIANT, not a build: the type-errors fixture must keep exactly one
+// `@ts-expect-error` suppression per expected diagnostic family (moved here from
+// tsserver-diagnostics — it reads the corpus file directly, no server involved).
+it("fixture type-errors keeps expect-error suppressions for expected diagnostics", async (t: Test) => {
+    const typeErrorsSource = await readFile(
+        path.join(packageRoot, "tests", "fixture-suite", "src", "type-errors.ts"),
+        "utf8"
+    )
+    const expectErrorLines = typeErrorsSource
+        .split("\n")
+        .filter((line) => line.includes("@ts-expect-error"))
+    const expectErrorText  = expectErrorLines.join("\n")
+
+    // The linearization conflict migrated to a native diagnostic (which an expect-error directive
+    // cannot suppress), so it left this corpus -- four suppressions remain, one per still-
+    // type-encoded family (two contracts, required base, static collision).
+    t.equal(expectErrorLines.length, 4, "Fixture has one suppression per expected diagnostic")
+    t.match(expectErrorText, "ContractSourceClass1", "Fixture suppresses the first contract diagnostic")
+    t.match(expectErrorText, "ContractSourceClass2", "Fixture suppresses the second contract diagnostic")
+    t.match(expectErrorText, "RequiredMixin", "Fixture suppresses the required-base diagnostic")
+    t.match(expectErrorText, "StaticCollisionLeftMixin", "Fixture suppresses the static collision diagnostic")
+})

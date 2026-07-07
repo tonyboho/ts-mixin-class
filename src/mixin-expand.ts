@@ -59,6 +59,7 @@ import {
     localMixinHeritageTypes,
     localMixinRefs
 } from "./mixin-refs.js"
+import { navigableConsumerBaseClassHeritage } from "./consumer-base-heritage.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
 import { deriveLinearizationPlan, linearizeDependencies, type LinearizationPlanSlice } from "./linearization.js"
 import {
@@ -228,7 +229,17 @@ export function expandMixinClass(
 
     if (options.sourceView) {
         return [
-            ...expandSourceViewMixinClass(tsInstance, sourceFile, declaration, context, options)
+            ...expandSourceViewMixinClass(
+                tsInstance,
+                sourceFile,
+                declaration,
+                context,
+                options,
+                // The navigable fast path is for well-typed heritage only; a mixin
+                // extending another mixin or carrying a dependency-linearization
+                // conflict keeps the `$base` pair (broken code, diagnosed above).
+                mixinBaseDiagnostic === undefined && linearizationConflict === undefined
+            )
         ]
     }
 
@@ -455,7 +466,8 @@ function expandSourceViewMixinClass(
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     context: FileMixinContext,
-    options: TransformOptions
+    options: TransformOptions,
+    heritageWellTyped: boolean
 ): ts.Statement[] {
     const factory = tsInstance.factory
 
@@ -550,30 +562,6 @@ function expandSourceViewMixinClass(
     const brandConstructionBase   = isConstructionMixin && !hasOwnConstructor && !hasOwnStaticNew
     const needsProtocolInitialize = dependencyRefs.length > 0 && isConstructionMixin
 
-    const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
-        undefined,
-        baseName,
-        baseTypeParameters(),
-        [ factory.createHeritageClause(
-            tsInstance.SyntaxKind.ExtendsKeyword,
-            [
-                ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
-                ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
-            ]
-        ) ],
-        needsProtocolInitialize ? [ constructionProtocolInitializeSignature(tsInstance) ] : []
-    ), declaration)
-
-    const baseClass = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createClassDeclaration(
-        undefined,
-        baseName,
-        baseTypeParameters(),
-        [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-            createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
-        ]) ],
-        []
-    ), declaration)
-
     // A mixin that extends the package `Base` is a construction base, but in
     // source view it keeps a real class body that merely inherits `Base.new`
     // (returning `Base`). Generate its own `static new` overloads so a standalone
@@ -600,6 +588,89 @@ function expandSourceViewMixinClass(
         ? updatedMembers
         : preserveTextRange(tsInstance, factory.createNodeArray([ ...updatedMembers, ...constructionMembers ]), updatedMembers)
 
+    // A construction-base mixin gets the same exported `<MixinName>Config` alias as any
+    // other construction base; it is a sibling top-level statement (never generic here -
+    // generic mixins are excluded from construction `new` above).
+    const configAliasStatement = construction.configAlias === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            construction.configAlias,
+            generatedTextRange(sourceFile, declaration.end),
+            declaration
+        ) ]
+
+    // Navigable fast path for the MIXIN's own heritage: a well-typed mixin with an
+    // explicit entity-name required base needs no `__X$base` indirection. The mixin
+    // re-extends the real base under the same single-source cast consumers use — the
+    // base reference pinned onto the source token, so go-to-definition / references /
+    // rename / quickinfo on `extends RequiredBase` reach the real base class — with
+    // the required base + dependency instances in the construct signature (an
+    // intersection, so no `protocolInitialize` TS2320 mediation is needed) and the
+    // mixin's `RuntimeMixinClass<...>` metadata riding as extra statics. A generic
+    // mixin threads its type parameters exactly like a generic consumer. Broken
+    // heritage (a mixin extending a mixin, a linearization conflict) keeps the pair.
+    if (requiredBase !== undefined && heritageWellTyped) {
+        const navigableExtends = navigableConsumerBaseClassHeritage(
+            tsInstance,
+            requiredBase,
+            reducedDependencyHeritage,
+            dependencyRefs,
+            requiredBase,
+            declaration.typeParameters,
+            isConstructionMixin
+                ? { consumerName: declaration.name.text, branded: brandConstructionBase }
+                : undefined,
+            [ createRuntimeMixinClassType(tsInstance, declaration) ]
+        )
+        const implementsClause = declaration.heritageClauses?.find((heritageClause) => {
+            return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword
+        })
+        const heritageClauses  = preserveTextRange(
+            tsInstance,
+            factory.createNodeArray(implementsClause === undefined
+                ? [ navigableExtends ]
+                : [ navigableExtends, implementsClause ]),
+            declaration.heritageClauses ?? requiredBase
+        )
+
+        return [
+            factory.updateClassDeclaration(
+                declaration,
+                declaration.modifiers,
+                declaration.name,
+                declaration.typeParameters,
+                heritageClauses,
+                mixinMembers
+            ),
+            ...configAliasStatement
+        ]
+    }
+
+    const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
+        undefined,
+        baseName,
+        baseTypeParameters(),
+        [ factory.createHeritageClause(
+            tsInstance.SyntaxKind.ExtendsKeyword,
+            [
+                ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
+                ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
+            ]
+        ) ],
+        needsProtocolInitialize ? [ constructionProtocolInitializeSignature(tsInstance) ] : []
+    ), declaration)
+
+    const baseClass = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createClassDeclaration(
+        undefined,
+        baseName,
+        baseTypeParameters(),
+        [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+            createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
+        ]) ],
+        []
+    ), declaration)
+
     const updatedDeclaration = factory.updateClassDeclaration(
         declaration,
         declaration.modifiers,
@@ -614,18 +685,6 @@ function expandSourceViewMixinClass(
         ),
         mixinMembers
     )
-
-    // A construction-base mixin gets the same exported `<MixinName>Config` alias as any
-    // other construction base; it is a sibling top-level statement (never generic here -
-    // generic mixins are excluded from construction `new` above).
-    const configAliasStatement = construction.configAlias === undefined
-        ? []
-        : [ positionConstructionConfigAlias(
-            tsInstance,
-            construction.configAlias,
-            generatedTextRange(sourceFile, declaration.end),
-            declaration
-        ) ]
 
     return [ baseInterface, baseClass, updatedDeclaration, ...configAliasStatement ]
 }

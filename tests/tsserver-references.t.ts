@@ -617,6 +617,84 @@ it("tsserver navigation works with generic + qualified combined", async (t: Test
     })
 })
 
+it("tsserver navigation on a mixin's own required-base name (`@mixin ... extends RequiredBase`) reaches the base class", async (t: Test) => {
+    // A @mixin's `extends` declares its REQUIRED consumer base. In source view the
+    // heritage is rewritten; the navigable fast path must pin the real base reference
+    // onto the source token — same guarantee consumers get.
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class RequiredBase {
+            baseValue: number = 0
+        }
+
+        @mixin()
+        class Tagged extends RequiredBase {
+            public tag?: string = ""
+
+            read(): number {
+                return this.baseValue
+            }
+        }
+
+        class User extends RequiredBase implements Tagged {}
+
+        const user = new User()
+        const viaBase: number = user.baseValue
+        const viaMixin: string | undefined = user.tag
+        void viaBase
+        void viaMixin
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("class Tagged extends RequiredBase") + "class Tagged extends ".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("class RequiredBase") + "class ".length,
+        displayString        : "class RequiredBase",
+        expectCleanSemantics : true
+    })
+})
+
+it("tsserver navigation on a generic mixin's generic required-base name (`@mixin M<T> extends Store<T>`) reaches the base class", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class Store<V> {
+            stored: V | undefined = undefined
+        }
+
+        @mixin()
+        class Keeper<T> extends Store<T> {
+            keep(value: T): void {
+                this.stored = value
+            }
+        }
+
+        class Vault<T> extends Store<T> implements Keeper<T> {}
+
+        const vault = new Vault<string>()
+        vault.keep("x")
+        const kept: string | undefined = vault.stored
+        void kept
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("class Keeper<T> extends Store<T>") + "class Keeper<T> extends ".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("class Store<V>") + "class ".length,
+        displayString        : "class Store<V>",
+        expectCleanSemantics : true
+    })
+})
+
 it("tsserver navigation on a cross-file base name (`extends RemoteBase`) reaches the base class", async (t: Test) => {
     const baseText = trimIndent(`
         export class RemoteBase {

@@ -117,16 +117,16 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
 
             const refs = (response.body as ReferencesBody | undefined)?.refs ?? []
 
-            // The navigable-base fast path resolves an UNDECORATED class's extends-base
-            // names (plain, generic, construction and qualified consumers alike), so an
-            // empty result there is a REGRESSION. Still legitimately empty: `implements`
-            // mixin references, a `@mixin` class's own rewritten heritage, property-access
-            // member names without a symbol — and any heritage site in `type-errors.ts`,
-            // whose consumers carry DELIBERATE diagnostic validations and therefore keep
-            // the `$base` rewrite by design.
+            // The navigable-base fast path resolves EVERY class's extends-base names —
+            // plain, generic, construction and qualified consumers, and a well-typed
+            // `@mixin` class's own required-base heritage alike — so an empty result
+            // there is a REGRESSION. Still legitimately empty: `implements` mixin
+            // references, property-access member names without a symbol — and any
+            // heritage site in `type-errors.ts`, whose classes carry DELIBERATE
+            // diagnostics and therefore keep the `$base` rewrite by design.
             if (refs.length === 0) {
                 if (site.isMemberName ||
-                    (site.inHeritageClause && (!site.inConsumerExtends || site.file.endsWith("type-errors.ts")))
+                    (site.inHeritageClause && (!site.inClassExtends || site.file.endsWith("type-errors.ts")))
                 ) {
                     emptyResults++
                 } else {
@@ -134,7 +134,7 @@ it("tsserver find-all-references succeeds on every fixture symbol with every spa
                         "Find-all-references returned no locations for a symbol that should reference itself.",
                         `seed=${seed}  (reproduce: MIXIN_STRESS_SEED=${seed} pnpm test)`,
                         describe(site),
-                        "Only mixin/implements heritage identifiers and property-access member names may be empty."
+                        "Only `implements` heritage identifiers and property-access member names may be empty."
                     ].join("\n")
 
                     return

@@ -913,13 +913,18 @@ The same crash text has several possible causes; check in this order before assu
 
 ## Current gaps
 
-### Heritage-clause navigation (closed for explicit-base consumers)
+### Heritage-clause navigation (closed for every explicit-base class)
 
 go-to-def / find-all-references / rename / quickinfo on a base type name *inside* a rewritten
-`extends` clause **reaches the real base for every well-typed consumer with an explicit
-entity-name base** — plain, GENERIC, CONSTRUCTION and QUALIFIED (`ns.Base`) alike. The former
-gate to non-generic, non-construction, identifier-only bases is superseded (kept for context
-below); the trilemma exits:
+`extends` clause **reaches the real base for every well-typed class with an explicit
+entity-name base** — plain, GENERIC, CONSTRUCTION and QUALIFIED (`ns.Base`) consumers alike,
+**and a `@mixin` class's own required-base heritage** (`expandSourceViewMixinClass` takes the
+same `navigableConsumerBaseClassHeritage` fast path, skipping the `__X$base` pair: the
+required base + dependency instances ride in the construct signature — an intersection, so no
+`protocolInitialize` TS2320 mediation — and the mixin's `RuntimeMixinClass<...>` metadata
+joins the cast statics via the `extraStaticsTypes` parameter). The former gate to
+non-generic, non-construction, identifier-only bases is superseded (kept for context below);
+the trilemma exits:
 - **generic consumers**: TS2562 bans the consumer's type parameter only in the base
   EXPRESSION — the navigable cast's construct signature is generic (clones of the consumer's
   parameters, variance stripped) and the heritage instantiates it via TYPE ARGUMENTS;
@@ -979,12 +984,21 @@ sharp failure modes:
   program build. Only the navigable base identifier is stretched over the source heritage span (to
   claim the `<…>` tail and avoid stranding, #5).
 
-**Residual gap** — these keep `$base`, so their base name still resolves to `$base`:
-- consumers with NO explicit extends clause (implicit required base / empty base);
-- consumers **emitting diagnostic validations** (unsatisfied required base, static collisions,
-  missing runtime values) — only on broken code; `$base` positions those diagnostics
-  (`type-errors.ts` heritage sites are the tolerated empties in `stress-references`);
-- a `@mixin` class's OWN heritage (the mixin expansion, not the consumer path).
+**Residual gap** — these keep `$base`, so their base name still resolves to `$base`. Both are
+DELIBERATE (removed from TODO — no further movement planned): the first has no source token to
+navigate from at all, the second is broken code where `$base` is the diagnostics carrier — the
+user fixes the diagnostics (or navigates from the base class's own declaration).
+- classes with NO explicit extends clause (implicit required base / empty base) — no source
+  token exists, so there is nothing to navigate from;
+- classes **with diagnosed heritage** (unsatisfied required base, static collisions, missing
+  runtime values, a mixin extending a mixin, a dependency-linearization conflict) — only on
+  broken code; `$base` positions those diagnostics (`type-errors.ts` heritage sites are the
+  tolerated empties in `stress-references`; every other class-extends site — mixins included —
+  must now resolve, `inClassExtends`).
+
+Superseded residual entry (closed, kept for context): a `@mixin` class's OWN heritage used to
+keep the pair unconditionally — the `extends RequiredBase` span was overwritten by the
+generated `__X$base` reference, so navigation dead-ended there even on well-typed mixins.
 
 Superseded residual list (all three closed by the navigable fast path above, kept for
 context): generic consumers (the `$base`-interface reasoning predated the generic-construct-

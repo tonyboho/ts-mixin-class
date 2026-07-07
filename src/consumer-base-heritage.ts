@@ -240,6 +240,10 @@ export function consumerBaseClassHeritage(
 // source heritage-type span (the `<...>` type arguments and trailing trivia) so no
 // source text is stranded in a SyntaxList gap (invariant #5) while no synthetic
 // node overlaps the base name itself.
+// `extraStaticsTypes` extends the cast's statics intersection — a `@mixin` class rides
+// its `RuntimeMixinClass<...>` metadata through here (the mixin's own heritage takes
+// this same fast path; the extra members are fully synthetic and join the uniform
+// cast stamp).
 export function navigableConsumerBaseClassHeritage(
     tsInstance: TypeScript,
     extendsType: ts.ExpressionWithTypeArguments,
@@ -247,7 +251,8 @@ export function navigableConsumerBaseClassHeritage(
     linearizedMixinRefs: ResolvedMixinRef[],
     generatedHeritageTypeRange: ts.ExpressionWithTypeArguments,
     typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
-    construction: ConstructionBrand | undefined
+    construction: ConstructionBrand | undefined,
+    extraStaticsTypes: ts.TypeNode[] = []
 ): ts.HeritageClause {
     const factory = tsInstance.factory
 
@@ -270,7 +275,8 @@ export function navigableConsumerBaseClassHeritage(
         mixinHeritage,
         linearizedMixinRefs,
         typeParameters,
-        construction
+        construction,
+        extraStaticsTypes
     )
     const castType        = cast.type
     const innerAs         = factory.createAsExpression(
@@ -512,7 +518,8 @@ function createNavigableConsumerBaseCastType(
     mixinHeritage: ts.ExpressionWithTypeArguments[],
     linearizedMixinRefs: ResolvedMixinRef[],
     typeParameters: readonly ts.TypeParameterDeclaration[] | undefined,
-    construction: ConstructionBrand | undefined
+    construction: ConstructionBrand | undefined,
+    extraStaticsTypes: ts.TypeNode[] = []
 ): { type: ts.TypeNode } {
     const factory = tsInstance.factory
 
@@ -553,7 +560,8 @@ function createNavigableConsumerBaseCastType(
                     instanceType,
                     signatureTypeParameters
                 ),
-                ...mixinStaticsTypes(tsInstance, linearizedMixinRefs)
+                ...mixinStaticsTypes(tsInstance, linearizedMixinRefs),
+                ...extraStaticsTypes
             ])
         }
     }
@@ -574,7 +582,8 @@ function createNavigableConsumerBaseCastType(
         )
     const staticsTypes        = [
         createStaticsBag(tsInstance, expressionToEntityName(tsInstance, extendsType.expression)),
-        ...mixinStaticsTypes(tsInstance, linearizedMixinRefs)
+        ...mixinStaticsTypes(tsInstance, linearizedMixinRefs),
+        ...extraStaticsTypes
     ]
 
     return {

@@ -92,17 +92,7 @@ A dynamic base would need to be evaluated exactly once, stored in a generated ru
 constant, represented on both the instance and static sides, and emitted correctly in `.d.ts`
 files. Use a named base class for now.
 
-### 4. Base-name navigation — residual cases
-
-Go-to-definition, find-all-references, rename and quickinfo on a base type name *inside* a
-class heritage clause work for every well-typed consumer with an explicit entity-name base —
-plain, generic, construction and qualified (`extends ns.Base`) alike, including the `<...>`
-type arguments (see AGENTS.md "Heritage-clause navigation"). Still resolving to the internal
-`$base`: consumers with no explicit `extends` (implicit required base), consumers with
-diagnostic validations (broken code — `$base` positions those diagnostics), and a `@mixin`
-class's own heritage. For those, navigate from the base class's own declaration instead.
-
-### 5. A mixin that violates its `implements` contract is flagged twice in the editor
+### 4. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where the

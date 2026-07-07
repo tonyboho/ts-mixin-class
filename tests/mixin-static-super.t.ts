@@ -142,7 +142,12 @@ it("an INCOMPATIBLE static override on a mixin is TS2417 on both planes", async 
     t.ne(sourceView.exitCode, 0, "source view: rejected, as it always was")
     t.match(sourceViewOutput, "TS2417", `both planes agree on the code.\n${sourceViewOutput}`)
     t.match(sourceViewOutput, "'typeof Marked'", "source view names the user's class")
-    t.match(sourceViewOutput, "'typeof Tagged'", "…and the user's base")
+    // The navigable mixin heritage extends the single-source cast, so the base's
+    // static side renders as its statics BAG (`Omit<typeof Tagged, …>`), not the bare
+    // `typeof Tagged` the superseded `__X$base` pair showed — the user's base is
+    // still named inside it, and the offending property is spelled out below.
+    t.match(sourceViewOutput, "typeof Tagged", "…and the user's base")
+    t.match(sourceViewOutput, "Types of property 'tag' are incompatible", "…and the offending static")
     t.notMatch(sourceViewOutput, "typeof }", "no collapsed-cast render leaks")
 })
 

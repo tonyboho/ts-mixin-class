@@ -376,8 +376,13 @@ it("gives a standalone construction-base mixin its own `static new` in the sourc
         "Source-view construction-base mixin emits a named config alias")
     t.match(printed, "static new(props?: SerializableConfig): Serializable;",
         "Source-view mixin class regenerates its own static new referencing the named config alias")
-    t.match(printed, "class Serializable extends __Serializable$base",
-        "Source view keeps the mixin as a real class so the static new can attach")
+    // The navigable mixin heritage: the class re-extends the real `Base` under the
+    // branded single-source cast (no `__Serializable$base` pair), so the static new
+    // attaches to the real class AND the base name stays navigable.
+    t.match(printed, "class Serializable extends (Base as unknown as",
+        "Source view keeps the mixin as a real class extending the navigable cast")
+    t.match(printed, "use_the_static_new_factory",
+        "The direct-`new` construction brand rides inside the cast")
 })
 
 it("collects the transitive mixin chain into a construction-base mixin's `new` config", async (t: Test) => {

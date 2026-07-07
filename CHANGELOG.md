@@ -1,5 +1,12 @@
 # ts-mixin-class
 
+## 0.0.11 - 2026-07-07
+
+### Patch Changes
+
+- Internal source reorganization — modules regrouped by concern along the emit / source-view
+  planes. No public API or transform-behavior change.
+
 ## 0.0.10 - 2026-07-07
 
 ### Patch Changes

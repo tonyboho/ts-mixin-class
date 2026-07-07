@@ -20,9 +20,11 @@ import { constructionProtocolInitializeSignature } from "./interface-members.js"
 import { fillMissedInitializers } from "./construction-initializers.js"
 import {
     createConstructionMembers,
-    isConstructionBaseOptIn,
     positionConstructionConfigAlias
 } from "./construction-config.js"
+import {
+    isConstructionBaseOptIn
+} from "./construction-chain.js"
 import { buildImportedNameMap } from "./context.js"
 import {
     brandConstructorParameter,
@@ -53,12 +55,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import {
-    generatedTextRange,
-    preserveGeneratedDeclarationRange,
-    preserveSourceViewGeneratedClassLikeRange,
-    preserveTextRange
-} from "./util.js"
+import { generatedTextRange, preserveGeneratedDeclarationRange, preserveSourceViewGeneratedClassLikeRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 type ConsumerExpansionContext = {

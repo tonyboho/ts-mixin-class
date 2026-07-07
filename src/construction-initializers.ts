@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import { propertyNameText, type FillMissedInitializersWith, type TransformOptions } from "./model.js"
-import { hasModifier, preserveTextRange } from "./util.js"
+import { hasModifier } from "./util.js"
+import { preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 // Normalize a construction class's instance field initializers. Two concerns, both about giving

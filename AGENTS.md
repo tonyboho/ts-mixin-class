@@ -264,7 +264,7 @@ Violating any of these produces confusing tsserver errors or crashes.
     `ModuleBlock` — and `CaseClause`/`DefaultClause`, whose statement lists are NOT blocks — and
     splices the generated siblings into the SAME list (`expandStatementList` +
     `mutateNestedStatementLists`; the range-preservation side is `isRealStatementListOwner` in
-    `util.ts`), so they share the nested scope and never hoist to module scope.
+    `text-range.ts`), so they share the nested scope and never hoist to module scope.
     The catch is HOW the changed block flows back. Rebuilding the user's ancestors (function /
     block on the path to the nested class) with `visitEachChild` / `factory.update*` sets
     `.original` on those rebuilt USER nodes → pointing at the pre-transform node, which is **not in
@@ -379,7 +379,7 @@ Violating any of these produces confusing tsserver errors or crashes.
       guards at or slightly below the pre-990011 baseline. Guard:
       `partial-accessor-overrides.t.ts`, `fixture-suite/src/accessor-extension-overrides.t.ts`.
     - **Manual `.mix` of a PROGRAM-LOCAL mixin is banned (`TS990012`,
-      `pushManualMixinApplicationDiagnostics` in `mixin-apply-type.ts`)**: inside a transformer
+      `pushManualMixinApplicationDiagnostics` in `mixin-diagnostics.ts`)**: inside a transformer
       program mixins compose through the class heritage; `.mix` stays on emitted values for
       EXTERNAL (non-transformer) consumers of the `.d.ts` — so "program-local" =
       `ref.declaration` present OR the registry entry's `fileName` is not a declaration file
@@ -417,7 +417,7 @@ Violating any of these produces confusing tsserver errors or crashes.
       STANDARD-mode only and kept the runtime fixture excluded from `tsconfig.legacy.json`;
       the declaration shape replaced that, and the exclusion is gone.
     - **USER decorators on a `@mixin` class are re-applied through `defineMixinClass`'s
-      `decorate` callback** (`createMixinDecorateCallback` in `mixin-expand.ts`), INSIDE the
+      `decorate` callback** (`createMixinDecorateCallback` in `mixin-source-view.ts`), INSIDE the
       runtime call, before metadata attachment — so the DECORATED class is the mixin's runtime
       identity (metadata/statics/`.mix`/linearization attach to what the user holds; a post-hoc
       wrap left two identities and broke the C3/replay verify). The UNDECORATED canonical stays
@@ -618,7 +618,7 @@ instance type) has its own rules:
    (and those mixins' transitive mixin dependencies), and the base's own `public` fields. Reading
    only the immediate base's own fields silently drops inherited config **and** makes the subclass's
    `static new` an incompatible static-side override along the chain (TS2417). Two code paths must
-   stay in sync: `baseConfigProperties` / `configPropertiesForName` (`construction-config.ts`) for a
+   stay in sync: `baseConfigProperties` / `configPropertiesForName` (`construction-chain.ts`) for a
    **local** base, and `buildConstructionBaseRegistry` (`registry.ts`) for an **imported** base —
    the latter now resolves the base's `implements` mixins through the mixin registry, not only its
    `extends` chain. Both share `accumulateRegisteredMixinConfig` (`model.ts`). This regressed once
@@ -631,7 +631,7 @@ instance type) has its own rules:
    falls back to `resolveCrossFileConstructionBase`, which follows a one-dot name through its
    namespace-import binding into the registry (`extends lib.Model`). The registry resolves a
    candidate's qualified base at collection time with `qualifiedConstructionChainExit`
-   (`construction-config.ts`): the file-local walk (a nested class is never a candidate
+   (`construction-chain.ts`): the file-local walk (a nested class is never a candidate
    itself) either terminates at the package `Base` import or exits at an unresolved reference
    — an imported identifier or the dotted namespace-import member — which becomes the
    candidate's `baseName` for the ordinary imported-candidate `resolve` recursion; the local
@@ -798,7 +798,7 @@ EOF** (breakpoints on wrong lines, lying stack traces). `emit-source-map.ts` com
 leg at the `program.emit` seam in `wrapProgramDiagnostics`: when the compilation asks for maps at
 all (`sourceMap` / `inlineSourceMap` / `declarationMap`), the emit's `writeFile` is wrapped —
 every `*.map` (and the base64 data-URI map inside a `.js` under `inlineSourceMap`) is decoded
-(TS-internal `decodeMappings` via `util.ts`), each segment's source position is rewritten through
+(TS-internal `decodeMappings` via `decodeSourceMapMappings`, co-located in `emit-source-map.ts`), each segment's source position is rewritten through
 the reprinted file's attached `DiagnosticRemap`, re-encoded (own base64-VLQ encoder — TS exposes
 no encoder), and written to the caller's `writeFile` or, on the plain-`tsc` path, the host's.
 `inlineSources` gets the ORIGINAL text substituted into `sourcesContent` (tsc embedded the

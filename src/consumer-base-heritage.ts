@@ -21,15 +21,8 @@ import {
     type TransformOptions
 } from "./model.js"
 import type { LinearizationPlanSlice } from "./linearization.js"
-import {
-    cloneNode,
-    collapseSubtreeTextRange,
-    deepCloneNode,
-    preserveSubtreeTextRange,
-    preserveTextRange,
-    stripVarianceAnnotations,
-    zeroWidthRange
-} from "./util.js"
+import { cloneNode, deepCloneNode, stripVarianceAnnotations } from "./util.js"
+import { collapseSubtreeTextRange, preserveSubtreeTextRange, preserveTextRange, zeroWidthRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 // Statics a consumer inherits from an applied mixin: the mixin's own statics

@@ -19,12 +19,8 @@ export function linearizationMode(options: TransformOptions): "verify" | "replay
             ? "verify"
             : "replay"
 }
-import {
-    deepCloneNode,
-    preserveSubtreeTextRange,
-    preserveTextRange,
-    zeroWidthRange
-} from "./util.js"
+import { deepCloneNode } from "./util.js"
+import { preserveSubtreeTextRange, preserveTextRange, zeroWidthRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 export class MixinTransformError extends Error {

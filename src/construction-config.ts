@@ -2,25 +2,16 @@ import type * as ts from "typescript"
 import { dottedExpressionText, intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
 import {
     type ImportMap,
-    importedBindingRegistryKey,
-    accumulateRegisteredMixinConfig,
-    registryKey,
     uniqueConfigProperties,
     type ConfigProperty,
-    type ConstructionBaseEntry,
     type CrossFileContext,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { getSourceFileFacts, qualifiedLocalClassFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
-import {
-    collapseSubtreeTextRange,
-    deepCloneNode,
-    hasModifier,
-    preserveGeneratedDeclarationRange,
-    preserveTextRange,
-    stripVarianceAnnotations
-} from "./util.js"
+import { baseConfigProperties, isConstructionBaseOptIn } from "./construction-chain.js"
+import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
+import { collapseSubtreeTextRange, preserveGeneratedDeclarationRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 type ConstructionConfig = {
@@ -332,174 +323,6 @@ export function createMixinConstructionNewType(
     }
 }
 
-export function isConstructionBaseOptIn(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    baseType: ts.ExpressionWithTypeArguments | undefined,
-    options: TransformOptions,
-    facts = getSourceFileFacts(tsInstance, sourceFile, options),
-    seen = new Set<string>(),
-    crossFile?: CrossFileContext,
-    baseImportMap?: ImportMap
-): boolean {
-    if (baseType === undefined) {
-        return false
-    }
-
-    if (isPackageBaseExpression(tsInstance, baseType.expression, options, facts)) {
-        return true
-    }
-
-    // A QUALIFIED base (`data.Model`) resolves through the local-namespace index; the
-    // dotted text keys the `seen` set (disjoint from plain identifiers, which never
-    // contain a dot). When the dotted name is not a local namespace path, it may be a
-    // NAMESPACE-IMPORT member (`lib.Model`), resolved through the cross-file registry.
-    // (`isPackageBaseExpression` above already accepted the package `ns.Base` form.)
-    if (!tsInstance.isIdentifier(baseType.expression)) {
-        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
-
-        if (dottedName === undefined || seen.has(dottedName)) {
-            return false
-        }
-
-        seen.add(dottedName)
-
-        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
-
-        if (qualifiedBase === undefined) {
-            return resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.isBaseDescendant === true
-        }
-
-        return isConstructionBaseOptIn(
-            tsInstance, sourceFile, qualifiedBase.extendsType, options, facts, seen, crossFile, baseImportMap
-        )
-    }
-
-    const baseName = baseType.expression.text
-
-    if (seen.has(baseName)) {
-        return false
-    }
-
-    seen.add(baseName)
-
-    const localBase = facts.classesByName.get(baseName)
-
-    if (localBase !== undefined) {
-        return isConstructionBaseOptIn(
-            tsInstance, sourceFile, localBase.extendsType, options, facts, seen, crossFile, baseImportMap
-        )
-    }
-
-    // The base is not declared in this file: it may be an imported class that
-    // transitively extends the package `Base`, recorded in the cross-file
-    // construction-base registry.
-    return resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)?.isBaseDescendant === true
-}
-
-// Resolves a local base identifier to its cross-file construction-base entry,
-// when the name is imported and the imported class transitively extends `Base`.
-// A DOTTED name (`lib.Model`) resolves through its namespace-import binding —
-// exactly one dot: registry entries are top-level classes of their module, so a
-// deeper path can never name one.
-export function resolveCrossFileConstructionBase(
-    name: string,
-    crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined
-): ConstructionBaseEntry | undefined {
-    if (crossFile === undefined || baseImportMap === undefined) {
-        return undefined
-    }
-
-    const key = importedBindingRegistryKey(name, baseImportMap)
-
-    return key === undefined ? undefined : crossFile.constructionBases.get(key)
-}
-
-export function isPackageBaseExpression(
-    tsInstance: TypeScript,
-    expression: ts.Expression,
-    options: TransformOptions,
-    facts: SourceFileFacts
-): boolean {
-    for (const importFacts of facts.imports) {
-        if (!isPackageBaseImport(importFacts.specifier, options)) {
-            continue
-        }
-
-        const importClause  = importFacts.declaration.importClause
-        const namedBindings = importClause?.namedBindings
-
-        if (namedBindings === undefined) {
-            continue
-        }
-
-        if (tsInstance.isNamespaceImport(namedBindings) &&
-            tsInstance.isPropertyAccessExpression(expression) &&
-            tsInstance.isIdentifier(expression.expression) &&
-            expression.expression.text === namedBindings.name.text &&
-            expression.name.text === "Base"
-        ) {
-            return true
-        }
-
-        if (!tsInstance.isNamedImports(namedBindings) || !tsInstance.isIdentifier(expression)) {
-            continue
-        }
-
-        if (namedBindings.elements.some((element) => {
-            return (element.propertyName?.text ?? element.name.text) === "Base" &&
-                element.name.text === expression.text
-        })) {
-            return true
-        }
-    }
-
-    return false
-}
-
-function isPackageBaseImport(
-    specifier: string,
-    options: TransformOptions
-): boolean {
-    return specifier === options.packageName || specifier === `${options.packageName}/base`
-}
-
-// Construction-base opt-in can only ever resolve to true when the file itself
-// imports the package `Base` (the `isConstructionBaseOptIn` chain terminates at
-// `isPackageBaseExpression`, which requires a local package-base import). The
-// transform gate uses this as a cheap pre-check so files that merely extend some
-// ordinary class are not cloned and walked in source-view mode.
-export function importsPackageBase(
-    tsInstance: TypeScript,
-    facts: SourceFileFacts,
-    options: TransformOptions
-): boolean {
-    for (const importFacts of facts.imports) {
-        if (!isPackageBaseImport(importFacts.specifier, options)) {
-            continue
-        }
-
-        const namedBindings = importFacts.declaration.importClause?.namedBindings
-
-        if (namedBindings === undefined) {
-            continue
-        }
-
-        if (tsInstance.isNamespaceImport(namedBindings)) {
-            return true
-        }
-
-        if (namedBindings.elements.some((element) => {
-            return (element.propertyName?.text ?? element.name.text) === "Base"
-        })) {
-            return true
-        }
-    }
-
-    return false
-}
-
 function createConstructionConfig(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -645,82 +468,6 @@ function staticConstructionConfigProperties(
     ])
 }
 
-// A mixin's settable accessor whose setter type references the mixin's own type parameter
-// (`set value(input: T | string)`) is collected with that raw `T` node. When the accessor
-// flows into a consumer that fixes the parameter (`implements Boxed<number>`), the cloned
-// setter type must substitute `T` -> the consumer's type argument (`number`); otherwise the
-// generated `<Consumer>Config` references an unbound `T` (TS2304), breaking construction in
-// BOTH emit and source-view. A parameter the consumer leaves unfixed falls back to its
-// default (or `any`), so nothing dangles. Only LOCAL mixins carry the declaration (hence the
-// type parameters) needed for this; an imported accessor has no available setter node and
-// goes through `Pick` (a documented narrower limitation).
-function substituteMixinConfigTypeParameters(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    ref: ResolvedMixinRef
-): ConfigProperty[] {
-    const typeParameters = ref.declaration?.typeParameters
-
-    if (typeParameters === undefined || typeParameters.length === 0 ||
-        ref.configProperties.every((property) => property.valueType === undefined)) {
-        return ref.configProperties
-    }
-
-    const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
-    const replacements  = new Map<string, ts.TypeNode>()
-
-    typeParameters.forEach((typeParameter, index) => {
-        replacements.set(
-            typeParameter.name.text,
-            typeArguments?.[index]
-                ?? typeParameter.default
-                ?? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-        )
-    })
-
-    return ref.configProperties.map((property) => property.valueType === undefined
-        ? property
-        : { ...property, valueType: substituteTypeReferences(tsInstance, property.valueType, replacements) })
-}
-
-// The type arguments the consumer supplies to `ref` in its `implements` clause
-// (`implements Boxed<number>` -> `[number]`), matched by the mixin's local binding name.
-function mixinImplementsTypeArguments(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
-    ref: ResolvedMixinRef
-): ts.NodeArray<ts.TypeNode> | undefined {
-    for (const clause of declaration.heritageClauses ?? []) {
-        if (clause.token !== tsInstance.SyntaxKind.ImplementsKeyword) {
-            continue
-        }
-
-        for (const type of clause.types) {
-            const referenceText = tsInstance.isIdentifier(type.expression)
-                ? type.expression.text
-                : dottedExpressionText(tsInstance, type.expression)
-
-            if (referenceText !== undefined &&
-                (referenceText === ref.localValueName || referenceText === ref.className)) {
-                return type.typeArguments
-            }
-        }
-    }
-
-    return undefined
-}
-
-// Replace every bare reference to a mapped type-parameter name inside `typeNode` with its
-// replacement type (deep-cloned so the result is position-less and safe in both planes).
-function substituteTypeReferences(
-    tsInstance: TypeScript,
-    typeNode: ts.TypeNode,
-    replacements: Map<string, ts.TypeNode>
-): ts.TypeNode {
-    return rewriteTypeReferences(tsInstance, typeNode, (name) =>
-        replacements.has(name) ? deepCloneNode(tsInstance, replacements.get(name)!) : undefined)
-}
-
 function literalKeyUnionType(
     tsInstance: TypeScript,
     names: string[]
@@ -732,202 +479,6 @@ function literalKeyUnionType(
         : factory.createUnionTypeNode(names.map((name) => {
             return factory.createLiteralTypeNode(factory.createStringLiteral(name))
         }))
-}
-
-// How a QUALIFIED base's locally-resolvable extends chain leaves the file. The
-// construction-base registry resolves a candidate's qualified base with this walk: the
-// chain either reaches the package `Base` import (`isPackageBase`), or exits at a
-// reference no local class declares — an imported identifier, or a namespace-import
-// member when the qualified path itself is not local — whose name (`unresolvedName`)
-// the registry chases through its ordinary imported-candidate resolution.
-// `configProperties` carries what the LOCAL levels of the chain contribute (their own
-// fields, local extends levels and local mixins); the imported tail's contribution is
-// added by the caller's own resolution. Returns undefined when the chain dead-ends
-// locally (no `extends`, a cycle, or an unresolvable dotted path).
-export type QualifiedBaseChainExit = {
-    isPackageBase    : boolean,
-    unresolvedName   : string | undefined,
-    configProperties : ConfigProperty[]
-}
-
-export function qualifiedConstructionChainExit(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    baseType: ts.ExpressionWithTypeArguments,
-    options: TransformOptions,
-    facts: SourceFileFacts
-): QualifiedBaseChainExit | undefined {
-    const dottedName = dottedExpressionText(tsInstance, baseType.expression)
-
-    if (dottedName === undefined) {
-        return undefined
-    }
-
-    const firstLocal = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
-
-    // Not a local namespace path — a namespace-import member; nothing local to fold in.
-    if (firstLocal === undefined) {
-        return { isPackageBase: false, unresolvedName: dottedName, configProperties: [] }
-    }
-
-    const seen  = new Set<string>([ dottedName ])
-    let current = firstLocal
-    let exit: { isPackageBase: boolean, unresolvedName: string | undefined }
-
-    for (;;) {
-        const currentBase = current.extendsType
-
-        if (currentBase === undefined) {
-            return undefined
-        }
-
-        if (isPackageBaseExpression(tsInstance, currentBase.expression, options, facts)) {
-            exit = { isPackageBase: true, unresolvedName: undefined }
-            break
-        }
-
-        const key = tsInstance.isIdentifier(currentBase.expression)
-            ? currentBase.expression.text
-            : dottedExpressionText(tsInstance, currentBase.expression)
-
-        if (key === undefined || seen.has(key)) {
-            return undefined
-        }
-
-        seen.add(key)
-
-        const next = tsInstance.isIdentifier(currentBase.expression)
-            ? facts.classesByName.get(key)
-            : qualifiedLocalClassFacts(tsInstance, sourceFile, currentBase.expression, facts)
-
-        if (next === undefined) {
-            exit = { isPackageBase: false, unresolvedName: key }
-            break
-        }
-
-        current = next
-    }
-
-    return {
-        ...exit,
-        configProperties : localClassConfigProperties(
-            tsInstance, sourceFile, firstLocal, facts, undefined, undefined, new Set()
-        )
-    }
-}
-
-// Accumulates the full construction config a base contributes to a subclass's
-// `.new(...)`: the base's own public fields, those inherited up its own `extends`
-// chain, and those of every mixin it consumes - recursively. A local base may itself
-// be a construction consumer (it extends another construction base and/or implements
-// mixins), so reading only its own fields drops inherited config and breaks the
-// static-side `new` along the chain (TS2417). Imported bases are read from the
-// cross-file registry, which carries the accumulated extends-chain config.
-function baseConfigProperties(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    baseType: ts.ExpressionWithTypeArguments | undefined,
-    facts: SourceFileFacts,
-    crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined,
-    seen: Set<string>
-): ConfigProperty[] {
-    if (baseType === undefined) {
-        return []
-    }
-
-    // A QUALIFIED base contributes its accumulated config through the local-namespace
-    // index, keyed in `seen` by its dotted text (same convention as the opt-in walk);
-    // a NAMESPACE-IMPORT member (`lib.Model`) reads its accumulated config from the
-    // cross-file registry entry instead.
-    if (!tsInstance.isIdentifier(baseType.expression)) {
-        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
-
-        if (dottedName === undefined || seen.has(dottedName)) {
-            return []
-        }
-
-        seen.add(dottedName)
-
-        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
-
-        if (qualifiedBase === undefined) {
-            return resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.configProperties ?? []
-        }
-
-        return localClassConfigProperties(tsInstance, sourceFile, qualifiedBase, facts, crossFile, baseImportMap, seen)
-    }
-
-    return configPropertiesForName(tsInstance, sourceFile, baseType.expression.text, facts, crossFile, baseImportMap, seen)
-}
-
-function localClassConfigProperties(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    localClass: ClassFacts,
-    facts: SourceFileFacts,
-    crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined,
-    seen: Set<string>
-): ConfigProperty[] {
-    return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, sourceFile, localClass.extendsType, facts, crossFile, baseImportMap, seen),
-        ...localClass.implementsIdentifierNames.flatMap((implemented) =>
-            configPropertiesForName(tsInstance, sourceFile, implemented, facts, crossFile, baseImportMap, seen)),
-        ...localClass.configProperties
-    ])
-}
-
-function configPropertiesForName(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    name: string,
-    facts: SourceFileFacts,
-    crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined,
-    seen: Set<string>
-): ConfigProperty[] {
-    if (seen.has(name)) {
-        return []
-    }
-
-    seen.add(name)
-
-    const localClass = facts.classesByName.get(name)
-
-    if (localClass !== undefined) {
-        return localClassConfigProperties(tsInstance, sourceFile, localClass, facts, crossFile, baseImportMap, seen)
-    }
-
-    // Not declared in this file: an imported construction base (its accumulated
-    // extends-chain config lives in the cross-file registry) or an imported mixin
-    // (its own plus dependency config lives in the mixin registry).
-    const baseEntry = resolveCrossFileConstructionBase(name, crossFile, baseImportMap)
-
-    if (baseEntry !== undefined) {
-        return baseEntry.configProperties
-    }
-
-    return importedMixinConfigProperties(name, crossFile, baseImportMap, seen)
-}
-
-function importedMixinConfigProperties(
-    name: string,
-    crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined,
-    seen: Set<string>
-): ConfigProperty[] {
-    const imported = baseImportMap?.get(name)
-
-    if (imported === undefined || crossFile === undefined) {
-        return []
-    }
-
-    return accumulateRegisteredMixinConfig(
-        registryKey(imported.resolvedFileName, imported.importedName),
-        crossFile.registry,
-        seen
-    )
 }
 
 function createConsumerInstanceType(
@@ -1071,4 +622,80 @@ function createConfigAliasReference(
             return tsInstance.factory.createTypeReferenceNode(typeParameter.name.text, undefined)
         })
     )
+}
+
+// A mixin's settable accessor whose setter type references the mixin's own type parameter
+// (`set value(input: T | string)`) is collected with that raw `T` node. When the accessor
+// flows into a consumer that fixes the parameter (`implements Boxed<number>`), the cloned
+// setter type must substitute `T` -> the consumer's type argument (`number`); otherwise the
+// generated `<Consumer>Config` references an unbound `T` (TS2304), breaking construction in
+// BOTH emit and source-view. A parameter the consumer leaves unfixed falls back to its
+// default (or `any`), so nothing dangles. Only LOCAL mixins carry the declaration (hence the
+// type parameters) needed for this; an imported accessor has no available setter node and
+// goes through `Pick` (a documented narrower limitation).
+function substituteMixinConfigTypeParameters(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef
+): ConfigProperty[] {
+    const typeParameters = ref.declaration?.typeParameters
+
+    if (typeParameters === undefined || typeParameters.length === 0 ||
+        ref.configProperties.every((property) => property.valueType === undefined)) {
+        return ref.configProperties
+    }
+
+    const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
+    const replacements  = new Map<string, ts.TypeNode>()
+
+    typeParameters.forEach((typeParameter, index) => {
+        replacements.set(
+            typeParameter.name.text,
+            typeArguments?.[index]
+                ?? typeParameter.default
+                ?? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+        )
+    })
+
+    return ref.configProperties.map((property) => property.valueType === undefined
+        ? property
+        : { ...property, valueType: substituteTypeReferences(tsInstance, property.valueType, replacements) })
+}
+
+// The type arguments the consumer supplies to `ref` in its `implements` clause
+// (`implements Boxed<number>` -> `[number]`), matched by the mixin's local binding name.
+function mixinImplementsTypeArguments(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef
+): ts.NodeArray<ts.TypeNode> | undefined {
+    for (const clause of declaration.heritageClauses ?? []) {
+        if (clause.token !== tsInstance.SyntaxKind.ImplementsKeyword) {
+            continue
+        }
+
+        for (const type of clause.types) {
+            const referenceText = tsInstance.isIdentifier(type.expression)
+                ? type.expression.text
+                : dottedExpressionText(tsInstance, type.expression)
+
+            if (referenceText !== undefined &&
+                (referenceText === ref.localValueName || referenceText === ref.className)) {
+                return type.typeArguments
+            }
+        }
+    }
+
+    return undefined
+}
+
+// Replace every bare reference to a mapped type-parameter name inside `typeNode` with its
+// replacement type (deep-cloned so the result is position-less and safe in both planes).
+function substituteTypeReferences(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    replacements: Map<string, ts.TypeNode>
+): ts.TypeNode {
+    return rewriteTypeReferences(tsInstance, typeNode, (name) =>
+        replacements.has(name) ? deepCloneNode(tsInstance, replacements.get(name)!) : undefined)
 }

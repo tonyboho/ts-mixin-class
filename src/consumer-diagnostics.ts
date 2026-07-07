@@ -20,11 +20,8 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import {
-    cloneNode,
-    deepCloneNode,
-    preserveTextRange
-} from "./util.js"
+import { cloneNode, deepCloneNode } from "./util.js"
+import { preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 // A set of mixins (a consumer's `implements`, or a mixin's own dependencies) that cannot be

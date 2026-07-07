@@ -14,7 +14,8 @@ import {
     type StaticSource
 } from "./model.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
-import { cloneNode, preserveTextRange } from "./util.js"
+import { cloneNode } from "./util.js"
+import { preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 export function createStaticCollisionValidations(

@@ -5,11 +5,13 @@ import { brandedConstructionBaseHeritage } from "./consumer-base-heritage.js"
 import { fillMissedInitializersClass } from "./construction-initializers.js"
 import {
     createConstructionMembers,
+    positionConstructionConfigAlias
+} from "./construction-config.js"
+import {
     importsPackageBase,
     isConstructionBaseOptIn,
-    positionConstructionConfigAlias,
     resolveCrossFileConstructionBase
-} from "./construction-config.js"
+} from "./construction-chain.js"
 import { buildFileMixinContext, buildImportedNameMap } from "./context.js"
 import { attachDiagnosticRemap, wrapProgramDiagnostics } from "./emit-diagnostic-remap.js"
 import { effectiveUseDefineForClassFields, resolveTransformOptions, resolveUsePrintedSourceFile } from "./transform-options.js"
@@ -21,7 +23,7 @@ import {
     pushPartialAccessorOverrideDiagnostics
 } from "./mixin-override-diagnostics.js"
 import { expandMixinClass } from "./mixin-expand.js"
-import { pushManualMixinApplicationDiagnostics } from "./mixin-apply-type.js"
+import { pushManualMixinApplicationDiagnostics } from "./mixin-diagnostics.js"
 import { localMixinHeritageTypesFromFacts, resolveLocalMixinHeritageRef } from "./mixin-refs.js"
 import { dottedExpressionText } from "./expand-util.js"
 import { hasMixinDecorator } from "./decorators.js"
@@ -58,21 +60,10 @@ import {
     type NativeMixinDiagnostic,
     type TransformOptions
 } from "./model.js"
-import { buildConstructionBaseRegistry, buildMixinRegistry, hasRuntimeModuleForDeclaration } from "./registry.js"
-import {
-    cloneLayeredSourceFileForTransform,
-    alignGeneratedNavigableNodesWithParseTree,
-    cloneSourceFileForTransform,
-    generatedTextRange,
-    hasDifferentAstShape,
-    preserveSourceFileVersion,
-    preserveTextRange,
-    preserveTopLevelStatementRanges,
-    printSourceFileWithMappings,
-    scriptKindFromFileName,
-    setParentRecursivePreservingVersion,
-    sourceFileOptionsPreservingFormat
-} from "./util.js"
+import { buildConstructionBaseRegistry, buildMixinRegistry } from "./registry.js"
+import { hasRuntimeModuleForDeclaration } from "./registry-declaration-file.js"
+import { cloneLayeredSourceFileForTransform, alignGeneratedNavigableNodesWithParseTree, cloneSourceFileForTransform, hasDifferentAstShape, preserveSourceFileVersion, printSourceFileWithMappings, scriptKindFromFileName, setParentRecursivePreservingVersion, sourceFileOptionsPreservingFormat } from "./util.js"
+import { generatedTextRange, preserveTextRange, preserveTopLevelStatementRanges } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 export * from "./base.js"

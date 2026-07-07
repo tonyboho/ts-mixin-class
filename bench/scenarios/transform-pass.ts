@@ -2,11 +2,8 @@ import { performance } from "node:perf_hooks"
 import tsModule from "typescript"
 import type * as ts from "typescript"
 import { printSourceFile, transformSourceFile } from "../../src/index.js"
-import {
-    cloneSourceFileForTransform,
-    preserveTopLevelStatementRanges,
-    setParentRecursivePreservingVersion
-} from "../../src/util.js"
+import { cloneSourceFileForTransform, setParentRecursivePreservingVersion } from "../../src/util.js"
+import { preserveTopLevelStatementRanges } from "../../src/text-range.js"
 import type { TypeScript } from "../../src/util.js"
 import type { BenchConfig, PassMode } from "../lib/env.js"
 import type { BenchReport, BenchRow } from "../lib/report.js"

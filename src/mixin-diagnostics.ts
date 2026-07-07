@@ -1,7 +1,14 @@
 import type * as ts from "typescript"
+import { dottedExpressionText } from "./expand-util.js"
+import { resolveLexicalMixinRef } from "./mixin-refs.js"
 import {
+    isDeclarationFileName,
     isNamedClassElement,
-    type MixinDeclarationDiagnostic
+    mixinDiagnosticCode,
+    nativeDiagnosticOn,
+    type FileMixinContext,
+    type MixinDeclarationDiagnostic,
+    type ResolvedMixinRef
 } from "./model.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -221,4 +228,87 @@ function parameterNameForDiagnostic(
     }
 
     return parameter.name.getText(sourceFile)
+}
+
+// Manual `.mix(...)` on a PROGRAM-LOCAL mixin value is banned (native TS990012, both
+// planes): inside a transformer program mixins compose through the class heritage
+// (`extends Base implements Mixin`) — a manual application bypasses construction
+// tracking and used to ride on a synthetic source-view apply type that could not
+// support navigation (collapsed instance members; find-all-references crashed the
+// server). The `.mix` method itself stays on every EMITTED value: it is the
+// application path for external (non-transformer) consumers of the package's
+// declarations — which is why a mixin imported from a `.d.ts` is exempt.
+export function pushManualMixinApplicationDiagnostics(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext
+): void {
+    // Cheap prefilter: the walk only runs for files that both know some mixin by name
+    // and textually mention `.mix` at all.
+    if (context.byLocalName.size === 0 || !sourceFile.text.includes(".mix")) {
+        return
+    }
+
+    const visit = (node: ts.Node): void => {
+        if (tsInstance.isPropertyAccessExpression(node) &&
+            node.name.text === "mix" &&
+            node.pos >= 0 && node.end >= 0
+        ) {
+            // Lexical resolution: a plain class shadowing a mixin name in a nearer scope
+            // makes `X.mix` an ordinary (failing) property access, not a manual application.
+            // A QUALIFIED base (`lib.Logger.mix`) resolves by its dotted text.
+            const ref = tsInstance.isIdentifier(node.expression)
+                ? resolveLexicalMixinRef(tsInstance, node.expression, node.expression.text, context)
+                : dottedTextRef(tsInstance, node.expression, context)
+
+            if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
+                context.nativeDiagnostics.push(nativeDiagnosticOn(
+                    tsInstance, sourceFile, node,
+                    mixinDiagnosticCode.MixinManualApplication,
+                    manualMixinApplicationMessage(ref)
+                ))
+            }
+        }
+
+        tsInstance.forEachChild(node, visit)
+    }
+
+    tsInstance.forEachChild(sourceFile, visit)
+}
+
+// The by-name ref of an all-identifier dotted expression (`lib.Logger`), for the ban scan.
+function dottedTextRef(
+    tsInstance: TypeScript,
+    expression: ts.Expression,
+    context: FileMixinContext
+): ResolvedMixinRef | undefined {
+    if (!tsInstance.isPropertyAccessExpression(expression)) {
+        return undefined
+    }
+
+    const dotted = dottedExpressionText(tsInstance, expression)
+
+    return dotted === undefined ? undefined : context.byLocalName.get(dotted)
+}
+
+// Program-local: declared in THIS file, or registered from another PROGRAM source
+// file. A mixin resolved from a `.d.ts` (an external package consumed through its
+// declarations) is not program-local — its `.mix` is the supported application path.
+function isProgramLocalMixinRef(ref: ResolvedMixinRef, context: FileMixinContext): boolean {
+    if (ref.declaration !== undefined) {
+        return true
+    }
+
+    const registered = context.crossFile?.registry.get(ref.key)
+
+    return registered !== undefined && !isDeclarationFileName(registered.fileName)
+}
+
+function manualMixinApplicationMessage(ref: ResolvedMixinRef): string {
+    return "Manual mixin application inside a transformer program. " +
+        `${ref.className}.mix(...) is reserved for external (non-transformer) consumers of this ` +
+        "package's emitted declarations; in this program the transformer composes mixins from the " +
+        `class heritage. Fix: declare 'class X extends YourBase implements ${ref.className}' ` +
+        `(or just 'implements ${ref.className}' for a base-less class) instead of extending ` +
+        `${ref.className}.mix(...).`
 }

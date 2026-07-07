@@ -1,8 +1,5 @@
 import type * as ts from "typescript"
-import {
-    generatedTextRange,
-    preserveTextRange
-} from "./util.js"
+import { generatedTextRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 
 export function addSyntheticSuperCallToConstructors(

@@ -78,21 +78,13 @@ private fields are intentionally nominal and class-local, which makes them a poo
 this kind of composition. Use ordinary members inside mixins, or keep private state in a
 non-mixin base class.
 
-### 2. Mixin members need explicit type annotations
-
-Mixin class properties, methods, accessors, and method parameters need explicit TypeScript
-type annotations. The transformer has to generate interface members and declaration output
-before relying on inferred implementation details. In ordinary classes TypeScript can infer
-public member types from initializers and method bodies, but mixins need a stable AST-level
-public surface that can be copied into generated declarations.
-
-### 3. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
+### 2. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
 
 A dynamic base would need to be evaluated exactly once, stored in a generated runtime
 constant, represented on both the instance and static sides, and emitted correctly in `.d.ts`
 files. Use a named base class for now.
 
-### 4. A mixin that violates its `implements` contract is flagged twice in the editor
+### 3. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)
 reports the error twice — once on the mixin declaration and once at each *use site* where the

@@ -401,7 +401,8 @@ Violating any of these produces confusing tsserver errors or crashes.
     - **`this`-typed accessors fall back to a PROPERTY signature in the generated interface**
       (`containsThisType` in `interface-members.ts`): a `this` type anywhere inside an
       INTERFACE accessor's annotation crashes plain TypeScript 6.0's checker (a regression —
-      5.9.3 clean; 6.0.3 and nightly crash; TODO.md "Upstream"). Narrowing at the consumer is
+      5.9.3 clean; 6.0.3 and nightly crash; reported upstream as
+      https://github.com/microsoft/TypeScript/issues/63619). Narrowing at the consumer is
       identical through the property form. Remove the fallback when the pinned TS ships a fix.
     - **The factory's runtime class is a named DECLARATION, not a class expression**
       (`class __X$class extends base { … } return __X$class` in
@@ -434,6 +435,12 @@ Violating any of these produces confusing tsserver errors or crashes.
       only on a class/interface/type alias. The generated interface keeps them (the class
       carrying the user's annotations is erased in emit, so the interface is their surviving
       carrier). `stripVarianceAnnotations` in `util.ts`; guard: `mixin-variance-annotations.t.ts`.
+    - **Mixin members need explicit type annotations** (properties, methods, accessors, method
+      parameters) — enforced by `collectMixinClassDiagnostics` (TS990004 family) and stated in
+      the README. The reason is architectural: the transformer builds the generated interface
+      members and declaration output from the AST alone (`buildInterfaceMembers`), before any
+      checker exists to infer member types from initializers or bodies — a mixin needs a
+      stable AST-level public surface that can be copied into generated declarations.
     - **The ONE reserved static on a `@mixin` is `mix`** — a user `static mix` is rejected in
       `collectMixinClassDiagnostics` (TS990004 family, both planes). The check must skip
       position-less members (`member.pos >= 0`): the source-view path can RE-transform a class
@@ -443,9 +450,10 @@ Violating any of these produces confusing tsserver errors or crashes.
       factory (`hasStaticNew`, checked in BOTH `createConstructionMembers` and
       `createMixinConstructionNewType`) and on a construction MIXIN also lifts the
       direct-`new` brand (`brandConstructionBase` excludes `hasStaticNew` — the emit value cast
-      falls back to the permissive `MixinClassValue` form, and the planes must agree). Known
-      emit gap: `super.new` inside a mixin's own static (TODO.md "Required-base statics inside
-      a mixin's own static"). The consumer statics bag is
+      falls back to the permissive `MixinClassValue` form, and the planes must agree).
+      `super.new` (and required-base / dependency statics generally) inside a mixin's own
+      static works on both planes — a former emit gap, closed and guarded by
+      `mixin-static-super.t.ts`. The consumer statics bag is
       `Omit<typeof M, "prototype" | "new" | "mix">` — `mix` is excluded like `new` (it lives on
       mixin VALUES only, never on consumers at runtime; carrying it was a type lie and made a
       user `static mix` a TS2417 override conflict).

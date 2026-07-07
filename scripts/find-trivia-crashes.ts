@@ -86,11 +86,15 @@ function firstStrandedGap(node: ts.Node, sourceFile: ts.SourceFile): { text: str
         }
     }
 
-    ts.forEachChild(node, (child) => {
-        consider(child.pos, child.end)
-    }, (children) => {
-        consider(children.pos, children.end)
-    })
+    ts.forEachChild(
+        node,
+        (child) => {
+            consider(child.pos, child.end)
+        },
+        (children) => {
+            consider(children.pos, children.end)
+        }
+    )
 
     return stranded ?? strandedIdentifier(text, pos, node.end)
 }

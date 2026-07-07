@@ -72,8 +72,11 @@ it("preserves the C3 order of a nontrivial diamond through compile-and-run", asy
         const run = await runCommand("node", [ path.join(fixture.directory, "dist", "consumer.js") ], fixture.directory)
 
         t.isStrict(run.exitCode, 0, `Emitted consumer runs:\n${commandOutput(run)}`)
-        t.match(run.stdout, "RESULT:Consumer>D>B>C>E>A",
-            `Assembled chain follows C3 order (E interleaved between C and A):\n${run.stdout}`)
+        t.match(
+            run.stdout,
+            "RESULT:Consumer>D>B>C>E>A",
+            `Assembled chain follows C3 order (E interleaved between C and A):\n${run.stdout}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -180,8 +183,11 @@ it("preserves the C3 order of a cross-file nontrivial diamond (compile-and-run, 
         const run = await runCommand("node", [ path.join(fixture.directory, "dist", "consumer.js") ], fixture.directory)
 
         t.isStrict(run.exitCode, 0, `Emitted cross-file consumer runs (default-on cross-check passes):\n${commandOutput(run)}`)
-        t.match(run.stdout, "RESULT:Consumer>D>B>C>E>A",
-            `Cross-file chain follows C3 order (E interleaved between C and A):\n${run.stdout}`)
+        t.match(
+            run.stdout,
+            "RESULT:Consumer>D>B>C>E>A",
+            `Cross-file chain follows C3 order (E interleaved between C and A):\n${run.stdout}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -231,12 +237,16 @@ async function buildDeclarationPackage(
         return [
             {
                 fileName : `node_modules/${packageName}/package.json`,
-                text     : JSON.stringify({
-                    name    : packageName,
-                    version : "0.0.0",
-                    type    : "module",
-                    exports : exportsMap
-                }, null, 4)
+                text     : JSON.stringify(
+                    {
+                        name    : packageName,
+                        version : "0.0.0",
+                        type    : "module",
+                        exports : exportsMap
+                    },
+                    null,
+                    4
+                )
             },
             ...emitted
         ]
@@ -273,10 +283,13 @@ it("preserves the C3 order of a cross-package nontrivial diamond (compile-and-ru
         }
     ])
 
-    const midPackage = await buildDeclarationPackage(t, "diamond-mid", [
-        {
-            fileName : "mid.ts",
-            text     : `
+    const midPackage = await buildDeclarationPackage(
+        t,
+        "diamond-mid",
+        [
+            {
+                fileName : "mid.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { A } from "diamond-leaf/leaf"
 
@@ -295,13 +308,18 @@ it("preserves the C3 order of a cross-package nontrivial diamond (compile-and-ru
                     who(): string { return "E>" + super.who() }
                 }
             `
-        }
-    ], leafPackage)
+            }
+        ],
+        leafPackage
+    )
 
-    const topPackage = await buildDeclarationPackage(t, "diamond-top", [
-        {
-            fileName : "top.ts",
-            text     : `
+    const topPackage = await buildDeclarationPackage(
+        t,
+        "diamond-top",
+        [
+            {
+                fileName : "top.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { B, C } from "diamond-mid/mid"
 
@@ -310,8 +328,10 @@ it("preserves the C3 order of a cross-package nontrivial diamond (compile-and-ru
                     who(): string { return "D>" + super.who() }
                 }
             `
-        }
-    ], [ ...midPackage, ...leafPackage ])
+            }
+        ],
+        [ ...midPackage, ...leafPackage ]
+    )
 
     const consumerText = `
         import { D } from "diamond-top/top"
@@ -337,10 +357,16 @@ it("preserves the C3 order of a cross-package nontrivial diamond (compile-and-ru
 
         const run = await runCommand("node", [ path.join(fixture.directory, "dist", "consumer.js") ], fixture.directory)
 
-        t.isStrict(run.exitCode, 0,
-            `Emitted cross-package consumer runs (default-on cross-check passes):\n${commandOutput(run)}`)
-        t.match(run.stdout, "RESULT:Consumer>D>B>C>E>A",
-            `Cross-package chain follows C3 order (E interleaved between C and A):\n${run.stdout}`)
+        t.isStrict(
+            run.exitCode,
+            0,
+            `Emitted cross-package consumer runs (default-on cross-check passes):\n${commandOutput(run)}`
+        )
+        t.match(
+            run.stdout,
+            "RESULT:Consumer>D>B>C>E>A",
+            `Cross-package chain follows C3 order (E interleaved between C and A):\n${run.stdout}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -381,8 +407,11 @@ it("detects a nontrivial 3-cycle linearization conflict at compile time on both 
 
             t.ne(build.exitCode, 0, `A 3-cycle diamond must fail to compile (${mode}):\n${output}`)
             t.match(output, "TS990007", `... as the native C3 conflict diagnostic (${mode}):\n${output}`)
-            t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
-                `... with the C3 conflict message (${mode}):\n${output}`)
+            t.match(
+                output,
+                "Cannot linearize mixin classes with the C3 algorithm",
+                `... with the C3 conflict message (${mode}):\n${output}`
+            )
         }
     } finally {
         await fixture.dispose()
@@ -425,8 +454,11 @@ it("detects a mixin-only linearization conflict (no consumer) at compile time on
             const mode   = extraArgs.length === 0 ? "emit" : "--noEmit"
 
             t.ne(build.exitCode, 0, `A mixin-only 3-cycle must fail to compile (${mode}):\n${output}`)
-            t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
-                `... with the C3 conflict diagnostic (${mode}):\n${output}`)
+            t.match(
+                output,
+                "Cannot linearize mixin classes with the C3 algorithm",
+                `... with the C3 conflict diagnostic (${mode}):\n${output}`
+            )
         }
     } finally {
         await fixture.dispose()

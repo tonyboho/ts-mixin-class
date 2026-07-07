@@ -132,7 +132,10 @@ export function defineMixinClass(
 ): RuntimeMixinClassValue {
     const requirementList          = [ ...mixinRequirements ]
     const requirementLinearization = resolveRequirementLinearization(
-        name, requirementList, linearizationPlan, linearizationMode
+        name,
+        requirementList,
+        linearizationPlan,
+        linearizationMode
     )
     // Seed the mixin's own canonical (standalone, `new`-able) class from `Empty` when no required
     // base was given, so a base-less mixin instance descends from the library-owned `Empty` rather
@@ -205,7 +208,10 @@ export function mixinChainLinearized<Base extends AnyConstructor<any>>(
     linearizationMode?: LinearizationMode
 ): AnyConstructor<any> {
     const linearization = resolveRequirementLinearization(
-        "mixinChain", [ ...mixins ], linearizationPlan, linearizationMode
+        "mixinChain",
+        [ ...mixins ],
+        linearizationPlan,
+        linearizationMode
     )
 
     return applyRuntimeMixins(base, linearization.slice().reverse())

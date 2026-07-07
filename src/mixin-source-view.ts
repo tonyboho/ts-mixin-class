@@ -110,13 +110,17 @@ export function expandSourceViewMixinClass(
     const generatedHeritageTypeRange = extendsClause(tsInstance, declaration)?.types[0] ?? generatedHeritageRange
 
     if (dependencyHeritage.length === 0 && requiredBase === undefined) {
-        const metadataExtendsClause = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-            preserveTextRange(
-                tsInstance,
-                createSourceViewMixinMetadataBase(tsInstance, declaration, undefined, []),
-                generatedHeritageRange
-            )
-        ]), generatedHeritageRange)
+        const metadataExtendsClause = preserveTextRange(
+            tsInstance,
+            factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+                preserveTextRange(
+                    tsInstance,
+                    createSourceViewMixinMetadataBase(tsInstance, declaration, undefined, []),
+                    generatedHeritageRange
+                )
+            ]),
+            generatedHeritageRange
+        )
 
         return [ factory.updateClassDeclaration(
             declaration,
@@ -167,7 +171,14 @@ export function expandSourceViewMixinClass(
     // the with-constructor case unbranded (its `super()` stays valid); the EMIT plane still bans it
     // through the value cast, so a build (`tsc`) catches the stray `new` regardless.
     const isConstructionMixin = isConstructionBaseOptIn(
-        tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
+        tsInstance,
+        sourceFile,
+        requiredBase,
+        options,
+        facts,
+        new Set(),
+        context.crossFile,
+        baseImportMap
     )
     const hasOwnConstructor   = declaration.members.some((member) => tsInstance.isConstructorDeclaration(member))
     // A mixin with its OWN `static new` owns construction (the generated factory is suppressed —
@@ -262,29 +273,37 @@ export function expandSourceViewMixinClass(
         ]
     }
 
-    const baseInterface = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createInterfaceDeclaration(
-        undefined,
-        baseName,
-        baseTypeParameters(),
-        [ factory.createHeritageClause(
-            tsInstance.SyntaxKind.ExtendsKeyword,
-            [
-                ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
-                ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
-            ]
-        ) ],
-        needsProtocolInitialize ? [ constructionProtocolInitializeSignature(tsInstance) ] : []
-    ), declaration)
+    const baseInterface = preserveSourceViewGeneratedClassLikeRange(
+        tsInstance,
+        factory.createInterfaceDeclaration(
+            undefined,
+            baseName,
+            baseTypeParameters(),
+            [ factory.createHeritageClause(
+                tsInstance.SyntaxKind.ExtendsKeyword,
+                [
+                    ...(requiredBase === undefined ? [] : [ cloneExpressionWithTypeArguments(tsInstance, requiredBase) ]),
+                    ...reducedDependencyHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
+                ]
+            ) ],
+            needsProtocolInitialize ? [ constructionProtocolInitializeSignature(tsInstance) ] : []
+        ),
+        declaration
+    )
 
-    const baseClass = preserveSourceViewGeneratedClassLikeRange(tsInstance, factory.createClassDeclaration(
-        undefined,
-        baseName,
-        baseTypeParameters(),
-        [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-            createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
-        ]) ],
-        []
-    ), declaration)
+    const baseClass = preserveSourceViewGeneratedClassLikeRange(
+        tsInstance,
+        factory.createClassDeclaration(
+            undefined,
+            baseName,
+            baseTypeParameters(),
+            [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+                createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
+            ]) ],
+            []
+        ),
+        declaration
+    )
 
     const updatedDeclaration = factory.updateClassDeclaration(
         declaration,
@@ -465,9 +484,12 @@ export function createMixinDecorateCallback(
         [ valueParameter ],
         undefined,
         undefined,
-        factory.createBlock([
-            decoratedClass,
-            factory.createReturnStatement(factory.createIdentifier(ref.className))
-        ], true)
+        factory.createBlock(
+            [
+                decoratedClass,
+                factory.createReturnStatement(factory.createIdentifier(ref.className))
+            ],
+            true
+        )
     )
 }

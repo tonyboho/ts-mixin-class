@@ -59,7 +59,14 @@ export function createConstructionMembers(
         !(
             requiredBaseIsConstructionBase ||
             isConstructionBaseOptIn(
-                tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, new Set(), crossFile, baseImportMap
+                tsInstance,
+                sourceFile,
+                extendsType ?? implicitRequiredBase,
+                options,
+                facts,
+                new Set(),
+                crossFile,
+                baseImportMap
             )
         )
     ) {
@@ -163,22 +170,25 @@ export function createConstructionMembers(
         }))
 
     const members = [
-        finishMember(factory.createMethodDeclaration(
-            staticModifier,
-            undefined,
-            "new",
-            undefined,
-            constructionTypeParameters,
-            [ factory.createParameterDeclaration(
+        finishMember(
+            factory.createMethodDeclaration(
+                staticModifier,
                 undefined,
+                "new",
                 undefined,
-                "props",
-                config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                configReference
-            ) ],
-            consumerType,
-            undefined
-        ), 0),
+                constructionTypeParameters,
+                [ factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    "props",
+                    config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
+                    configReference
+                ) ],
+                consumerType,
+                undefined
+            ),
+            0
+        ),
         // The implementation overload (never visible to callers; the typed overload above is
         // what they resolve to). Its parameter MUST stay `any`, not `unknown`: the body
         // forwards `props` to `super.new(props)`, and in a construction *subclass* `super.new`
@@ -186,35 +196,41 @@ export function createConstructionMembers(
         // assignable to an arbitrary parent config (contravariantly); `unknown` is rejected
         // (TS2345). The return type is `unknown` (better than `any`): callers never see it,
         // and the body's `super.new(props)` (typed `Base`) is assignable to `unknown`.
-        finishMember(factory.createMethodDeclaration(
-            staticModifier,
-            undefined,
-            "new",
-            undefined,
-            undefined,
-            [ factory.createParameterDeclaration(
+        finishMember(
+            factory.createMethodDeclaration(
+                staticModifier,
+                undefined,
+                "new",
                 undefined,
                 undefined,
-                "props",
-                factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-                factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
-            ) ],
-            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
-            factory.createBlock([
-                // Marker for the JS-emit strip transformer (see `generatedStaticNewMarker`).
-                factory.createExpressionStatement(
-                    factory.createVoidExpression(factory.createStringLiteral(generatedStaticNewMarker))
-                ),
-                factory.createReturnStatement(factory.createCallExpression(
-                    factory.createPropertyAccessExpression(
-                        factory.createSuper(),
-                        "new"
-                    ),
+                [ factory.createParameterDeclaration(
                     undefined,
-                    [ factory.createIdentifier("props") ]
-                ))
-            ], true)
-        ), 1)
+                    undefined,
+                    "props",
+                    factory.createToken(tsInstance.SyntaxKind.QuestionToken),
+                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                ) ],
+                factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword),
+                factory.createBlock(
+                    [
+                        // Marker for the JS-emit strip transformer (see `generatedStaticNewMarker`).
+                        factory.createExpressionStatement(
+                            factory.createVoidExpression(factory.createStringLiteral(generatedStaticNewMarker))
+                        ),
+                        factory.createReturnStatement(factory.createCallExpression(
+                            factory.createPropertyAccessExpression(
+                                factory.createSuper(),
+                                "new"
+                            ),
+                            undefined,
+                            [ factory.createIdentifier("props") ]
+                        ))
+                    ],
+                    true
+                )
+            ),
+            1
+        )
     ]
 
     return { members, configAlias }
@@ -283,7 +299,16 @@ export function createMixinConstructionNewType(
 
     const factory = tsInstance.factory
     const config  = createConstructionConfig(
-        tsInstance, sourceFile, declaration, extendsType, undefined, mixinRefs, options, facts, crossFile, baseImportMap
+        tsInstance,
+        sourceFile,
+        declaration,
+        extendsType,
+        undefined,
+        mixinRefs,
+        options,
+        facts,
+        crossFile,
+        baseImportMap
     )
     // A construction-base mixin is just a class for config purposes, so it gets the
     // same exported `<MixinName>Config` alias - emitted in both the value-cast (emit)
@@ -393,7 +418,8 @@ function createConstructionConfig(
 
     // Explicit accessor members are always optional, so they never force a required param.
     const parts = ([ requiredType, optionalType, explicitType ] as Array<ts.TypeNode | undefined>).filter(
-        (part): part is ts.TypeNode => part !== undefined)
+        (part): part is ts.TypeNode => part !== undefined
+    )
 
     if (parts.length === 0) {
         return {

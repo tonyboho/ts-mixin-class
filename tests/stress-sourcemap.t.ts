@@ -528,56 +528,59 @@ it("seeded corpus perturbations keep the per-file invariants", (t: Test) => {
     let checkedIterations = 0
     let failure: string | undefined
 
-    const iterations = runWithinBudget(() => {
-        if (failure !== undefined) {
-            return
-        }
+    const iterations = runWithinBudget(
+        () => {
+            if (failure !== undefined) {
+                return
+            }
 
-        const fileName = random.pick(rootNames)
-        const text     = diskTextOf(fileName)
+            const fileName = random.pick(rootNames)
+            const text     = diskTextOf(fileName)
 
-        if (text === undefined) {
-            return
-        }
+            if (text === undefined) {
+                return
+            }
 
-        const parsed  = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-        const offsets = collectIdentifierOffsets(parsed)
+            const parsed  = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+            const offsets = collectIdentifierOffsets(parsed)
 
-        if (offsets.length === 0) {
-            return
-        }
+            if (offsets.length === 0) {
+                return
+            }
 
-        const offset        = random.pick(offsets)
-        const perturbedText = `${text.slice(0, offset)}Zq9${text.slice(offset)}`
-        const host          = createCachingHost(compilerOptions, fileName, perturbedText)
-        const program       = buildTransformedProgram(compilerOptions, host)
-        const target        = program.getSourceFile(fileName)
+            const offset        = random.pick(offsets)
+            const perturbedText = `${text.slice(0, offset)}Zq9${text.slice(offset)}`
+            const host          = createCachingHost(compilerOptions, fileName, perturbedText)
+            const program       = buildTransformedProgram(compilerOptions, host)
+            const target        = program.getSourceFile(fileName)
 
-        if (target === undefined) {
-            failure = `seed=${seed}: ${path.basename(fileName)} disappeared from the program after perturbation at offset ${offset}`
-            return
-        }
+            if (target === undefined) {
+                failure = `seed=${seed}: ${path.basename(fileName)} disappeared from the program after perturbation at offset ${offset}`
+                return
+            }
 
-        const outputs = emitToMemory(program, target)
-        const scan    = scanMaps(outputs, (scannedFileName) => {
-            return scannedFileName === fileName ? perturbedText : diskTextOf(scannedFileName)
-        })
+            const outputs = emitToMemory(program, target)
+            const scan    = scanMaps(outputs, (scannedFileName) => {
+                return scannedFileName === fileName ? perturbedText : diskTextOf(scannedFileName)
+            })
 
-        const boundsOffenders    = scan.boundsOffenders
-        const agreementOffenders = filteredAgreementOffenders(scan, baseline.toleratedWords)
-        const problems           = [
-            ...boundsOffenders.map((offender) => `bounds: ${offender}`),
-            ...agreementOffenders.map((offender) => `agreement: ${offender}`),
-            ...scan.coverageOffenders.map((offender) => `coverage: ${offender}`)
-        ]
+            const boundsOffenders    = scan.boundsOffenders
+            const agreementOffenders = filteredAgreementOffenders(scan, baseline.toleratedWords)
+            const problems           = [
+                ...boundsOffenders.map((offender) => `bounds: ${offender}`),
+                ...agreementOffenders.map((offender) => `agreement: ${offender}`),
+                ...scan.coverageOffenders.map((offender) => `coverage: ${offender}`)
+            ]
 
-        if (problems.length > 0) {
-            failure = `seed=${seed}: perturbing ${path.basename(fileName)} at offset ${offset} broke the invariants:\n` +
-                problems.slice(0, 10).join("\n")
-        }
+            if (problems.length > 0) {
+                failure = `seed=${seed}: perturbing ${path.basename(fileName)} at offset ${offset} broke the invariants:\n` +
+                    problems.slice(0, 10).join("\n")
+            }
 
-        checkedIterations += 1
-    }, resolveStressBudget())
+            checkedIterations += 1
+        },
+        resolveStressBudget()
+    )
 
     t.true(failure === undefined, failure ?? `seed=${seed}: ${checkedIterations}/${iterations} perturbations kept all invariants`)
     t.isGreater(checkedIterations, 0, `seed=${seed}: the perturbation pass exercised at least one edit`)

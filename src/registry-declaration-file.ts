@@ -285,20 +285,21 @@ function interfaceConfigProperties(
         return []
     }
 
-    return uniqueConfigProperties(declaration.members
-        .filter((member): member is ts.PropertySignature => {
-            return tsInstance.isPropertySignature(member) && member.name !== undefined
-        })
-        .flatMap((member) => {
-            const name = propertyNameText(tsInstance, member.name)
+    return uniqueConfigProperties(
+        declaration.members
+            .filter((member): member is ts.PropertySignature => {
+                return tsInstance.isPropertySignature(member) && member.name !== undefined
+            })
+            .flatMap((member) => {
+                const name = propertyNameText(tsInstance, member.name)
 
-            return name === undefined
-                ? []
-                : [ {
-                    name,
-                    optional : member.questionToken !== undefined
-                } ]
-        })
+                return name === undefined
+                    ? []
+                    : [ {
+                        name,
+                        optional : member.questionToken !== undefined
+                    } ]
+            })
     )
 }
 

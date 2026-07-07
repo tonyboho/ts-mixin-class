@@ -56,11 +56,17 @@ it("includes a settable accessor in the construction config", async (t: Test) =>
     const emitResult       = await buildConstructionSource(settableAccessorConfigText, undefined)
     const sourceViewResult = await buildConstructionSource(settableAccessorConfigText, { noEmit: true })
 
-    t.equal(emitResult.exitCode, 0,
-        `A settable accessor should be accepted by .new config (emit).\n${commandOutput(emitResult)}`)
+    t.equal(
+        emitResult.exitCode,
+        0,
+        `A settable accessor should be accepted by .new config (emit).\n${commandOutput(emitResult)}`
+    )
 
-    t.equal(sourceViewResult.exitCode, 0,
-        `A settable accessor should be accepted by .new config (source-view).\n${commandOutput(sourceViewResult)}`)
+    t.equal(
+        sourceViewResult.exitCode,
+        0,
+        `A settable accessor should be accepted by .new config (source-view).\n${commandOutput(sourceViewResult)}`
+    )
 })
 
 // SPEC (§7.5c): a settable accessor is included in `.new` config "typed by the SETTER's
@@ -106,10 +112,16 @@ it("types a split get/set accessor in .new config by the setter parameter type",
     const emit       = await buildConstructionSource(splitAccessorText, undefined)
     const sourceView = await buildConstructionSource(splitAccessorText, { noEmit: true })
 
-    t.equal(emit.exitCode, 0,
-        `.new should accept a setter-valid value for a split get/set accessor (emit).\n${commandOutput(emit)}`)
-    t.equal(sourceView.exitCode, 0,
-        `.new should accept a setter-valid value for a split get/set accessor (source-view).\n${commandOutput(sourceView)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `.new should accept a setter-valid value for a split get/set accessor (emit).\n${commandOutput(emit)}`
+    )
+    t.equal(
+        sourceView.exitCode,
+        0,
+        `.new should accept a setter-valid value for a split get/set accessor (source-view).\n${commandOutput(sourceView)}`
+    )
 })
 
 // §7.5e: §7.5c established that a construction class's OWN public settable accessor is part
@@ -183,17 +195,26 @@ it("aggregates a mixin's settable accessor into the consumer's .new config", asy
     const emit       = await buildConstructionSource(mixinAccessorText, undefined)
     const sourceView = await buildConstructionSource(mixinAccessorText, { noEmit: true })
 
-    t.equal(emit.exitCode, 0,
-        `A mixin's settable accessor is part of the consumer's .new config (emit).\n${commandOutput(emit)}`)
-    t.equal(sourceView.exitCode, 0,
-        `A mixin's settable accessor is part of the consumer's .new config (source-view).\n${commandOutput(sourceView)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `A mixin's settable accessor is part of the consumer's .new config (emit).\n${commandOutput(emit)}`
+    )
+    t.equal(
+        sourceView.exitCode,
+        0,
+        `A mixin's settable accessor is part of the consumer's .new config (source-view).\n${commandOutput(sourceView)}`
+    )
 
     const dts = await readConstructionConfigDts(mixinAccessorInspectionText)
 
     // The mixin's settable accessor is emitted as an explicit `label?: string` config
     // member (typed by the setter), not folded into the data-field `Pick<...>`.
-    t.match(dts, "label?: string",
-        `the consumer config alias carries the mixin's settable accessor.\n--- source.d.ts ---\n${dts}`)
+    t.match(
+        dts,
+        "label?: string",
+        `the consumer config alias carries the mixin's settable accessor.\n--- source.d.ts ---\n${dts}`
+    )
 })
 
 // §7.5d × §7.5e × §6: a MIXIN's GENERIC settable accessor whose getter and setter types
@@ -294,22 +315,34 @@ it("types a mixin's generic split accessor in the consumer's .new config by the 
     const emit       = await buildConstructionSource(genericAccessorText, undefined)
     const sourceView = await buildConstructionSource(genericAccessorText, { noEmit: true })
 
-    t.equal(emit.exitCode, 0,
-        `A mixin's generic split accessor flows into the consumer .new config typed by the setter (emit).\n${commandOutput(emit)}`)
-    t.equal(sourceView.exitCode, 0,
-        `A mixin's generic split accessor flows into the consumer .new config typed by the setter (source-view).\n${commandOutput(sourceView)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `A mixin's generic split accessor flows into the consumer .new config typed by the setter (emit).\n${commandOutput(emit)}`
+    )
+    t.equal(
+        sourceView.exitCode,
+        0,
+        `A mixin's generic split accessor flows into the consumer .new config typed by the setter (source-view).\n${commandOutput(sourceView)}`
+    )
 
     const dts = await readConstructionConfigDts(genericAccessorInspectionText)
 
     // The setter type `T | string` is substituted to the consumer's argument: `number | string`.
-    t.match(dts, "value?: number | string",
-        `the consumer config alias types the mixin's generic split accessor by the substituted setter type.\n--- source.d.ts ---\n${dts}`)
+    t.match(
+        dts,
+        "value?: number | string",
+        `the consumer config alias types the mixin's generic split accessor by the substituted setter type.\n--- source.d.ts ---\n${dts}`
+    )
 })
 
 it("forwards the consumer's own type parameter into the mixin's generic split accessor config", async (t: Test) => {
     const dts = await readConstructionConfigDts(forwardingInspectionText)
 
     // The mixin's `T` is substituted to the consumer's forwarded `U`, in scope in `BoxConfig<U>`.
-    t.match(dts, "value?: U | string",
-        `the generic consumer config alias forwards its own type parameter into the accessor type.\n--- source.d.ts ---\n${dts}`)
+    t.match(
+        dts,
+        "value?: U | string",
+        `the generic consumer config alias forwards its own type parameter into the accessor type.\n--- source.d.ts ---\n${dts}`
+    )
 })

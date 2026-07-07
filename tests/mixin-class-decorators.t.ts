@@ -103,9 +103,11 @@ it("a STANDARD user decorator on a @mixin runs ONCE on the value the user holds"
     const { emit, run } = await buildAndRun(source, false)
 
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
-    t.equal(run?.stdout.trim(),
+    t.equal(
+        run?.stdout.trim(),
         JSON.stringify({ seen: [ "class:Widget" ], standalone: "w", consumer: "w", branded: true, named: "Widget" }),
-        `the decorator ran once, with the real kind/name; the mixin still works.\n${run === undefined ? "" : commandOutput(run)}`)
+        `the decorator ran once, with the real kind/name; the mixin still works.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true })
 
@@ -140,8 +142,11 @@ it("MULTIPLE standard decorators apply bottom-up, around the @mixin marker, in s
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
     // TC39: application order is bottom-up — "below" first, then "above"; @mixin itself is
     // excluded, the user decorators keep their relative order.
-    t.equal(run?.stdout.trim(), JSON.stringify({ applied: [ "below", "above" ], works: "w" }),
-        `both user decorators applied bottom-up.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        JSON.stringify({ applied: [ "below", "above" ], works: "w" }),
+        `both user decorators applied bottom-up.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 })
 
 it("a standard decorator's addInitializer runs against the final class", async (t: Test) => {
@@ -169,8 +174,11 @@ it("a standard decorator's addInitializer runs against the final class", async (
     const { emit, run } = await buildAndRun(source, false)
 
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
-    t.equal(run?.stdout.trim(), JSON.stringify({ initialized: [ "Widget" ], works: "w" }),
-        `the extra initializer ran with this = the final class.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        JSON.stringify({ initialized: [ "Widget" ], works: "w" }),
+        `the extra initializer ran with this = the final class.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 })
 
 it("a standard REPLACEMENT decorator rebinds the value; consumers keep composing", async (t: Test) => {
@@ -211,8 +219,11 @@ it("a standard REPLACEMENT decorator rebinds the value; consumers keep composing
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
     // The replacement affects the VALUE (standalone construction); consumers compose through
     // the factory — they do not see `extra`, but stay branded and functional.
-    t.equal(run?.stdout.trim(), JSON.stringify({ extra: "extra", consumer: "w", branded: true }),
-        `the replacement class is what the user holds.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        JSON.stringify({ extra: "extra", consumer: "w", branded: true }),
+        `the replacement class is what the user holds.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 })
 
 it("LEGACY user decorators on a @mixin: once, bottom-up, replacement supported", async (t: Test) => {
@@ -260,8 +271,11 @@ it("LEGACY user decorators on a @mixin: once, bottom-up, replacement supported",
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
     // Bottom-up: tag("below") sees the canonical "Widget"; fancy replaces it; tag("above")
     // sees the (anonymous, extends-Widget) replacement.
-    t.equal(run?.stdout.trim(), JSON.stringify({ applied: [ "below:Widget", "above:" ], extra: "extra", consumer: "w" }),
-        `legacy decorators fold bottom-up over the value.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        JSON.stringify({ applied: [ "below:Widget", "above:" ], extra: "extra", consumer: "w" }),
+        `legacy decorators fold bottom-up over the value.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true }, true)
 
@@ -316,9 +330,11 @@ it("a decorated mixin in a NESTED scope (function body + plain block) decorates 
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
     // The block runs once (its statements execute before the console.log call evaluates
     // `scope()` twice), so the application order is Blocky, Local, Local.
-    t.equal(run?.stdout.trim(),
+    t.equal(
+        run?.stdout.trim(),
         JSON.stringify({ first: "local", second: "local", blockLabel: "blocky", seen: [ "Blocky", "Local", "Local" ] }),
-        `the nested mixins' decorators run once per enclosing run (the documented per-call cost).\n${run === undefined ? "" : commandOutput(run)}`)
+        `the nested mixins' decorators run once per enclosing run (the documented per-call cost).\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true })
 
@@ -354,8 +370,11 @@ it("a decorated mixin in a NESTED scope, LEGACY mode", async (t: Test) => {
     const { emit, run } = await buildAndRun(source, true)
 
     t.equal(emit.exitCode, 0, `emit compiles.\n${commandOutput(emit)}`)
-    t.equal(run?.stdout.trim(), JSON.stringify({ first: "local", second: "local", seen: [ "Local", "Local" ] }),
-        `the legacy fold runs per enclosing call, on the named value.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        JSON.stringify({ first: "local", second: "local", seen: [ "Local", "Local" ] }),
+        `the legacy fold runs per enclosing call, on the named value.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true }, true)
 

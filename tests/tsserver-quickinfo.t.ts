@@ -162,8 +162,11 @@ it("tsserver quickinfo reports construction base class declarations", async (t: 
             )
         )
 
-        t.match(quickInfo.displayString ?? "", "class ConstructableBase",
-            "QuickInfo reports the source construction base class declaration")
+        t.match(
+            quickInfo.displayString ?? "",
+            "class ConstructableBase",
+            "QuickInfo reports the source construction base class declaration"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -203,8 +206,11 @@ it("tsserver quickinfo reports mixin consumer class declarations", async (t: Tes
             )
         )
 
-        t.match(quickInfo.displayString ?? "", "class ConstructableConsumer",
-            "QuickInfo reports the source consumer class declaration")
+        t.match(
+            quickInfo.displayString ?? "",
+            "class ConstructableConsumer",
+            "QuickInfo reports the source consumer class declaration"
+        )
         t.equal(
             positionToIndex(constructionConsumerText, quickInfo.start),
             classNamePosition,
@@ -332,12 +338,21 @@ it("tsserver quickinfo does not crash on a construction-base mixin's class name"
             )
         )
 
-        t.match(quickInfo.displayString ?? "", "class Serializable",
-            "QuickInfo on a construction-base mixin name reports its class declaration instead of crashing")
-        t.equal(positionToIndex(constructionBaseMixinText, quickInfo.start), namePosition,
-            "QuickInfo highlight starts exactly at the mixin name")
-        t.equal(sourceSlice(constructionBaseMixinText, quickInfo), "Serializable",
-            "QuickInfo highlight covers exactly the mixin name")
+        t.match(
+            quickInfo.displayString ?? "",
+            "class Serializable",
+            "QuickInfo on a construction-base mixin name reports its class declaration instead of crashing"
+        )
+        t.equal(
+            positionToIndex(constructionBaseMixinText, quickInfo.start),
+            namePosition,
+            "QuickInfo highlight starts exactly at the mixin name"
+        )
+        t.equal(
+            sourceSlice(constructionBaseMixinText, quickInfo),
+            "Serializable",
+            "QuickInfo highlight covers exactly the mixin name"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -381,12 +396,21 @@ async function assertQuickInfoOnClassNameDoesNotCrash(
             )
         )
 
-        t.match(quickInfo.displayString ?? "", expectedDisplay,
-            `QuickInfo on ${className} reports its declaration instead of crashing`)
-        t.equal(positionToIndex(text, quickInfo.start), namePosition,
-            `QuickInfo highlight starts exactly at ${className}`)
-        t.equal(sourceSlice(text, quickInfo), className,
-            `QuickInfo highlight covers exactly ${className}`)
+        t.match(
+            quickInfo.displayString ?? "",
+            expectedDisplay,
+            `QuickInfo on ${className} reports its declaration instead of crashing`
+        )
+        t.equal(
+            positionToIndex(text, quickInfo.start),
+            namePosition,
+            `QuickInfo highlight starts exactly at ${className}`
+        )
+        t.equal(
+            sourceSlice(text, quickInfo),
+            className,
+            `QuickInfo highlight covers exactly ${className}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -503,12 +527,21 @@ it("tsserver quickinfo highlights exactly the consumer's second type parameter",
             )
         )
 
-        t.match(quickInfo.displayString ?? "", "(type parameter) A",
-            "QuickInfo on the second type parameter resolves to it, not the first")
-        t.equal(positionToIndex(genericConsumerTypeParametersText, quickInfo.start), paramPosition,
-            "QuickInfo highlight starts exactly at the second type parameter")
-        t.equal(sourceSlice(genericConsumerTypeParametersText, quickInfo), "A",
-            "QuickInfo highlight covers exactly the second type parameter")
+        t.match(
+            quickInfo.displayString ?? "",
+            "(type parameter) A",
+            "QuickInfo on the second type parameter resolves to it, not the first"
+        )
+        t.equal(
+            positionToIndex(genericConsumerTypeParametersText, quickInfo.start),
+            paramPosition,
+            "QuickInfo highlight starts exactly at the second type parameter"
+        )
+        t.equal(
+            sourceSlice(genericConsumerTypeParametersText, quickInfo),
+            "A",
+            "QuickInfo highlight covers exactly the second type parameter"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -556,10 +589,16 @@ it("tsserver quickinfo highlights exactly a mixin's source base type name", asyn
             )
         )
 
-        t.equal(positionToIndex(mixinExtendsMixinText, quickInfo.start), basePosition,
-            "QuickInfo highlight starts exactly at the source base type name")
-        t.equal(sourceSlice(mixinExtendsMixinText, quickInfo), "Animal",
-            "QuickInfo highlight covers exactly the source base type name")
+        t.equal(
+            positionToIndex(mixinExtendsMixinText, quickInfo.start),
+            basePosition,
+            "QuickInfo highlight starts exactly at the source base type name"
+        )
+        t.equal(
+            sourceSlice(mixinExtendsMixinText, quickInfo),
+            "Animal",
+            "QuickInfo highlight covers exactly the source base type name"
+        )
     } finally {
         await fixture.dispose()
     }

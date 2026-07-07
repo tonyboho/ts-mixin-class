@@ -54,12 +54,16 @@ async function buildDeclarationPackage(
         return [
             {
                 fileName : `node_modules/${packageName}/package.json`,
-                text     : JSON.stringify({
-                    name    : packageName,
-                    version : "0.0.0",
-                    type    : "module",
-                    exports : exportsMap
-                }, null, 4)
+                text     : JSON.stringify(
+                    {
+                        name    : packageName,
+                        version : "0.0.0",
+                        type    : "module",
+                        exports : exportsMap
+                    },
+                    null,
+                    4
+                )
             },
             ...emitted
         ]
@@ -149,8 +153,11 @@ it("regenerates construction members for an ordinary class extending an imported
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Ordinary cross-file Base descendant typechecks its regenerated new():\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Ordinary cross-file Base descendant typechecks its regenerated new():\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -189,12 +196,21 @@ it("reports a failing cross-file `.new(...)` call as a type error without crashi
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
         const output = commandOutput(result)
 
-        t.notMatch(output, "Debug Failure",
-            `A failing cross-file .new() must not crash the compiler:\n${output}`)
-        t.notMatch(output, "20809",
-            `A failing cross-file .new() must not trip the getErrorSpanForNode assertion:\n${output}`)
-        t.match(output, /error TS2345|error TS2554/,
-            `A failing cross-file .new() should report an ordinary argument type error:\n${output}`)
+        t.notMatch(
+            output,
+            "Debug Failure",
+            `A failing cross-file .new() must not crash the compiler:\n${output}`
+        )
+        t.notMatch(
+            output,
+            "20809",
+            `A failing cross-file .new() must not trip the getErrorSpanForNode assertion:\n${output}`
+        )
+        t.match(
+            output,
+            /error TS2345|error TS2554/,
+            `A failing cross-file .new() should report an ordinary argument type error:\n${output}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -229,8 +245,11 @@ it("regenerates construction members for a consumer of an imported Base-descenda
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Consumer of a cross-file Base-descendant mixin typechecks its new():\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Consumer of a cross-file Base-descendant mixin typechecks its new():\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -264,14 +283,20 @@ it("supports a consumer of an imported mixin that extends Base directly, includi
     try {
         const build = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(build.exitCode, 0,
-            `Consumer of a mixin that extends Base directly typechecks and emits:\n${commandOutput(build)}`)
+        t.isStrict(
+            build.exitCode,
+            0,
+            `Consumer of a mixin that extends Base directly typechecks and emits:\n${commandOutput(build)}`
+        )
 
         const run = await runCommand("node", [ path.join(fixture.directory, "dist", "consumer.js") ], fixture.directory)
 
         t.isStrict(run.exitCode, 0, `Emitted consumer runs:\n${commandOutput(run)}`)
-        t.match(run.stdout, `RESULT:${JSON.stringify({ a: 7, b: true, tag: "init:7" })}`,
-            "The mixin's initialize override (which calls super.initialize on Base) runs for the consumer")
+        t.match(
+            run.stdout,
+            `RESULT:${JSON.stringify({ a: 7, b: true, tag: "init:7" })}`,
+            "The mixin's initialize override (which calls super.initialize on Base) runs for the consumer"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -315,8 +340,11 @@ it("aggregates an imported construction consumer's mixin config when subclassed 
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Subclass of an imported construction consumer aggregates the base mixin's config field:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Subclass of an imported construction consumer aggregates the base mixin's config field:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -383,8 +411,11 @@ it("aggregates transitive mixin config for a consumer across three files", async
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Consumer aggregates transitive (two-hop) mixin config across three files:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Consumer aggregates transitive (two-hop) mixin config across three files:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -467,8 +498,11 @@ it("aggregates transitive registry mixin config when subclassing an imported bas
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Subclass aggregates transitive (two-hop) registry mixin config across four files:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Subclass aggregates transitive (two-hop) registry mixin config across four files:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -534,8 +568,11 @@ it("carries transitive construction config through a declaration (.d.ts) package
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Consumer of a declaration (.d.ts) construction package aggregates transitive mixin config:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Consumer of a declaration (.d.ts) construction package aggregates transitive mixin config:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -602,8 +639,11 @@ it("makes a consumer of a declaration (.d.ts) construction-base mixin constructi
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Consumer of a .d.ts construction-base mixin gets its own .new with aggregated config:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Consumer of a .d.ts construction-base mixin gets its own .new with aggregated config:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -655,8 +695,11 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
     try {
         const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
 
-        t.isStrict(result.exitCode, 0,
-            `Subclass of a .d.ts construction base gets its own .new with aggregated config:\n${commandOutput(result)}`)
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Subclass of a .d.ts construction base gets its own .new with aggregated config:\n${commandOutput(result)}`
+        )
     } finally {
         await fixture.dispose()
     }

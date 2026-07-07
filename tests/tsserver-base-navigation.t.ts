@@ -87,14 +87,21 @@ it("tsserver navigation on a base type in an extends clause reaches the base cla
             })
         )
 
-        t.true(definitions.some(landsOnDeclaration),
-            "Go-to-definition on the base name in `extends LocalBase` lands on `class LocalBase`")
+        t.true(
+            definitions.some(landsOnDeclaration),
+            "Go-to-definition on the base name in `extends LocalBase` lands on `class LocalBase`"
+        )
 
-        t.true(references.some(landsOnDeclaration),
-            "Find-all-references from the base name in `extends LocalBase` includes the `class LocalBase` declaration")
+        t.true(
+            references.some(landsOnDeclaration),
+            "Find-all-references from the base name in `extends LocalBase` includes the `class LocalBase` declaration"
+        )
 
-        t.equal(quickInfo.displayString, "class LocalBase",
-            "Quickinfo on the base name in `extends LocalBase` reports the base class, not the internal `$base`")
+        t.equal(
+            quickInfo.displayString,
+            "class LocalBase",
+            "Quickinfo on the base name in `extends LocalBase` reports the base class, not the internal `$base`"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -136,8 +143,11 @@ async function assertBaseNameNavigates(t: Test, options: {
                 })
             )
 
-            t.equal(diagnostics.map((diagnostic) => diagnostic.text ?? "").join("\n"), "",
-                "The consumer compiles with no IDE diagnostics")
+            t.equal(
+                diagnostics.map((diagnostic) => diagnostic.text ?? "").join("\n"),
+                "",
+                "The consumer compiles with no IDE diagnostics"
+            )
         }
 
         const definitions = assertResponseBody<DefinitionInfo[]>(
@@ -148,11 +158,13 @@ async function assertBaseNameNavigates(t: Test, options: {
             })
         )
 
-        t.true(definitions.some((definition) =>
-            (definition.file === undefined || definition.file === declFile) &&
-            definition.start.line === declPos.line &&
-            definition.start.offset === declPos.offset),
-        `Go-to-definition on the base name lands on its declaration\n${JSON.stringify(definitions)}`)
+        t.true(
+            definitions.some((definition) =>
+                (definition.file === undefined || definition.file === declFile) &&
+                definition.start.line === declPos.line &&
+                definition.start.offset === declPos.offset),
+            `Go-to-definition on the base name lands on its declaration\n${JSON.stringify(definitions)}`
+        )
 
         const quickInfo = assertResponseBody<QuickInfoBody>(
             t,
@@ -162,8 +174,11 @@ async function assertBaseNameNavigates(t: Test, options: {
             })
         )
 
-        t.match(quickInfo.displayString ?? "", options.displayString,
-            `Quickinfo on the base name reports the real base class\n${quickInfo.displayString}`)
+        t.match(
+            quickInfo.displayString ?? "",
+            options.displayString,
+            `Quickinfo on the base name reports the real base class\n${quickInfo.displayString}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -544,10 +559,14 @@ it("tsserver rename of a base class reaches both a non-generic and a generic con
         const nonGenericExtends = renameBaseBoundaryText.indexOf("extends LocalBase")
         const genericExtends    = renameBaseBoundaryText.indexOf("extends LocalBase", nonGenericExtends + 1)
 
-        t.true(coversBaseNameAt(nonGenericExtends),
-            "Rename reaches the non-generic consumer's `extends LocalBase` (navigable-base fast path)")
-        t.true(coversBaseNameAt(genericExtends),
-            "Rename reaches the generic consumer's `extends LocalBase` (navigable-base fast path, generic form)")
+        t.true(
+            coversBaseNameAt(nonGenericExtends),
+            "Rename reaches the non-generic consumer's `extends LocalBase` (navigable-base fast path)"
+        )
+        t.true(
+            coversBaseNameAt(genericExtends),
+            "Rename reaches the generic consumer's `extends LocalBase` (navigable-base fast path, generic form)"
+        )
     } finally {
         await fixture.dispose()
     }

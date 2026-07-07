@@ -43,8 +43,11 @@ const parameterPropertySource = trimIndent(`
 it("a public parameter property on a construction class is NOT a .new config key", async (t: Test) => {
     const result = await buildConstructionSource(parameterPropertySource)
 
-    t.equal(result.exitCode, 0,
-        `the config accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the config accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`
+    )
 })
 
 it("the generated <Class>Config carries only the declared field", async (t: Test) => {
@@ -52,6 +55,9 @@ it("the generated <Class>Config carries only the declared field", async (t: Test
 
     // The EXACT alias (not a substring of the whole .d.ts — the emitted
     // `constructor(tag?: string)` signature would false-match a loose pin).
-    t.match(dts, 'export type TicketConfig = Pick<Ticket, "name">',
-        `TicketConfig keys are exactly the declared members — no parameter property.\n${dts}`)
+    t.match(
+        dts,
+        'export type TicketConfig = Pick<Ticket, "name">',
+        `TicketConfig keys are exactly the declared members — no parameter property.\n${dts}`
+    )
 })

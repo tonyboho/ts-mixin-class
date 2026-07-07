@@ -347,7 +347,9 @@ it("reports method-shaped static collisions only in strict mode", async (t: Test
 })
 
 it("can disable static collision diagnostics", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
+    const transformedFile = transformSourceFile(
+        ts,
+        createSourceFile(`
         import { mixin } from "ts-mixin-class"
 
         @mixin()
@@ -364,9 +366,11 @@ it("can disable static collision diagnostics", async (t: Test) => {
         }
 
         void Consumer
-    `), {
-        staticCollisionCheck : false
-    })
+    `),
+        {
+            staticCollisionCheck : false
+        }
+    )
     const diagnostics     = typecheckText(printSourceFile(ts, transformedFile))
     const messages        = diagnostics.join("\n")
 

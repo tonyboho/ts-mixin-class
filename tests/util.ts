@@ -250,9 +250,10 @@ export function createSourceFile(fileNameOrText: string, maybeText?: string): ts
 
 export function trimIndent(text: string): string {
     const lines     = text.replace(/^\n/, "").replace(/\n\s*$/, "").split("\n")
-    const minIndent = Math.min(...lines
-        .filter((line) => line.trim() !== "")
-        .map((line) => line.match(/^\s*/)?.[0].length ?? 0)
+    const minIndent = Math.min(
+        ...lines
+            .filter((line) => line.trim() !== "")
+            .map((line) => line.match(/^\s*/)?.[0].length ?? 0)
     )
 
     return lines.map((line) => line.slice(minIndent)).join("\n")

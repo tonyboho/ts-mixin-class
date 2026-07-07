@@ -49,11 +49,17 @@ it("reports a diagnostic on the same source line in emit and source-view modes",
         const emitLine       = diagnosticLine(emitResult)
         const sourceViewLine = diagnosticLine(sourceViewResult)
 
-        t.equal(sourceViewLine, realSourceLine,
-            `source-view (--noEmit) should report TS2322 on the real source line ${realSourceLine}\n${commandOutput(sourceViewResult)}`)
+        t.equal(
+            sourceViewLine,
+            realSourceLine,
+            `source-view (--noEmit) should report TS2322 on the real source line ${realSourceLine}\n${commandOutput(sourceViewResult)}`
+        )
 
-        t.equal(emitLine, realSourceLine,
-            `emit (tsc) should report TS2322 on the real source line ${realSourceLine}, not a regenerated one\n${commandOutput(emitResult)}`)
+        t.equal(
+            emitLine,
+            realSourceLine,
+            `emit (tsc) should report TS2322 on the real source line ${realSourceLine}, not a regenerated one\n${commandOutput(emitResult)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -99,14 +105,23 @@ it("reports an incompatible override as TS2416 on the same source line in emit a
         const emitResult       = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile ], fixture.directory)
         const sourceViewResult = await runCommand("node", [ tsc, "-p", fixture.tsconfigFile, "--noEmit" ], fixture.directory)
 
-        t.equal(override2416Line(sourceViewResult), overrideConflictLine,
-            `source-view (--noEmit) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(sourceViewResult)}`)
+        t.equal(
+            override2416Line(sourceViewResult),
+            overrideConflictLine,
+            `source-view (--noEmit) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(sourceViewResult)}`
+        )
 
-        t.equal(override2416Line(emitResult), overrideConflictLine,
-            `emit (tsc) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(emitResult)}`)
+        t.equal(
+            override2416Line(emitResult),
+            overrideConflictLine,
+            `emit (tsc) should report TS2416 on the override line ${overrideConflictLine}\n${commandOutput(emitResult)}`
+        )
 
-        t.notMatch(commandOutput(sourceViewResult), "TS2430",
-            `source-view must not add a spurious TS2430 for the override conflict\n${commandOutput(sourceViewResult)}`)
+        t.notMatch(
+            commandOutput(sourceViewResult),
+            "TS2430",
+            `source-view must not add a spurious TS2430 for the override conflict\n${commandOutput(sourceViewResult)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -171,17 +186,29 @@ it("disables direct `new` on construction classes with a descriptive error in em
         for (const result of [ emitResult, sourceViewResult ]) {
             const output = commandOutput(result)
 
-            t.match(output, new RegExp(`source\\.ts\\(${badBareLine},\\d+\\): error TS2554`),
-                `bare \`new Model()\` should be TS2554 on line ${badBareLine}\n${output}`)
+            t.match(
+                output,
+                new RegExp(`source\\.ts\\(${badBareLine},\\d+\\): error TS2554`),
+                `bare \`new Model()\` should be TS2554 on line ${badBareLine}\n${output}`
+            )
 
-            t.match(output, new RegExp(`source\\.ts\\(${badConfigLine},\\d+\\): error TS2353`),
-                `\`new Widget({...})\` should be TS2353 on line ${badConfigLine}\n${output}`)
+            t.match(
+                output,
+                new RegExp(`source\\.ts\\(${badConfigLine},\\d+\\): error TS2353`),
+                `\`new Widget({...})\` should be TS2353 on line ${badConfigLine}\n${output}`
+            )
 
-            t.match(output, "construction runs through the generated static `new` factory",
-                `the TS2353 error should carry the descriptive guidance message\n${output}`)
+            t.match(
+                output,
+                "construction runs through the generated static `new` factory",
+                `the TS2353 error should carry the descriptive guidance message\n${output}`
+            )
 
-            t.notMatch(output, new RegExp(`source\\.ts\\(${okManualLine},`),
-                `a class with its own constructor keeps a working \`new\` (no error on line ${okManualLine})\n${output}`)
+            t.notMatch(
+                output,
+                new RegExp(`source\\.ts\\(${okManualLine},`),
+                `a class with its own constructor keeps a working \`new\` (no error on line ${okManualLine})\n${output}`
+            )
         }
     } finally {
         await fixture.dispose()

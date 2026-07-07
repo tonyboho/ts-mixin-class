@@ -51,16 +51,20 @@ async function createInterfaceFixture(scenario: Scenario): Promise<{ tsconfigFil
     await mkdir(directory, { recursive: true })
 
     await writeFile(sourceFile, interfaceSource(scenario))
-    await writeFile(tsconfigFile, JSON.stringify({
-        compilerOptions : {
-            module       : "ESNext",
-            noEmit       : true,
-            skipLibCheck : true,
-            strict       : true,
-            target       : "ES2022"
+    await writeFile(tsconfigFile, JSON.stringify(
+        {
+            compilerOptions : {
+                module       : "ESNext",
+                noEmit       : true,
+                skipLibCheck : true,
+                strict       : true,
+                target       : "ES2022"
+            },
+            files : [ "index.ts" ]
         },
-        files : [ "index.ts" ]
-    }, null, 4))
+        null,
+        4
+    ))
 
     return { tsconfigFile }
 }

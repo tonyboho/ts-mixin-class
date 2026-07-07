@@ -194,17 +194,19 @@ it("tsserver navigation on a consumer class name reaches its own declaration", a
 })
 
 function uniqueLocalSpanTexts(sourceFile: string, spans: Array<TextSpan & { file?: string }>): string[] {
-    return [ ...new Set(spans
-        .filter((span) => span.file === undefined || span.file === sourceFile)
-        .map((span) => sourceSlice(sourceText, span))
+    return [ ...new Set(
+        spans
+            .filter((span) => span.file === undefined || span.file === sourceFile)
+            .map((span) => sourceSlice(sourceText, span))
     ) ].sort()
 }
 
 function countLocalSpans(sourceFile: string, spans: Array<TextSpan & { file?: string }>, text: string): number {
-    const keys = new Set(spans
-        .filter((span) => span.file === undefined || span.file === sourceFile)
-        .filter((span) => sourceSlice(sourceText, span) === text)
-        .map((span) => `${span.start.line}:${span.start.offset}:${span.end.line}:${span.end.offset}`)
+    const keys = new Set(
+        spans
+            .filter((span) => span.file === undefined || span.file === sourceFile)
+            .filter((span) => sourceSlice(sourceText, span) === text)
+            .map((span) => `${span.start.line}:${span.start.offset}:${span.end.line}:${span.end.offset}`)
     )
 
     return keys.size

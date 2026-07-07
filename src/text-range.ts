@@ -277,15 +277,19 @@ export function collapseSubtreeTextRange(
 ): void {
     preserveTextRange(tsInstance, node, range)
 
-    tsInstance.forEachChild(node, (child) => {
-        collapseSubtreeTextRange(tsInstance, child, range)
-    }, (children) => {
-        tsInstance.setTextRange(children, range)
-
-        for (const child of children) {
+    tsInstance.forEachChild(
+        node,
+        (child) => {
             collapseSubtreeTextRange(tsInstance, child, range)
+        },
+        (children) => {
+            tsInstance.setTextRange(children, range)
+
+            for (const child of children) {
+                collapseSubtreeTextRange(tsInstance, child, range)
+            }
         }
-    })
+    )
 }
 
 function preserveGeneratedOriginalNodes(

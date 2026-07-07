@@ -325,8 +325,13 @@ it("the emitted .js.map composes back to exact original positions", async (t: Te
     // for the consumer that survives composition as the user's class header (the printed
     // header line maps the original one verbatim)...
     assertExactMapping(
-        t, "synthesized consumer constructor -> class header", decoded,
-        jsText, "constructor() {\n        super", sourceText, "class Consumer extends "
+        t,
+        "synthesized consumer constructor -> class header",
+        decoded,
+        jsText,
+        "constructor() {\n        super",
+        sourceText,
+        "class Consumer extends "
     )
     // ...while the mixin's INNER class header is generated (`class __Greeter$class`), so
     // the same convention would pin generated code to a user line — dropped instead.
@@ -350,21 +355,25 @@ it("an untouched file emits .js and .js.map byte-identical to a plugin-less buil
         extraFiles : [
             {
                 fileName : "tsconfig.plain.json",
-                text     : JSON.stringify({
-                    compilerOptions : {
-                        target                  : "ES2022",
-                        module                  : "ESNext",
-                        moduleResolution        : "Bundler",
-                        lib                     : [ "ES2022", "DOM" ],
-                        useDefineForClassFields : false,
-                        skipLibCheck            : true,
-                        outDir                  : "dist-plain",
-                        sourceMap               : true,
-                        strict                  : true,
-                        experimentalDecorators  : true
+                text     : JSON.stringify(
+                    {
+                        compilerOptions : {
+                            target                  : "ES2022",
+                            module                  : "ESNext",
+                            moduleResolution        : "Bundler",
+                            lib                     : [ "ES2022", "DOM" ],
+                            useDefineForClassFields : false,
+                            skipLibCheck            : true,
+                            outDir                  : "dist-plain",
+                            sourceMap               : true,
+                            strict                  : true,
+                            experimentalDecorators  : true
+                        },
+                        files : [ "plain.ts" ]
                     },
-                    files : [ "plain.ts" ]
-                }, null, 4)
+                    null,
+                    4
+                )
             }
         ]
     })
@@ -473,14 +482,24 @@ it("tsc's synthesized-token conventions survive the composition", async (t: Test
 
     // The mixin's own accessors map verbatim...
     assertExactMapping(
-        t, "mixin getter", jsSeg,
-        jsText, "get value() {\n            return this.backing", conventionsText, "get value(): number {\n        return this.backing"
+        t,
+        "mixin getter",
+        jsSeg,
+        jsText,
+        "get value() {\n            return this.backing",
+        conventionsText,
+        "get value(): number {\n        return this.backing"
     )
     // ...and the consumer's `override get` maps its `get` token onto the `override`
     // modifier — the accessor node's start, tsc's own convention.
     assertExactMapping(
-        t, "override getter -> its override modifier", jsSeg,
-        jsText, "get value() {\n        return super", conventionsText, "override get value"
+        t,
+        "override getter -> its override modifier",
+        jsSeg,
+        jsText,
+        "get value() {\n        return super",
+        conventionsText,
+        "override get value"
     )
 
     const dtsText = await readOutput(fixture, "dist/conventions.d.ts")
@@ -499,8 +518,15 @@ it("tsc's synthesized-token conventions survive the composition", async (t: Test
     assertUnmapped(t, "synthesized d.ts expression base statement", dtsSeg, dtsText, "declare const Plain_base")
     // ...while the `extends Plain_base` reference maps onto the user's own base name.
     assertExactMapping(
-        t, "d.ts expression-base reference -> user base name", dtsSeg,
-        dtsText, "extends Plain_base", conventionsText, "Plain extends Base {", "extends ".length, "Plain extends ".length
+        t,
+        "d.ts expression-base reference -> user base name",
+        dtsSeg,
+        dtsText,
+        "extends Plain_base",
+        conventionsText,
+        "Plain extends Base {",
+        "extends ".length,
+        "Plain extends ".length
     )
 
     await fixture.dispose()
@@ -585,12 +611,24 @@ it("generated declarations in an exported consumer's .d.ts carry no source mappi
     // deliberate derived-from pin and survives: the heritage type argument points at the
     // user's base name, the collision brand at the consumer class statement.
     assertExactMapping(
-        t, "generated heritage type argument -> user base name", decoded,
-        dtsText, "__Consumer$base<[", exportedConsumerText, "Consumer extends Base", "__Consumer$base".length, "Consumer extends ".length
+        t,
+        "generated heritage type argument -> user base name",
+        decoded,
+        dtsText,
+        "__Consumer$base<[",
+        exportedConsumerText,
+        "Consumer extends Base",
+        "__Consumer$base".length,
+        "Consumer extends ".length
     )
     assertExactMapping(
-        t, "collision brand string -> consumer class statement", decoded,
-        dtsText, "\"Static mixin member collision", exportedConsumerText, "export class Consumer"
+        t,
+        "collision brand string -> consumer class statement",
+        decoded,
+        dtsText,
+        "\"Static mixin member collision",
+        exportedConsumerText,
+        "export class Consumer"
     )
 
     // User declarations still map exactly around the generated machinery.
@@ -907,8 +945,13 @@ it("two same-named files in different directories each compose against their own
         assertSegmentsWithinOriginal(t, `${directory}/model.js.map`, decoded, text)
         assertReturnLinesCovered(t, `${directory}/model.js.map`, decoded, text, jsText)
         assertExactMapping(
-            t, `${directory}/model.js.map method`, decoded,
-            jsText, needle, text, needle.replace("() {", "(): string {")
+            t,
+            `${directory}/model.js.map method`,
+            decoded,
+            jsText,
+            needle,
+            text,
+            needle.replace("() {", "(): string {")
         )
     }
 
@@ -1381,8 +1424,13 @@ it("a tsc --watch rebuild composes the map against the edited text", async (t: T
 
         assertSegmentsWithinOriginal(t, "watch first build", decodeSegments(firstMap.mappings), sourceText)
         assertExactMapping(
-            t, "watch first build consumer method", decodeSegments(firstMap.mappings),
-            firstJs, "describe() {", sourceText, "describe(): string {"
+            t,
+            "watch first build consumer method",
+            decodeSegments(firstMap.mappings),
+            firstJs,
+            "describe() {",
+            sourceText,
+            "describe(): string {"
         )
 
         // Shift every line below the top by two, and grow the mixin body by one statement —

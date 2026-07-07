@@ -111,10 +111,14 @@ it("emits generated siblings into the containing block, not module scope", async
         .filter(ts.isClassDeclaration)
         .map((declaration) => declaration.name?.text)
 
-    t.notOk(topLevelClassNames.includes("__LocalConsumer$base"),
-        "the generated base does not leak into module-level statements")
-    t.notOk(topLevelClassNames.includes("LocalConsumer"),
-        "the nested consumer itself stays nested, not hoisted to module scope")
+    t.notOk(
+        topLevelClassNames.includes("__LocalConsumer$base"),
+        "the generated base does not leak into module-level statements"
+    )
+    t.notOk(
+        topLevelClassNames.includes("LocalConsumer"),
+        "the nested consumer itself stays nested, not hoisted to module scope"
+    )
 
     const build = transformed.statements.find(
         (statement): statement is ts.FunctionDeclaration =>
@@ -126,10 +130,14 @@ it("emits generated siblings into the containing block, not module scope", async
         .filter(ts.isClassDeclaration)
         .map((declaration) => declaration.name?.text)
 
-    t.ok(blockClassNames.includes("__LocalConsumer$base"),
-        "the generated intermediate base is emitted inside the function block")
-    t.ok(blockClassNames.includes("LocalConsumer"),
-        "the rewritten consumer stays inside the function block")
+    t.ok(
+        blockClassNames.includes("__LocalConsumer$base"),
+        "the generated intermediate base is emitted inside the function block"
+    )
+    t.ok(
+        blockClassNames.includes("LocalConsumer"),
+        "the rewritten consumer stays inside the function block"
+    )
 })
 
 // M4 — two same-named nested `@mixin`s in sibling scopes both expand from their OWN declaration.
@@ -270,16 +278,31 @@ it("flags a mixin / consumer class expression with a native diagnostic", async (
         return native.map((diagnostic) => diagnostic.code)
     }
 
-    t.eq(codesFor("const C = class implements M {}\nvoid C"), [ 990003 ],
-        "a consumer class expression is flagged TS990003")
-    t.eq(codesFor("function f () { const C = class implements M {}; return C }\nvoid f"), [ 990003 ],
-        "a nested consumer class expression is flagged TS990003")
-    t.eq(codesFor("const D = @mixin() class { b (): string { return \"y\" } }\nvoid D"), [ 990002 ],
-        "a `@mixin` class expression is flagged TS990002")
-    t.eq(codesFor("class Good implements M {}\nvoid Good"), [],
-        "a named class declaration consumer (the supported form) is never flagged")
-    t.eq(codesFor("const G = class { z (): number { return 1 } }\nvoid G"), [],
-        "a plain class expression that touches no mixin is never flagged")
+    t.eq(
+        codesFor("const C = class implements M {}\nvoid C"),
+        [ 990003 ],
+        "a consumer class expression is flagged TS990003"
+    )
+    t.eq(
+        codesFor("function f () { const C = class implements M {}; return C }\nvoid f"),
+        [ 990003 ],
+        "a nested consumer class expression is flagged TS990003"
+    )
+    t.eq(
+        codesFor("const D = @mixin() class { b (): string { return \"y\" } }\nvoid D"),
+        [ 990002 ],
+        "a `@mixin` class expression is flagged TS990002"
+    )
+    t.eq(
+        codesFor("class Good implements M {}\nvoid Good"),
+        [],
+        "a named class declaration consumer (the supported form) is never flagged"
+    )
+    t.eq(
+        codesFor("const G = class { z (): number { return 1 } }\nvoid G"),
+        [],
+        "a plain class expression that touches no mixin is never flagged"
+    )
 })
 
 // M7 — a nested CONSTRUCTION class (extends the package `Base`) expands inside a function: it
@@ -432,8 +455,10 @@ it("emits case-clause generated siblings into the clause statement list", async 
         .filter(ts.isClassDeclaration)
         .map((declaration) => declaration.name?.text)
 
-    t.notOk(topLevelClassNames.includes("__CaseConsumer$base"),
-        "the generated base does not leak into module-level statements")
+    t.notOk(
+        topLevelClassNames.includes("__CaseConsumer$base"),
+        "the generated base does not leak into module-level statements"
+    )
 
     const pick            = transformed.statements.find(
         (statement): statement is ts.FunctionDeclaration =>
@@ -447,10 +472,14 @@ it("emits case-clause generated siblings into the clause statement list", async 
         .filter(ts.isClassDeclaration)
         .map((declaration) => declaration.name?.text)
 
-    t.ok(clauseClassNames.includes("__CaseConsumer$base"),
-        "the generated intermediate base is emitted inside the case clause")
-    t.ok(clauseClassNames.includes("CaseConsumer"),
-        "the rewritten consumer stays inside the case clause")
+    t.ok(
+        clauseClassNames.includes("__CaseConsumer$base"),
+        "the generated intermediate base is emitted inside the case clause"
+    )
+    t.ok(
+        clauseClassNames.includes("CaseConsumer"),
+        "the rewritten consumer stays inside the case clause"
+    )
 })
 
 // M13 — the remaining container kinds a class declaration is legal in: a class METHOD body, an

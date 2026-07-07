@@ -56,8 +56,11 @@ it("a LOCAL class named Base is not mistaken for the package construction Base",
         void [ grounded, moving ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `a local class named Base stays an ordinary required base — no construction machinery.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `a local class named Base stays an ordinary required base — no construction machinery.\n${commandOutput(result)}`
+    )
 })
 
 it("a doubled @mixin() decorator is tolerated or cleanly diagnosed, never silently broken", async (t: Test) => {

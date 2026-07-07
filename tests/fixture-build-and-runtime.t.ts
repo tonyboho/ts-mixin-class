@@ -61,15 +61,19 @@ it("reports imported declaration mixins without runtime values", async (t: Test)
         extraFiles             : [
             {
                 fileName : "node_modules/broken-mixin-package/package.json",
-                text     : JSON.stringify({
-                    name    : "broken-mixin-package",
-                    type    : "module",
-                    exports : {
-                        "." : {
-                            types : "./index.d.ts"
+                text     : JSON.stringify(
+                    {
+                        name    : "broken-mixin-package",
+                        type    : "module",
+                        exports : {
+                            "." : {
+                                types : "./index.d.ts"
+                            }
                         }
-                    }
-                }, null, 4)
+                    },
+                    null,
+                    4
+                )
             }
         ],
         sourceFiles : [

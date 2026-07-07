@@ -90,16 +90,20 @@ function readSweep(): Sweep {
     }
 }
 
-const TSCONFIG = `${JSON.stringify({
-    compilerOptions : {
-        strict           : true,
-        target           : "ES2022",
-        module           : "ESNext",
-        moduleResolution : "Bundler",
-        noEmit           : true,
-        skipLibCheck     : true
-    }
-}, null, 4)}\n`
+const TSCONFIG = `${JSON.stringify(
+    {
+        compilerOptions : {
+            strict           : true,
+            target           : "ES2022",
+            module           : "ESNext",
+            moduleResolution : "Bundler",
+            noEmit           : true,
+            skipLibCheck     : true
+        }
+    },
+    null,
+    4
+)}\n`
 
 // ---- shape generators (the emitted type surface, hand-modeled) ----
 

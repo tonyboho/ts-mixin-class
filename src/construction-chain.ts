@@ -62,7 +62,14 @@ export function isConstructionBaseOptIn(
         }
 
         return isConstructionBaseOptIn(
-            tsInstance, sourceFile, qualifiedBase.extendsType, options, facts, seen, crossFile, baseImportMap
+            tsInstance,
+            sourceFile,
+            qualifiedBase.extendsType,
+            options,
+            facts,
+            seen,
+            crossFile,
+            baseImportMap
         )
     }
 
@@ -78,7 +85,14 @@ export function isConstructionBaseOptIn(
 
     if (localBase !== undefined) {
         return isConstructionBaseOptIn(
-            tsInstance, sourceFile, localBase.extendsType, options, facts, seen, crossFile, baseImportMap
+            tsInstance,
+            sourceFile,
+            localBase.extendsType,
+            options,
+            facts,
+            seen,
+            crossFile,
+            baseImportMap
         )
     }
 
@@ -268,7 +282,13 @@ export function qualifiedConstructionChainExit(
     return {
         ...exit,
         configProperties : localClassConfigProperties(
-            tsInstance, sourceFile, firstLocal, facts, undefined, undefined, new Set()
+            tsInstance,
+            sourceFile,
+            firstLocal,
+            facts,
+            undefined,
+            undefined,
+            new Set()
         )
     }
 }

@@ -50,7 +50,11 @@ function diagnosticsScenarios(config: BenchConfig): BenchmarkScenario[] {
         ? defaultTsServerScenarios(config.propertyCount, config.graphOptions, config.propertyVisibility, config.construction)
         : sizes.map((size) => {
             return previousWindowPropertiesScenario(
-                size, config.propertyCount, config.graphOptions, config.propertyVisibility, config.construction
+                size,
+                config.propertyCount,
+                config.graphOptions,
+                config.propertyVisibility,
+                config.construction
             )
         })
 }

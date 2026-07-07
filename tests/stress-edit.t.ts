@@ -164,32 +164,35 @@ it("transform survives randomized editor-like edits across the fixture corpus", 
         return true
     }
 
-    const iterations = runWithinBudget((iteration) => {
-        if (failure !== undefined) {
-            return
-        }
+    const iterations = runWithinBudget(
+        (iteration) => {
+            if (failure !== undefined) {
+                return
+            }
 
-        const file        = random.pick(corpus)
-        const buffer      = buffers.get(file.fileName)!
-        const original    = buffer.text
-        const sourceView  = random.int(0, 3) !== 0
-        const insertFirst = random.bool()
+            const file        = random.pick(corpus)
+            const buffer      = buffers.get(file.fileName)!
+            const original    = buffer.text
+            const sourceView  = random.int(0, 3) !== 0
+            const insertFirst = random.bool()
 
-        if (insertFirst) {
-            const position = random.int(0, original.length)
-            const fragment = random.pick(insertFragments)
-            const label    = `#${iteration} ${file.fileName} insert ${JSON.stringify(fragment)} @${position}`
+            if (insertFirst) {
+                const position = random.int(0, original.length)
+                const fragment = random.pick(insertFragments)
+                const label    = `#${iteration} ${file.fileName} insert ${JSON.stringify(fragment)} @${position}`
 
-            insertRoundTrip(buffer, sourceView, position, fragment, label)
-        } else if (original.length > 0) {
-            const position = random.int(0, original.length - 1)
-            const length   = random.int(1, Math.min(12, original.length - position))
-            const removed  = original.slice(position, position + length)
-            const label    = `#${iteration} ${file.fileName} delete ${JSON.stringify(removed)} @${position}`
+                insertRoundTrip(buffer, sourceView, position, fragment, label)
+            } else if (original.length > 0) {
+                const position = random.int(0, original.length - 1)
+                const length   = random.int(1, Math.min(12, original.length - position))
+                const removed  = original.slice(position, position + length)
+                const label    = `#${iteration} ${file.fileName} delete ${JSON.stringify(removed)} @${position}`
 
-            deleteRoundTrip(buffer, sourceView, position, removed, label)
-        }
-    }, resolveStressBudget())
+                deleteRoundTrip(buffer, sourceView, position, removed, label)
+            }
+        },
+        resolveStressBudget()
+    )
 
     if (failure !== undefined) {
         t.fail(failure)

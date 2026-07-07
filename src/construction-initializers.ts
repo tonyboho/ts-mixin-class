@@ -52,14 +52,18 @@ export function fillMissedInitializersClass(
         return declaration
     }
 
-    return preserveTextRange(tsInstance, tsInstance.factory.updateClassDeclaration(
-        declaration,
-        declaration.modifiers,
-        declaration.name,
-        declaration.typeParameters,
-        declaration.heritageClauses,
-        members
-    ), declaration)
+    return preserveTextRange(
+        tsInstance,
+        tsInstance.factory.updateClassDeclaration(
+            declaration,
+            declaration.modifiers,
+            declaration.name,
+            declaration.typeParameters,
+            declaration.heritageClauses,
+            members
+        ),
+        declaration
+    )
 }
 
 function normalizeFieldInitializer(
@@ -100,14 +104,18 @@ function rebuildPropertyWithInitializer(
     member: ts.PropertyDeclaration,
     initializer: ts.Expression
 ): ts.PropertyDeclaration {
-    return preserveTextRange(tsInstance, tsInstance.factory.updatePropertyDeclaration(
-        member,
-        member.modifiers,
-        member.name,
-        member.questionToken,
-        member.type,
-        initializer
-    ), member)
+    return preserveTextRange(
+        tsInstance,
+        tsInstance.factory.updatePropertyDeclaration(
+            member,
+            member.modifiers,
+            member.name,
+            member.questionToken,
+            member.type,
+            initializer
+        ),
+        member
+    )
 }
 
 function createFillExpression(

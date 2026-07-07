@@ -112,8 +112,11 @@ it("a @mixin resolves a BARREL-imported dependency (consumer twin: §10.1c)", as
         }
     ])
 
-    t.equal(result.exitCode, 0,
-        `the mixin-dependency path resolves through the re-export barrel.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the mixin-dependency path resolves through the re-export barrel.\n${commandOutput(result)}`
+    )
 })
 
 it("a plain class SUBCLASSING a mixin value directly (extends, not implements) type-checks", async (t: Test) => {

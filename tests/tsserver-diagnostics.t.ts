@@ -490,15 +490,19 @@ it("tsserver semantic diagnostics report declaration mixins without runtime valu
         extraFiles             : [
             {
                 fileName : "node_modules/broken-mixin-package/package.json",
-                text     : JSON.stringify({
-                    name    : "broken-mixin-package",
-                    type    : "module",
-                    exports : {
-                        "." : {
-                            types : "./index.d.ts"
+                text     : JSON.stringify(
+                    {
+                        name    : "broken-mixin-package",
+                        type    : "module",
+                        exports : {
+                            "." : {
+                                types : "./index.d.ts"
+                            }
                         }
-                    }
-                }, null, 4)
+                    },
+                    null,
+                    4
+                )
             }
         ],
         sourceFiles : [
@@ -995,12 +999,21 @@ it("tsserver names the config alias (PointConfig), not a meaningless `}`, for a 
         const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
             .map((diagnostic) => diagnostic.text ?? "").join("\n")
 
-        t.match(argError, "parameter of type 'PointConfig'",
-            "The editor names the generated config alias (read from the appended real text)")
-        t.notMatch(argError, "parameter of type '}'",
-            "The editor never shows the meaningless `}` a synthetic alias name would print")
-        t.notMatch(argError, "Pick<Point",
-            "The alias name is shown, not the expanded structural Pick")
+        t.match(
+            argError,
+            "parameter of type 'PointConfig'",
+            "The editor names the generated config alias (read from the appended real text)"
+        )
+        t.notMatch(
+            argError,
+            "parameter of type '}'",
+            "The editor never shows the meaningless `}` a synthetic alias name would print"
+        )
+        t.notMatch(
+            argError,
+            "Pick<Point",
+            "The alias name is shown, not the expanded structural Pick"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -1060,12 +1073,21 @@ it("tsserver names the config alias in the NESTED 'required in type' elaboration
         const argError = diagnostics.filter((diagnostic) => diagnostic.code === 2345)
             .map((diagnostic) => diagnostic.text ?? "").join("\n")
 
-        t.match(argError, "parameter of type 'AccountConfig'",
-            "The header names the generated config alias")
-        t.match(argError, "required in type 'AccountConfig'",
-            "The nested `required in type` elaboration also names the alias")
-        t.notMatch(argError, "Pick<Account",
-            "The nested elaboration never expands the alias to its structural Pick")
+        t.match(
+            argError,
+            "parameter of type 'AccountConfig'",
+            "The header names the generated config alias"
+        )
+        t.match(
+            argError,
+            "required in type 'AccountConfig'",
+            "The nested `required in type` elaboration also names the alias"
+        )
+        t.notMatch(
+            argError,
+            "Pick<Account",
+            "The nested elaboration never expands the alias to its structural Pick"
+        )
     } finally {
         await fixture.dispose()
     }

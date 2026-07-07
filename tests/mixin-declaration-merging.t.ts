@@ -68,10 +68,16 @@ it("an instantiated namespace merged with a mixin class is diagnosed (TS990009)"
 
         t.ne(result.exitCode, 0, `${plane}: the merge is rejected`)
         t.match(output, "TS990009", `${plane}: the native code surfaces.\n${output}`)
-        t.match(output, "Namespace Logger merges with mixin class Logger",
-            `${plane}: the message names the merged declaration`)
-        t.match(output, "static members of the mixin class instead",
-            `${plane}: the message points at the supported alternative`)
+        t.match(
+            output,
+            "Namespace Logger merges with mixin class Logger",
+            `${plane}: the message names the merged declaration`
+        )
+        t.match(
+            output,
+            "static members of the mixin class instead",
+            `${plane}: the message points at the supported alternative`
+        )
     }
 })
 
@@ -148,6 +154,9 @@ it("an interface merged with a mixin class adds TRUSTED members to the mixin typ
         `)
     } ])
 
-    t.equal(result.exitCode, 0,
-        `an interface merged with a mixin class compiles; the member joins the type as trusted.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `an interface merged with a mixin class compiles; the member joins the type as trusted.\n${commandOutput(result)}`
+    )
 })

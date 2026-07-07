@@ -98,9 +98,14 @@ it("exposes runtime metadata through exported symbols", async (t: Test) => {
 
     const A             = createNamedMixin("A")
     const B             = createNamedMixin("B", [ A ])
-    const RequiredMixin = defineMixinClass("RequiredMixin", ((base: AnyConstructor<RequiredBase>) => {
-        return class extends base {}
-    }) as unknown as MixinFactory, [], RequiredBase)
+    const RequiredMixin = defineMixinClass(
+        "RequiredMixin",
+        ((base: AnyConstructor<RequiredBase>) => {
+            return class extends base {}
+        }) as unknown as MixinFactory,
+        [],
+        RequiredBase
+    )
 
     t.equal(typeof A[factory], "function", "Mixin factory is available through the exported symbol")
     t.expect(B[requirements]).toEqual([ A ])
@@ -168,13 +173,18 @@ it("applies mixins with a required base to consumer-provided descendants", async
         }
     }
 
-    const RequiredMixin = defineMixinClass("RequiredMixin", ((base: AnyConstructor<RequiredBase>) => {
-        return class extends base {
-            override who(): string {
-                return `RequiredMixin>${super.who()}`
+    const RequiredMixin = defineMixinClass(
+        "RequiredMixin",
+        ((base: AnyConstructor<RequiredBase>) => {
+            return class extends base {
+                override who(): string {
+                    return `RequiredMixin>${super.who()}`
+                }
             }
-        }
-    }) as unknown as MixinFactory, [], RequiredBase)
+        }) as unknown as MixinFactory,
+        [],
+        RequiredBase
+    )
 
     class Consumer extends mixinChain(RealBase, RequiredMixin) {}
 
@@ -191,13 +201,22 @@ it("rejects applying a required-base mixin to an unrelated base", async (t: Test
     class RequiredBase {}
     class UnrelatedBase {}
 
-    const RequiredMixin = defineMixinClass("RequiredMixin", ((base: AnyConstructor<RequiredBase>) => {
-        return class extends base {}
-    }) as unknown as MixinFactory, [], RequiredBase)
+    const RequiredMixin = defineMixinClass(
+        "RequiredMixin",
+        ((base: AnyConstructor<RequiredBase>) => {
+            return class extends base {}
+        }) as unknown as MixinFactory,
+        [],
+        RequiredBase
+    )
 
-    t.throwsOk(() => {
-        mixinChain(UnrelatedBase, RequiredMixin)
-    }, "requires base", "Runtime rejects an unrelated base")
+    t.throwsOk(
+        () => {
+            mixinChain(UnrelatedBase, RequiredMixin)
+        },
+        "requires base",
+        "Runtime rejects an unrelated base"
+    )
 })
 
 it("rejects inconsistent C3 requirements", async (t: Test) => {
@@ -206,9 +225,13 @@ it("rejects inconsistent C3 requirements", async (t: Test) => {
     const X = createNamedMixin("X", [ A, B ])
     const Y = createNamedMixin("Y", [ B, A ])
 
-    t.throwsOk(() => {
-        createNamedMixin("Z", [ X, Y ])
-    }, "Cannot linearize mixin classes", "Inconsistent order is rejected")
+    t.throwsOk(
+        () => {
+            createNamedMixin("Z", [ X, Y ])
+        },
+        "Cannot linearize mixin classes",
+        "Inconsistent order is rejected"
+    )
 })
 
 it("rejects a nontrivial 3-cycle of pairwise orders", async (t: Test) => {
@@ -221,9 +244,13 @@ it("rejects a nontrivial 3-cycle of pairwise orders", async (t: Test) => {
 
     // Each pair is consistent alone; together they form a cycle A < B < C < A, which no
     // single linearization can satisfy. The conflict is not a direct two-way reversal.
-    t.throwsOk(() => {
-        createNamedMixin("Z", [ P, Q, R ])
-    }, "Cannot linearize mixin classes", "A 3-cycle of pairwise orders is rejected")
+    t.throwsOk(
+        () => {
+            createNamedMixin("Z", [ P, Q, R ])
+        },
+        "Cannot linearize mixin classes",
+        "A 3-cycle of pairwise orders is rejected"
+    )
 })
 
 it("rejects a conflict buried below intermediate mixins", async (t: Test) => {
@@ -236,9 +263,13 @@ it("rejects a conflict buried below intermediate mixins", async (t: Test) => {
 
     // The conflicting A/B order is two hops down, under M and N; the merge only stalls
     // after unwrapping P -> M and Q -> N, so a shallow check would miss it.
-    t.throwsOk(() => {
-        createNamedMixin("Z", [ P, Q ])
-    }, "Cannot linearize mixin classes", "A conflict below intermediate mixins is still rejected")
+    t.throwsOk(
+        () => {
+            createNamedMixin("Z", [ P, Q ])
+        },
+        "Cannot linearize mixin classes",
+        "A conflict below intermediate mixins is still rejected"
+    )
 })
 
 // --- approach (B): precomputed merge-plan replay ---------------------------

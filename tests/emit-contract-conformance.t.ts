@@ -94,10 +94,16 @@ it("emit (tsc) flags a non-generic mixin that does not satisfy its implements co
     const { emit, ide, fixture } = await runBoth(nonGenericMissing)
 
     try {
-        t.equal(missingMemberDiagnosticLine(ide, "greet"), classLine,
-            `source-view (--noEmit) should flag the missing 'greet' member on line ${classLine}\n${commandOutput(ide)}`)
-        t.equal(missingMemberDiagnosticLine(emit, "greet"), classLine,
-            `emit (tsc) should also flag the missing 'greet' member on line ${classLine}, not stay silent\n${commandOutput(emit)}`)
+        t.equal(
+            missingMemberDiagnosticLine(ide, "greet"),
+            classLine,
+            `source-view (--noEmit) should flag the missing 'greet' member on line ${classLine}\n${commandOutput(ide)}`
+        )
+        t.equal(
+            missingMemberDiagnosticLine(emit, "greet"),
+            classLine,
+            `emit (tsc) should also flag the missing 'greet' member on line ${classLine}, not stay silent\n${commandOutput(emit)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -108,11 +114,17 @@ it("emit (tsc) flags a GENERIC mixin that does not satisfy its implements contra
     const { emit, ide, fixture } = await runBoth(genericMissing)
 
     try {
-        t.equal(missingMemberDiagnosticLine(ide, "describe"), classLine,
-            `source-view (--noEmit) should flag the missing 'describe' member on line ${classLine}\n${commandOutput(ide)}`)
-        t.equal(missingMemberDiagnosticLine(emit, "describe"), classLine,
+        t.equal(
+            missingMemberDiagnosticLine(ide, "describe"),
+            classLine,
+            `source-view (--noEmit) should flag the missing 'describe' member on line ${classLine}\n${commandOutput(ide)}`
+        )
+        t.equal(
+            missingMemberDiagnosticLine(emit, "describe"),
+            classLine,
             `emit (tsc) should also flag the missing 'describe' member on line ${classLine} for a generic mixin, ` +
-                `not stay silent\n${commandOutput(emit)}`)
+                `not stay silent\n${commandOutput(emit)}`
+        )
     } finally {
         await fixture.dispose()
     }
@@ -122,8 +134,11 @@ it("emit (tsc) does NOT flag a mixin that does satisfy its implements contract",
     const { emit, fixture } = await runBoth(genericSatisfied)
 
     try {
-        t.notMatch(commandOutput(emit), /error TS/,
-            `emit (tsc) should be clean for a mixin that satisfies its contract (no false positive)\n${commandOutput(emit)}`)
+        t.notMatch(
+            commandOutput(emit),
+            /error TS/,
+            `emit (tsc) should be clean for a mixin that satisfies its contract (no false positive)\n${commandOutput(emit)}`
+        )
     } finally {
         await fixture.dispose()
     }

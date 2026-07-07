@@ -59,12 +59,16 @@ async function buildDeclarationPackage(
         return [
             {
                 fileName : `node_modules/${packageName}/package.json`,
-                text     : JSON.stringify({
-                    name    : packageName,
-                    version : "0.0.0",
-                    type    : "module",
-                    exports : exportsMap
-                }, null, 4)
+                text     : JSON.stringify(
+                    {
+                        name    : packageName,
+                        version : "0.0.0",
+                        type    : "module",
+                        exports : exportsMap
+                    },
+                    null,
+                    4
+                )
             },
             ...emitted
         ]
@@ -111,10 +115,13 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
         }
     ])
 
-    const xPackage = await buildDeclarationPackage(t, "linearization-x", [
-        {
-            fileName : "x.ts",
-            text     : `
+    const xPackage = await buildDeclarationPackage(
+        t,
+        "linearization-x",
+        [
+            {
+                fileName : "x.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { LinearizationA, LinearizationB } from "linearization-ab/ab"
 
@@ -129,13 +136,18 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
                     }
                 }
             `
-        }
-    ], abPackage)
+            }
+        ],
+        abPackage
+    )
 
-    const yPackage = await buildDeclarationPackage(t, "linearization-y", [
-        {
-            fileName : "y.ts",
-            text     : `
+    const yPackage = await buildDeclarationPackage(
+        t,
+        "linearization-y",
+        [
+            {
+                fileName : "y.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { LinearizationA, LinearizationB } from "linearization-ab/ab"
 
@@ -150,8 +162,10 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
                     }
                 }
             `
-        }
-    ], abPackage)
+            }
+        ],
+        abPackage
+    )
 
     const consumerText = `
         import { mixin } from "ts-mixin-class"
@@ -184,10 +198,16 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
         const build  = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
         const output = commandOutput(build)
 
-        t.ne(build.exitCode, 0,
-            `Composing conflicting cross-package mixins must fail to compile (tsc):\n${output}`)
-        t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
-            `tsc reports the cross-package C3 conflict:\n${output}`)
+        t.ne(
+            build.exitCode,
+            0,
+            `Composing conflicting cross-package mixins must fail to compile (tsc):\n${output}`
+        )
+        t.match(
+            output,
+            "Cannot linearize mixin classes with the C3 algorithm",
+            `tsc reports the cross-package C3 conflict:\n${output}`
+        )
         t.match(output, "LinearizationA", `tsc names the conflicting dependency LinearizationA:\n${output}`)
         t.match(output, "LinearizationB", `tsc names the conflicting dependency LinearizationB:\n${output}`)
 
@@ -205,8 +225,11 @@ it("reports a cross-package C3 linearization conflict in both tsc and tsserver",
         )
         const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
 
-        t.match(messages, "Cannot linearize mixin classes with the C3 algorithm",
-            `tsserver reports the cross-package C3 conflict:\n${messages}`)
+        t.match(
+            messages,
+            "Cannot linearize mixin classes with the C3 algorithm",
+            `tsserver reports the cross-package C3 conflict:\n${messages}`
+        )
         t.match(messages, "LinearizationA", `tsserver names the conflicting dependency LinearizationA:\n${messages}`)
         t.match(messages, "LinearizationB", `tsserver names the conflicting dependency LinearizationB:\n${messages}`)
     } finally {
@@ -234,31 +257,41 @@ it("detects a mixin-only cross-package linearization conflict (no consumer)", as
         }
     ])
 
-    const xPackage = await buildDeclarationPackage(t, "linearization-x", [
-        {
-            fileName : "x.ts",
-            text     : `
+    const xPackage = await buildDeclarationPackage(
+        t,
+        "linearization-x",
+        [
+            {
+                fileName : "x.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { LinearizationA, LinearizationB } from "linearization-ab/ab"
 
                 @mixin()
                 export class LinearizationX implements LinearizationA, LinearizationB {}
             `
-        }
-    ], abPackage)
+            }
+        ],
+        abPackage
+    )
 
-    const yPackage = await buildDeclarationPackage(t, "linearization-y", [
-        {
-            fileName : "y.ts",
-            text     : `
+    const yPackage = await buildDeclarationPackage(
+        t,
+        "linearization-y",
+        [
+            {
+                fileName : "y.ts",
+                text     : `
                 import { mixin } from "ts-mixin-class"
                 import { LinearizationA, LinearizationB } from "linearization-ab/ab"
 
                 @mixin()
                 export class LinearizationY implements LinearizationB, LinearizationA {}
             `
-        }
-    ], abPackage)
+            }
+        ],
+        abPackage
+    )
 
     const consumerText = `
         import { mixin } from "ts-mixin-class"
@@ -281,8 +314,11 @@ it("detects a mixin-only cross-package linearization conflict (no consumer)", as
         const output = commandOutput(build)
 
         t.ne(build.exitCode, 0, `A mixin-only cross-package conflict must fail to compile:\n${output}`)
-        t.match(output, "Cannot linearize mixin classes with the C3 algorithm",
-            `... with the C3 conflict diagnostic:\n${output}`)
+        t.match(
+            output,
+            "Cannot linearize mixin classes with the C3 algorithm",
+            `... with the C3 conflict diagnostic:\n${output}`
+        )
     } finally {
         await fixture.dispose()
     }

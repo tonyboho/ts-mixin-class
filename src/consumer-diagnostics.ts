@@ -41,7 +41,9 @@ export function pushLinearizationConflictDiagnostic(
     }
 
     context.nativeDiagnostics.push(nativeDiagnosticOn(
-        tsInstance, sourceFile, anchor,
+        tsInstance,
+        sourceFile,
+        anchor,
         mixinDiagnosticCode.MixinLinearizationConflict,
         message
     ))
@@ -113,12 +115,16 @@ export function createRequiredBaseValidations(
             continue
         }
 
-        const typeParameter = preserveTextRange(tsInstance, tsInstance.factory.createTypeParameterDeclaration(
-            undefined,
-            uniqueTypeParameterName(declaration, `__mixinRequiredBase${validations.length}`),
-            tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
-            undefined
-        ), generatedRange)
+        const typeParameter = preserveTextRange(
+            tsInstance,
+            tsInstance.factory.createTypeParameterDeclaration(
+                undefined,
+                uniqueTypeParameterName(declaration, `__mixinRequiredBase${validations.length}`),
+                tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
+                undefined
+            ),
+            generatedRange
+        )
 
         validations.push({
             typeParameter,
@@ -177,7 +183,9 @@ export function pushMissingRuntimeImportDiagnostics(
         }
 
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, anchor,
+            tsInstance,
+            sourceFile,
+            anchor,
             mixinDiagnosticCode.MixinMissingRuntime,
             missingRuntimeImportDiagnosticMessage(declaration, ref)
         ))

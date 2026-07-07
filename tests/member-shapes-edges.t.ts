@@ -67,8 +67,11 @@ it("a consumer with an OVERLOADED constructor keeps its overloads through the he
         void [ click, stamped ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `both overloads resolve; the synthetic super() lands only in the implementation.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `both overloads resolve; the synthetic super() lands only in the implementation.\n${commandOutput(result)}`
+    )
 })
 
 it("a MIXIN with an OVERLOADED constructor keeps its overloads through the factory wrap", async (t: Test) => {
@@ -98,8 +101,11 @@ it("a MIXIN with an OVERLOADED constructor keeps its overloads through the facto
         void [ origin, dot, where ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `constructor overload signatures survive into the runtime factory class.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `constructor overload signatures survive into the runtime factory class.\n${commandOutput(result)}`
+    )
 })
 
 it("a consumer's OWN private surface is untouched: #private, private/protected members", async (t: Test) => {
@@ -143,8 +149,11 @@ it("a consumer's OWN private surface is untouched: #private, private/protected m
         void revealed
     `))
 
-    t.equal(result.exitCode, 0,
-        `only MIXIN members must be public — the consumer's own private surface compiles.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `only MIXIN members must be public — the consumer's own private surface compiles.\n${commandOutput(result)}`
+    )
 })
 
 it("a consumer with a PRIVATE constructor + static factory (singleton pattern)", async (t: Test) => {

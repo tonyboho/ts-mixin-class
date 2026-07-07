@@ -83,15 +83,18 @@ export function startTscWatch(
                     clearTimeout(timer)
                     resolve(build)
                 }
-                const timer  = setTimeout(() => {
-                    const index = waiters.indexOf(waiter)
+                const timer  = setTimeout(
+                    () => {
+                        const index = waiters.indexOf(waiter)
 
-                    if (index !== -1) {
-                        waiters.splice(index, 1)
-                    }
+                        if (index !== -1) {
+                            waiters.splice(index, 1)
+                        }
 
-                    reject(new Error(`Timed out after ${timeoutMs}ms waiting for a tsc watch build.\nBuffered output:\n${pending}`))
-                }, timeoutMs)
+                        reject(new Error(`Timed out after ${timeoutMs}ms waiting for a tsc watch build.\nBuffered output:\n${pending}`))
+                    },
+                    timeoutMs
+                )
 
                 waiters.push(waiter)
             })

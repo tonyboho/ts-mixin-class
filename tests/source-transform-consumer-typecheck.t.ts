@@ -233,7 +233,9 @@ it("does not fill an explicit `= undefined` — it stays a type error even in th
     // Fill only supplies a value where NONE was written. An explicit `= undefined` on a
     // non-nullable field is the user writing a bug, so it must remain a TS2322 type error — it
     // is never silently rewritten to `undefined!`, not even under the default "undefined" mode.
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
+    const transformedFile = transformSourceFile(
+        ts,
+        createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
@@ -250,25 +252,38 @@ it("does not fill an explicit `= undefined` — it stays a type error even in th
         }
 
         void ShapeConsumer
-    `), {
-        // The default mode; the point is that fill does NOT rescue an explicit `= undefined`.
-        fillMissedInitializersWith : "undefined"
-    })
+    `),
+        {
+            // The default mode; the point is that fill does NOT rescue an explicit `= undefined`.
+            fillMissedInitializersWith : "undefined"
+        }
+    )
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
     const messages    = diagnostics.join("\n")
 
     t.match(messages, "TS2322", "An explicit `= undefined` is a type error, not silently filled")
-    t.match(messages, "Type 'undefined' is not assignable to type 'number'",
-        "Base field's explicit `= undefined` is rejected")
-    t.match(messages, "Type 'undefined' is not assignable to type 'string'",
-        "Mixin field's explicit `= undefined` is rejected")
-    t.match(messages, "Type 'undefined' is not assignable to type 'boolean'",
-        "Consumer field's explicit `= undefined` is rejected")
+    t.match(
+        messages,
+        "Type 'undefined' is not assignable to type 'number'",
+        "Base field's explicit `= undefined` is rejected"
+    )
+    t.match(
+        messages,
+        "Type 'undefined' is not assignable to type 'string'",
+        "Mixin field's explicit `= undefined` is rejected"
+    )
+    t.match(
+        messages,
+        "Type 'undefined' is not assignable to type 'boolean'",
+        "Consumer field's explicit `= undefined` is rejected"
+    )
 })
 
 it("fills undefined initializers for all construction fields regardless of visibility", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
+    const transformedFile = transformSourceFile(
+        ts,
+        createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         class ShapeBase extends Base {
@@ -306,9 +321,11 @@ it("fills undefined initializers for all construction fields regardless of visib
         const stillStrict: undefined = constructed.baseValue
 
         void [ baseValue, mixinValue, ownValue, stillStrict ]
-    `), {
-        fillMissedInitializersWith : "undefined"
-    })
+    `),
+        {
+            fillMissedInitializersWith : "undefined"
+        }
+    )
 
     const printed     = printSourceFile(ts, transformedFile)
     const diagnostics = typecheckText(printed)
@@ -322,7 +339,9 @@ it("fills undefined initializers for all construction fields regardless of visib
 })
 
 it("fills missing initializers for plain Base descendants", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
+    const transformedFile = transformSourceFile(
+        ts,
+        createSourceFile(`
         import { Base } from "ts-mixin-class/base"
 
         class PlainShape extends Base {
@@ -336,9 +355,11 @@ it("fills missing initializers for plain Base descendants", async (t: Test) => {
         const stillStrict: undefined = constructed.value
 
         void [ value, stillStrict ]
-    `), {
-        fillMissedInitializersWith : "undefined"
-    })
+    `),
+        {
+            fillMissedInitializersWith : "undefined"
+        }
+    )
 
     const diagnostics = typecheckText(printSourceFile(ts, transformedFile))
 

@@ -42,8 +42,11 @@ it("a construction MIXIN's split accessor is a config key typed by the SETTER", 
 
     const result = await buildConstructionSource(source)
 
-    t.equal(result.exitCode, 0,
-        `the string branch of the split setter is accepted by the mixin's own .new.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the string branch of the split setter is accepted by the mixin's own .new.\n${commandOutput(result)}`
+    )
 
     const dts = await readConstructionConfigDts(source)
 
@@ -87,8 +90,11 @@ it("a construction MIXIN's readonly + definite-assignment fields shape its confi
         void readId
     `))
 
-    t.equal(result.exitCode, 0,
-        `required-ness, unknown-key rejection, method exclusion and readonly all hold on the mixin's .new.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `required-ness, unknown-key rejection, method exclusion and readonly all hold on the mixin's .new.\n${commandOutput(result)}`
+    )
 })
 
 it("config LAYERING through a construction mixin DEPENDENCY (parity twin of §7.16's extends chain)", async (t: Test) => {
@@ -122,8 +128,11 @@ it("config LAYERING through a construction mixin DEPENDENCY (parity twin of §7.
         void [ titled, explicit ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `a re-declared inherited key (new default) + an own required key layer through the dependency.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `a re-declared inherited key (new default) + an own required key layer through the dependency.\n${commandOutput(result)}`
+    )
 })
 
 it("a module-LOCAL construction mixin does not leak its config alias (parity twin of §7.15)", async (t: Test) => {
@@ -177,13 +186,19 @@ it("a public PARAMETER PROPERTY on a construction MIXIN's constructor is NOT a c
 
     const result = await buildConstructionSource(source)
 
-    t.equal(result.exitCode, 0,
-        `the mixin's own .new accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the mixin's own .new accepts declared fields only; the parameter property member still exists.\n${commandOutput(result)}`
+    )
 
     const dts = await readConstructionConfigDts(source)
 
     // The EXACT alias — a loose "tag?: string" substring would false-match the factory's
     // emitted constructor signature.
-    t.match(dts, 'export type TaggedConfig = Pick<Tagged, "name">',
-        `TaggedConfig keys are exactly the declared members — no parameter property.\n${dts}`)
+    t.match(
+        dts,
+        'export type TaggedConfig = Pick<Tagged, "name">',
+        `TaggedConfig keys are exactly the declared members — no parameter property.\n${dts}`
+    )
 })

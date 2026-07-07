@@ -81,7 +81,9 @@ export function pushMixinUsedBeforeDeclarationDiagnostics(
         }
 
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, expression,
+            tsInstance,
+            sourceFile,
+            expression,
             mixinDiagnosticCode.MixinUsedBeforeDeclaration,
             "Mixin used before its declaration. " +
                 `Class ${classFacts.name ?? "<anonymous>"} implements ${referenceText}, ` +
@@ -149,7 +151,9 @@ export function pushMixinNamespaceMergeDiagnostics(
             }
 
             context.nativeDiagnostics.push(nativeDiagnosticOn(
-                tsInstance, sourceFile, sibling.name,
+                tsInstance,
+                sourceFile,
+                sibling.name,
                 mixinDiagnosticCode.MixinNamespaceMerge,
                 `Namespace ${classFacts.name} merges with mixin class ${classFacts.name}, ` +
                     "which is not supported: the transformer rewrites the mixin class into a const, and a " +
@@ -328,7 +332,12 @@ export function pushMixinMemberKindOverrideDiagnostics(
 
     const push = (node: ts.Node, message: string): void => {
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, node, mixinDiagnosticCode.MixinMemberKindOverride, message))
+            tsInstance,
+            sourceFile,
+            node,
+            mixinDiagnosticCode.MixinMemberKindOverride,
+            message
+        ))
     }
 
     // The class's OWN members against every applied mixin.
@@ -441,7 +450,12 @@ export function pushPartialAccessorOverrideDiagnostics(
 
     const push = (node: ts.Node, message: string): void => {
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, node, mixinDiagnosticCode.MixinPartialAccessorOverride, message))
+            tsInstance,
+            sourceFile,
+            node,
+            mixinDiagnosticCode.MixinPartialAccessorOverride,
+            message
+        ))
     }
 
     const shapeOf = (

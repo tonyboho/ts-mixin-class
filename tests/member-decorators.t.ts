@@ -292,8 +292,11 @@ it("STANDARD accessor decorators on BOTH halves of a mixin's get/set pair", asyn
 
     t.equal(emit.exitCode, 0, `emit: decorated get AND set halves compile.\n${commandOutput(emit)}`)
     // 2 applications (canonical + Meter's empty base) × (getter + setter).
-    t.equal(run?.stdout.trim(), "decorated=getter:value,setter:value,getter:value,setter:value value=42",
-        `both halves' decorators run per application; the accessor still works.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        "decorated=getter:value,setter:value,getter:value,setter:value value=42",
+        `both halves' decorators run per application; the accessor still works.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true })
 
@@ -333,8 +336,11 @@ it("a STANDARD decorator on a mixin's AUTO-ACCESSOR (`@dec accessor x`)", async 
     const { emit, run } = await buildAndRun(source, false)
 
     t.equal(emit.exitCode, 0, `emit: the decorated auto-accessor compiles.\n${commandOutput(emit)}`)
-    t.equal(run?.stdout.trim(), "decorated=accessor:tag,accessor:tag tag=set",
-        `the accessor decorator runs per application; the backing slot still works.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        "decorated=accessor:tag,accessor:tag tag=set",
+        `the accessor decorator runs per application; the backing slot still works.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true })
 
@@ -369,8 +375,11 @@ it("LEGACY parameter decorators on a mixin method", async (t: Test) => {
 
     t.equal(emit.exitCode, 0, `emit: the parameter decorator compiles inside the factory.\n${commandOutput(emit)}`)
     // 2 applications (canonical + Handler's empty base) × 1 decorated parameter.
-    t.equal(run?.stdout.trim(), "params=handle:0,handle:0 out=handled:x",
-        `the parameter decorator runs per application; the method still works.\n${run === undefined ? "" : commandOutput(run)}`)
+    t.equal(
+        run?.stdout.trim(),
+        "params=handle:0,handle:0 out=handled:x",
+        `the parameter decorator runs per application; the method still works.\n${run === undefined ? "" : commandOutput(run)}`
+    )
 
     const sourceView = await build(source, { noEmit: true }, true)
 

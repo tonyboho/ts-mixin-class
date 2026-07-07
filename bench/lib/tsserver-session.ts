@@ -19,17 +19,21 @@ export type TsServerSession = {
 }
 
 export function createTsServerSession(tsserverFile: string, fixtureDirectory: string): TsServerSession {
-    const server           = fork(tsserverFile, [
-        "--logVerbosity",
-        "terse",
-        "--logFile",
-        path.join(fixtureDirectory, "tsserver.log"),
-        "--allowLocalPluginLoads",
-        "--useNodeIpc"
-    ], {
-        cwd    : fixtureDirectory,
-        silent : true
-    })
+    const server           = fork(
+        tsserverFile,
+        [
+            "--logVerbosity",
+            "terse",
+            "--logFile",
+            path.join(fixtureDirectory, "tsserver.log"),
+            "--allowLocalPluginLoads",
+            "--useNodeIpc"
+        ],
+        {
+            cwd    : fixtureDirectory,
+            silent : true
+        }
+    )
     const pendingResponses = new Map<number, (response: TsServerResponse) => void>()
     let sequence           = 0
 
@@ -60,10 +64,13 @@ export function createTsServerSession(tsserverFile: string, fixtureDirectory: st
         })
 
         return new Promise<TsServerResponse>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                pendingResponses.delete(seq)
-                reject(new Error(`Timed out waiting for tsserver response to ${command}.`))
-            }, 30_000)
+            const timeout = setTimeout(
+                () => {
+                    pendingResponses.delete(seq)
+                    reject(new Error(`Timed out waiting for tsserver response to ${command}.`))
+                },
+                30_000
+            )
 
             pendingResponses.set(seq, (response) => {
                 clearTimeout(timeout)
@@ -85,10 +92,13 @@ export function createTsServerSession(tsserverFile: string, fixtureDirectory: st
         })
 
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                server.kill()
-                reject(new Error("Timed out waiting for tsserver to exit."))
-            }, 10_000)
+            const timeout = setTimeout(
+                () => {
+                    server.kill()
+                    reject(new Error("Timed out waiting for tsserver to exit."))
+                },
+                10_000
+            )
 
             server.once("exit", () => {
                 clearTimeout(timeout)

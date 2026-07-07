@@ -263,7 +263,9 @@ export function pushManualMixinApplicationDiagnostics(
 
             if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
                 context.nativeDiagnostics.push(nativeDiagnosticOn(
-                    tsInstance, sourceFile, node,
+                    tsInstance,
+                    sourceFile,
+                    node,
                     mixinDiagnosticCode.MixinManualApplication,
                     manualMixinApplicationMessage(ref)
                 ))

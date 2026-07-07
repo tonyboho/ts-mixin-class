@@ -312,31 +312,41 @@ it("the Mix<M, B> recipe keeps an external package's exported .mix composition l
     try {
         // The consumer is a PLAIN TypeScript package: overwrite the fixture tsconfig with a
         // plugin-less one (no ts-patch transformer — the external-package scenario).
-        await writeFile(consumer.tsconfigFile, `${JSON.stringify({
-            compilerOptions : {
-                target                  : "ES2022",
-                module                  : "ESNext",
-                moduleResolution        : "Bundler",
-                lib                     : [ "ES2022", "DOM" ],
-                useDefineForClassFields : false,
-                skipLibCheck            : true,
-                outDir                  : "dist",
-                strict                  : true,
-                declaration             : true,
-                isolatedDeclarations    : true
+        await writeFile(consumer.tsconfigFile, `${JSON.stringify(
+            {
+                compilerOptions : {
+                    target                  : "ES2022",
+                    module                  : "ESNext",
+                    moduleResolution        : "Bundler",
+                    lib                     : [ "ES2022", "DOM" ],
+                    useDefineForClassFields : false,
+                    skipLibCheck            : true,
+                    outDir                  : "dist",
+                    strict                  : true,
+                    declaration             : true,
+                    isolatedDeclarations    : true
+                },
+                files : [ "app.ts" ]
             },
-            files : [ "app.ts" ]
-        }, null, 4)}\n`)
+            null,
+            4
+        )}\n`)
 
         const consumerBuild = await runCommand("node", [ tscBinary, "-p", consumer.tsconfigFile ], consumer.directory)
 
-        t.equal(consumerBuild.exitCode, 0,
-            `the plugin-less consumer composes through .mix + the Mix recipe.\n${commandOutput(consumerBuild)}`)
+        t.equal(
+            consumerBuild.exitCode,
+            0,
+            `the plugin-less consumer composes through .mix + the Mix recipe.\n${commandOutput(consumerBuild)}`
+        )
 
         const emittedDts = await readFile(path.join(consumer.directory, "dist", "app.d.ts"), "utf8")
 
-        t.match(emittedDts, "Mix<typeof Logger, typeof Custom>",
-            `the consumer's own .d.ts carries the annotated base.\n${emittedDts}`)
+        t.match(
+            emittedDts,
+            "Mix<typeof Logger, typeof Custom>",
+            `the consumer's own .d.ts carries the annotated base.\n${emittedDts}`
+        )
     } finally {
         await consumer.dispose()
     }

@@ -157,10 +157,16 @@ export function createMixinClassCompilerHost(
             const transformSourceFileInput = useLayeredSourceFile
                 ? cloneLayeredSourceFileForTransform(tsInstance, sourceFile)
                 : cloneSourceFileForTransform(tsInstance, sourceFile, languageVersionOrOptions)
-            const transformedSourceFile    = transformSourceFile(tsInstance, transformSourceFileInput, {
-                ...options,
-                sourceView : true
-            }, crossFile, nativeDiagnostics)
+            const transformedSourceFile    = transformSourceFile(
+                tsInstance,
+                transformSourceFileInput,
+                {
+                    ...options,
+                    sourceView : true
+                },
+                crossFile,
+                nativeDiagnostics
+            )
 
             if (transformedSourceFile === transformSourceFileInput) {
                 return cachePreserveSourceFile(sourceFile)
@@ -171,7 +177,10 @@ export function createMixinClassCompilerHost(
             // quickinfo, incl. generics). The phantom appended region is past the document; a
             // paired language-service plugin filters navigation results that land there.
             const withAliasText = appendGeneratedConfigAliasesAsRealText(
-                tsInstance, transformedSourceFile, languageVersionOrOptions, fileName
+                tsInstance,
+                transformedSourceFile,
+                languageVersionOrOptions,
+                fileName
             )
 
             preserveTopLevelStatementRanges(tsInstance, withAliasText)

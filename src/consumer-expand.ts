@@ -538,7 +538,9 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
     // exactly the boundary the old type-encoded carrier got for free by riding the discarded node.
     if (extendsType.expression.pos >= 0 && extendsType.expression.end >= 0) {
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, extendsType.expression,
+            tsInstance,
+            sourceFile,
+            extendsType.expression,
             mixinDiagnosticCode.MixinUnsupportedBase,
             unsupportedBaseDiagnosticMessage(tsInstance, sourceFile, declaration, extendsType)
         ))
@@ -550,34 +552,44 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
         []
     )
 
-    const baseInterface = preserveGeneratedDeclarationRange(tsInstance, factory.createInterfaceDeclaration(
-        undefined,
-        baseName,
-        checkedTypeParameters,
-        [ factory.createHeritageClause(
-            tsInstance.SyntaxKind.ExtendsKeyword,
-            reducedMixinHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
-        ) ],
-        []
-    ), generatedRange, declaration)
-
-    const baseClass = preserveGeneratedDeclarationRange(tsInstance, factory.createClassDeclaration(
-        undefined,
-        baseName,
-        appendRequiredBaseValidationTypeParameters(
-            tsInstance,
-            declaration.typeParameters,
+    const baseInterface = preserveGeneratedDeclarationRange(
+        tsInstance,
+        factory.createInterfaceDeclaration(
+            undefined,
+            baseName,
+            checkedTypeParameters,
+            [ factory.createHeritageClause(
+                tsInstance.SyntaxKind.ExtendsKeyword,
+                reducedMixinHeritage.map((heritageType) => cloneExpressionWithTypeArguments(tsInstance, heritageType))
+            ) ],
             []
         ),
-        [ unsupportedBaseConsumerHeritage(
-            tsInstance,
-            extendsType,
-            directMixinRefs,
-            linearizedMixinRefs,
-            options
-        ) ],
-        []
-    ), generatedRange, declaration)
+        generatedRange,
+        declaration
+    )
+
+    const baseClass = preserveGeneratedDeclarationRange(
+        tsInstance,
+        factory.createClassDeclaration(
+            undefined,
+            baseName,
+            appendRequiredBaseValidationTypeParameters(
+                tsInstance,
+                declaration.typeParameters,
+                []
+            ),
+            [ unsupportedBaseConsumerHeritage(
+                tsInstance,
+                extendsType,
+                directMixinRefs,
+                linearizedMixinRefs,
+                options
+            ) ],
+            []
+        ),
+        generatedRange,
+        declaration
+    )
 
     const updatedConsumer = factory.updateClassDeclaration(
         declaration,

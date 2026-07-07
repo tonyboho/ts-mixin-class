@@ -52,14 +52,18 @@ export function buildInterfaceMembers(
                     continue
                 }
 
-                members.push(preserveTextRange(tsInstance, factory.createPropertySignature(
-                    hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.ReadonlyKeyword)
-                        ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-                        : undefined,
-                    cloneNode(tsInstance, parameter.name),
-                    cloneOptionalNode(tsInstance, parameter.questionToken),
-                    clonedTypeOrAny(tsInstance, parameter.type)
-                ), parameterSignatureRange(parameter)))
+                members.push(preserveTextRange(
+                    tsInstance,
+                    factory.createPropertySignature(
+                        hasModifier(tsInstance, parameter, tsInstance.SyntaxKind.ReadonlyKeyword)
+                            ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                            : undefined,
+                        cloneNode(tsInstance, parameter.name),
+                        cloneOptionalNode(tsInstance, parameter.questionToken),
+                        clonedTypeOrAny(tsInstance, parameter.type)
+                    ),
+                    parameterSignatureRange(parameter)
+                ))
             }
 
             continue
@@ -84,46 +88,66 @@ export function buildInterfaceMembers(
                 !containsThisType(tsInstance, member.type)
             ) {
                 members.push(
-                    preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
-                        undefined,
-                        cloneNode(tsInstance, member.name),
-                        [],
-                        clonedTypeOrAny(tsInstance, member.type),
-                        undefined
-                    ) as ts.TypeElement, interfaceMemberRange(member)),
-                    preserveTextRange(tsInstance, factory.createSetAccessorDeclaration(
-                        undefined,
-                        cloneNode(tsInstance, member.name),
-                        [ factory.createParameterDeclaration(
-                            undefined, undefined, "value", undefined,
-                            clonedTypeOrAny(tsInstance, member.type), undefined
-                        ) ],
-                        undefined
-                    ) as ts.TypeElement, interfaceMemberRange(member))
+                    preserveTextRange(
+                        tsInstance,
+                        factory.createGetAccessorDeclaration(
+                            undefined,
+                            cloneNode(tsInstance, member.name),
+                            [],
+                            clonedTypeOrAny(tsInstance, member.type),
+                            undefined
+                        ) as ts.TypeElement,
+                        interfaceMemberRange(member)
+                    ),
+                    preserveTextRange(
+                        tsInstance,
+                        factory.createSetAccessorDeclaration(
+                            undefined,
+                            cloneNode(tsInstance, member.name),
+                            [ factory.createParameterDeclaration(
+                                undefined,
+                                undefined,
+                                "value",
+                                undefined,
+                                clonedTypeOrAny(tsInstance, member.type),
+                                undefined
+                            ) ],
+                            undefined
+                        ) as ts.TypeElement,
+                        interfaceMemberRange(member)
+                    )
                 )
                 continue
             }
 
-            members.push(preserveTextRange(tsInstance, factory.createPropertySignature(
-                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
-                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-                    : undefined,
-                cloneNode(tsInstance, member.name),
-                cloneOptionalNode(tsInstance, member.questionToken),
-                clonedTypeOrAny(tsInstance, member.type)
-            ), interfaceMemberRange(member)))
+            members.push(preserveTextRange(
+                tsInstance,
+                factory.createPropertySignature(
+                    hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+                        ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                        : undefined,
+                    cloneNode(tsInstance, member.name),
+                    cloneOptionalNode(tsInstance, member.questionToken),
+                    clonedTypeOrAny(tsInstance, member.type)
+                ),
+                interfaceMemberRange(member)
+            ))
             continue
         }
 
         if (tsInstance.isMethodDeclaration(member)) {
-            members.push(preserveTextRange(tsInstance, factory.createMethodSignature(
-                undefined,
-                cloneNode(tsInstance, member.name),
-                cloneOptionalNode(tsInstance, member.questionToken),
-                cloneOptionalNodeArray(tsInstance, member.typeParameters),
-                member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
-                clonedTypeOrAny(tsInstance, member.type)
-            ), interfaceMemberRange(member)))
+            members.push(preserveTextRange(
+                tsInstance,
+                factory.createMethodSignature(
+                    undefined,
+                    cloneNode(tsInstance, member.name),
+                    cloneOptionalNode(tsInstance, member.questionToken),
+                    cloneOptionalNodeArray(tsInstance, member.typeParameters),
+                    member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
+                    clonedTypeOrAny(tsInstance, member.type)
+                ),
+                interfaceMemberRange(member)
+            ))
             continue
         }
 
@@ -141,13 +165,17 @@ export function buildInterfaceMembers(
         }
 
         if (tsInstance.isIndexSignatureDeclaration(member)) {
-            members.push(preserveTextRange(tsInstance, factory.createIndexSignature(
-                hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
-                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-                    : undefined,
-                member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
-                cloneNode(tsInstance, member.type)
-            ), interfaceMemberRange(member)))
+            members.push(preserveTextRange(
+                tsInstance,
+                factory.createIndexSignature(
+                    hasModifier(tsInstance, member, tsInstance.SyntaxKind.ReadonlyKeyword)
+                        ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                        : undefined,
+                    member.parameters.map((parameter) => signatureParameter(tsInstance, parameter)),
+                    cloneNode(tsInstance, member.type)
+                ),
+                interfaceMemberRange(member)
+            ))
             continue
         }
 
@@ -240,24 +268,32 @@ function accessorSignatures(
     ) {
         const propertyType = getter?.type ?? setter?.parameters[0]?.type
 
-        return [ preserveTextRange(tsInstance, factory.createPropertySignature(
-            getter !== undefined && setter === undefined
-                ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
-                : undefined,
-            cloneNode(tsInstance, member.name),
-            undefined,
-            clonedTypeOrAny(tsInstance, propertyType)
-        ), interfaceMemberRange(getter ?? member)) ]
+        return [ preserveTextRange(
+            tsInstance,
+            factory.createPropertySignature(
+                getter !== undefined && setter === undefined
+                    ? [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ]
+                    : undefined,
+                cloneNode(tsInstance, member.name),
+                undefined,
+                clonedTypeOrAny(tsInstance, propertyType)
+            ),
+            interfaceMemberRange(getter ?? member)
+        ) ]
     }
 
     if (getter !== undefined) {
-        signatures.push(preserveTextRange(tsInstance, factory.createGetAccessorDeclaration(
-            undefined,
-            cloneNode(tsInstance, member.name),
-            [],
-            clonedTypeOrAny(tsInstance, getter.type),
-            undefined
-        ) as ts.TypeElement, interfaceMemberRange(getter)))
+        signatures.push(preserveTextRange(
+            tsInstance,
+            factory.createGetAccessorDeclaration(
+                undefined,
+                cloneNode(tsInstance, member.name),
+                [],
+                clonedTypeOrAny(tsInstance, getter.type),
+                undefined
+            ) as ts.TypeElement,
+            interfaceMemberRange(getter)
+        ))
     }
 
     if (setter !== undefined) {
@@ -266,16 +302,24 @@ function accessorSignatures(
         const parameter = setter.parameters[0] !== undefined
             ? signatureParameter(tsInstance, setter.parameters[0])
             : factory.createParameterDeclaration(
-                undefined, undefined, "value", undefined,
-                factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword), undefined
+                undefined,
+                undefined,
+                "value",
+                undefined,
+                factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword),
+                undefined
             )
 
-        signatures.push(preserveTextRange(tsInstance, factory.createSetAccessorDeclaration(
-            undefined,
-            cloneNode(tsInstance, member.name),
-            [ parameter ],
-            undefined
-        ) as ts.TypeElement, interfaceMemberRange(setter)))
+        signatures.push(preserveTextRange(
+            tsInstance,
+            factory.createSetAccessorDeclaration(
+                undefined,
+                cloneNode(tsInstance, member.name),
+                [ parameter ],
+                undefined
+            ) as ts.TypeElement,
+            interfaceMemberRange(setter)
+        ))
     }
 
     return signatures
@@ -328,16 +372,20 @@ function signatureParameter(
     parameter: ts.ParameterDeclaration
 ): ts.ParameterDeclaration {
     // A signature parameter with an initializer becomes optional.
-    return preserveTextRange(tsInstance, tsInstance.factory.createParameterDeclaration(
-        undefined,
-        cloneOptionalNode(tsInstance, parameter.dotDotDotToken),
-        cloneNode(tsInstance, parameter.name),
-        parameter.initializer === undefined
-            ? cloneOptionalNode(tsInstance, parameter.questionToken)
-            : tsInstance.factory.createToken(tsInstance.SyntaxKind.QuestionToken),
-        clonedTypeOrAny(tsInstance, parameter.type),
-        undefined
-    ), parameterSignatureRange(parameter))
+    return preserveTextRange(
+        tsInstance,
+        tsInstance.factory.createParameterDeclaration(
+            undefined,
+            cloneOptionalNode(tsInstance, parameter.dotDotDotToken),
+            cloneNode(tsInstance, parameter.name),
+            parameter.initializer === undefined
+                ? cloneOptionalNode(tsInstance, parameter.questionToken)
+                : tsInstance.factory.createToken(tsInstance.SyntaxKind.QuestionToken),
+            clonedTypeOrAny(tsInstance, parameter.type),
+            undefined
+        ),
+        parameterSignatureRange(parameter)
+    )
 }
 
 function interfaceMemberRange(member: ts.ClassElement): ts.TextRange {

@@ -54,8 +54,11 @@ const genericConstructionMixin = trimIndent(`
 it("a generic construction mixin gets a typed standalone .new<T> (emit)", async (t: Test) => {
     const result = await buildConstructionSource(genericConstructionMixin)
 
-    t.equal(result.exitCode, 0,
-        `explicit + inferred .new, a consumer fixing T, and the direct-new ban all hold.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `explicit + inferred .new, a consumer fixing T, and the direct-new ban all hold.\n${commandOutput(result)}`
+    )
 })
 
 it("a generic construction mixin gets a typed standalone .new<T> (source view)", async (t: Test) => {

@@ -113,8 +113,11 @@ it("a user's own 'static new' on a construction CLASS overrides the generated fa
         void titled
     `))
 
-    t.equal(result.exitCode, 0,
-        `the user's positional factory wins; no generated duplicate.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the user's positional factory wins; no generated duplicate.\n${commandOutput(result)}`
+    )
 })
 
 it("a user's own 'static new' on a construction MIXIN overrides the generated factory in both planes", async (t: Test) => {
@@ -224,6 +227,9 @@ it("a static helper calling the GENERATED .new from inside the class body", asyn
         void [ jobName, taskTitle ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `the generated .new is reachable from the class's own statics (class AND mixin).\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the generated .new is reachable from the class's own statics (class AND mixin).\n${commandOutput(result)}`
+    )
 })

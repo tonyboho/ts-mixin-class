@@ -63,12 +63,16 @@ export function createStaticCollisionValidations(
             }
 
             validations.push({
-                typeParameter : preserveTextRange(tsInstance, tsInstance.factory.createTypeParameterDeclaration(
-                    undefined,
-                    uniqueTypeParameterName(declaration, `__mixinStaticCollision${validations.length}`),
-                    tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
-                    undefined
-                ), generatedRange),
+                typeParameter : preserveTextRange(
+                    tsInstance,
+                    tsInstance.factory.createTypeParameterDeclaration(
+                        undefined,
+                        uniqueTypeParameterName(declaration, `__mixinStaticCollision${validations.length}`),
+                        tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
+                        undefined
+                    ),
+                    generatedRange
+                ),
                 typeArgument : preserveTextRange(
                     tsInstance,
                     sourceView && knownOverlap !== undefined

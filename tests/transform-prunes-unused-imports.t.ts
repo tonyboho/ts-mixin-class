@@ -38,10 +38,16 @@ it("transformed output compiles under noUnusedLocals (no unused generated or dec
     const emit       = await buildConstructionSource(source, { noUnusedLocals: true })
     const sourceView = await buildConstructionSource(source, { noUnusedLocals: true, noEmit: true })
 
-    t.equal(emit.exitCode, 0,
-        `A transformed mixin/consumer file must carry no unused imports under noUnusedLocals (emit).\n${commandOutput(emit)}`)
-    t.equal(sourceView.exitCode, 0,
-        `…and the same under --noEmit (source-view).\n${commandOutput(sourceView)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `A transformed mixin/consumer file must carry no unused imports under noUnusedLocals (emit).\n${commandOutput(emit)}`
+    )
+    t.equal(
+        sourceView.exitCode,
+        0,
+        `…and the same under --noEmit (source-view).\n${commandOutput(sourceView)}`
+    )
 })
 
 it("prunes the generated helper import to only referenced helpers and drops the consumed mixin import", (t: Test) => {
@@ -119,8 +125,14 @@ it("keeps a type-only import that is referenced ONLY from a mixin member signatu
     const emit       = await buildWith({ noUnusedLocals: true })
     const sourceView = await buildWith({ noUnusedLocals: true, noEmit: true })
 
-    t.equal(emit.exitCode, 0,
-        `a type-only import used only in a mixin member signature survives the transform (emit).\n${commandOutput(emit)}`)
-    t.equal(sourceView.exitCode, 0,
-        `…and under --noEmit (source-view).\n${commandOutput(sourceView)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `a type-only import used only in a mixin member signature survives the transform (emit).\n${commandOutput(emit)}`
+    )
+    t.equal(
+        sourceView.exitCode,
+        0,
+        `…and under --noEmit (source-view).\n${commandOutput(sourceView)}`
+    )
 })

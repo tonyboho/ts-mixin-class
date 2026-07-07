@@ -88,10 +88,18 @@ export default function transformProgram(
         }
     const nextHost                                   = createMixinClassCompilerHost(tsInstance, compilerHost, compilerOptions, config, crossFile, program, nativeDiagnostics)
 
-    return wrapProgramDiagnostics(tsInstance, tsInstance.createProgram(
-        program.getRootFileNames(),
-        compilerOptions,
-        nextHost,
-        undefined
-    ), program, nativeDiagnostics, crossFile, options, nextHost)
+    return wrapProgramDiagnostics(
+        tsInstance,
+        tsInstance.createProgram(
+            program.getRootFileNames(),
+            compilerOptions,
+            nextHost,
+            undefined
+        ),
+        program,
+        nativeDiagnostics,
+        crossFile,
+        options,
+        nextHost
+    )
 }

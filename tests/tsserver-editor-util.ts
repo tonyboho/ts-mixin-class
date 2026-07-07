@@ -220,11 +220,14 @@ export async function assertDefinition(
         await request(sourceFile, "definition", args)
     )
 
-    t.true(definitions.some((definition) => {
-        return definition.file === sourceFile &&
-            sourceSlice(sourceText, definition) === memberName &&
-            sourceText.slice(positionToIndex(sourceText, definition.start)).startsWith(declarationText)
-    }), `${description} usage resolves to its source declaration`)
+    t.true(
+        definitions.some((definition) => {
+            return definition.file === sourceFile &&
+                sourceSlice(sourceText, definition) === memberName &&
+                sourceText.slice(positionToIndex(sourceText, definition.start)).startsWith(declarationText)
+        }),
+        `${description} usage resolves to its source declaration`
+    )
 }
 
 export async function assertImportedDefinition(
@@ -240,11 +243,14 @@ export async function assertImportedDefinition(
         await importedRequest(sourceFile, "definition", args)
     )
 
-    t.true(definitions.some((definition) => {
-        return definition.file === mixinFile &&
-            sourceSlice(importedMixinText, definition) === memberName &&
-            importedMixinText.slice(positionToIndex(importedMixinText, definition.start)).startsWith(declarationText)
-    }), `Imported ${memberName} usage resolves to its source declaration`)
+    t.true(
+        definitions.some((definition) => {
+            return definition.file === mixinFile &&
+                sourceSlice(importedMixinText, definition) === memberName &&
+                importedMixinText.slice(positionToIndex(importedMixinText, definition.start)).startsWith(declarationText)
+        }),
+        `Imported ${memberName} usage resolves to its source declaration`
+    )
 }
 
 export async function assertFixtureLikeDefinition(
@@ -260,11 +266,14 @@ export async function assertFixtureLikeDefinition(
         await requestWithSourceText(sourceFile, fixtureLikeConsumerText, "definition", args)
     )
 
-    t.true(definitions.some((definition) => {
-        return definition.file === mixinFile &&
-            sourceSlice(fixtureLikeMixinsText, definition) === memberName &&
-            fixtureLikeMixinsText.slice(positionToIndex(fixtureLikeMixinsText, definition.start)).startsWith(declarationText)
-    }), `Fixture-like ${memberName} usage resolves to its source declaration`)
+    t.true(
+        definitions.some((definition) => {
+            return definition.file === mixinFile &&
+                sourceSlice(fixtureLikeMixinsText, definition) === memberName &&
+                fixtureLikeMixinsText.slice(positionToIndex(fixtureLikeMixinsText, definition.start)).startsWith(declarationText)
+        }),
+        `Fixture-like ${memberName} usage resolves to its source declaration`
+    )
 }
 
 export async function assertDefinitionAndBoundSpan(
@@ -280,11 +289,14 @@ export async function assertDefinitionAndBoundSpan(
         await request(sourceFile, "definitionAndBoundSpan", args)
     )
 
-    t.true(body.definitions?.some((definition) => {
-        return definition.file === sourceFile &&
-            sourceSlice(sourceText, definition) === memberName &&
-            sourceText.slice(positionToIndex(sourceText, definition.start)).startsWith(declarationText)
-    }) === true, `${description} quick definition resolves to its source declaration`)
+    t.true(
+        body.definitions?.some((definition) => {
+            return definition.file === sourceFile &&
+                sourceSlice(sourceText, definition) === memberName &&
+                sourceText.slice(positionToIndex(sourceText, definition.start)).startsWith(declarationText)
+        }) === true,
+        `${description} quick definition resolves to its source declaration`
+    )
 }
 
 export async function assertImportedDefinitionAndBoundSpan(
@@ -300,11 +312,14 @@ export async function assertImportedDefinitionAndBoundSpan(
         await importedRequest(sourceFile, "definitionAndBoundSpan", args)
     )
 
-    t.true(body.definitions?.some((definition) => {
-        return definition.file === mixinFile &&
-            sourceSlice(importedMixinText, definition) === memberName &&
-            importedMixinText.slice(positionToIndex(importedMixinText, definition.start)).startsWith(declarationText)
-    }) === true, `Imported ${memberName} quick definition resolves to its source declaration`)
+    t.true(
+        body.definitions?.some((definition) => {
+            return definition.file === mixinFile &&
+                sourceSlice(importedMixinText, definition) === memberName &&
+                importedMixinText.slice(positionToIndex(importedMixinText, definition.start)).startsWith(declarationText)
+        }) === true,
+        `Imported ${memberName} quick definition resolves to its source declaration`
+    )
 }
 
 export async function assertFixtureLikeDefinitionAndBoundSpan(
@@ -320,11 +335,14 @@ export async function assertFixtureLikeDefinitionAndBoundSpan(
         await requestWithSourceText(sourceFile, fixtureLikeConsumerText, "definitionAndBoundSpan", args)
     )
 
-    t.true(body.definitions?.some((definition) => {
-        return definition.file === mixinFile &&
-            sourceSlice(fixtureLikeMixinsText, definition) === memberName &&
-            fixtureLikeMixinsText.slice(positionToIndex(fixtureLikeMixinsText, definition.start)).startsWith(declarationText)
-    }) === true, `Fixture-like ${memberName} quick definition resolves to its source declaration`)
+    t.true(
+        body.definitions?.some((definition) => {
+            return definition.file === mixinFile &&
+                sourceSlice(fixtureLikeMixinsText, definition) === memberName &&
+                fixtureLikeMixinsText.slice(positionToIndex(fixtureLikeMixinsText, definition.start)).startsWith(declarationText)
+        }) === true,
+        `Fixture-like ${memberName} quick definition resolves to its source declaration`
+    )
 }
 
 export async function assertQuickInfo(

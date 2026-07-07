@@ -62,8 +62,11 @@ const constructionSource = trimIndent(`
 it("construction .new config under exactOptionalPropertyTypes (emit)", async (t: Test) => {
     const result = await build(constructionSource, { exactOptionalPropertyTypes: true })
 
-    t.equal(result.exitCode, 0,
-        `optional config keys stay usable; explicit undefined is rejected.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `optional config keys stay usable; explicit undefined is rejected.\n${commandOutput(result)}`
+    )
 })
 
 it("construction .new config under exactOptionalPropertyTypes (source view)", async (t: Test) => {
@@ -165,8 +168,11 @@ it("`override` on a mixin-member override satisfies noImplicitOverride (consumer
 it("`override` on a mixin-member override is legal in the DEFAULT config too", async (t: Test) => {
     const emit = await build(markedOverrides)
 
-    t.equal(emit.exitCode, 0,
-        `emit: plain TS would reject override without extends (TS4112); the transformed plane accepts it.\n${commandOutput(emit)}`)
+    t.equal(
+        emit.exitCode,
+        0,
+        `emit: plain TS would reject override without extends (TS4112); the transformed plane accepts it.\n${commandOutput(emit)}`
+    )
 
     const sourceView = await build(markedOverrides, { noEmit: true })
 

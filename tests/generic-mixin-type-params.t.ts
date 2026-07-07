@@ -70,11 +70,17 @@ it("a mixin may declare a defaulted type parameter (compiles in emit and source-
     const emitResult       = await build(defaultedTypeParamMixinText)
     const sourceViewResult = await build(defaultedTypeParamMixinText, { noEmit: true })
 
-    t.equal(emitResult.exitCode, 0,
-        `Emit build of a defaulted-type-parameter mixin should succeed.\n${commandOutput(emitResult)}`)
+    t.equal(
+        emitResult.exitCode,
+        0,
+        `Emit build of a defaulted-type-parameter mixin should succeed.\n${commandOutput(emitResult)}`
+    )
 
-    t.equal(sourceViewResult.exitCode, 0,
-        `Source-view (noEmit) build of a defaulted-type-parameter mixin should succeed.\n${commandOutput(sourceViewResult)}`)
+    t.equal(
+        sourceViewResult.exitCode,
+        0,
+        `Source-view (noEmit) build of a defaulted-type-parameter mixin should succeed.\n${commandOutput(sourceViewResult)}`
+    )
 })
 
 // A generic `@mixin` class that extends a generic required base and forwards its
@@ -132,11 +138,17 @@ it("a generic mixin extending a generic required base forwards its type paramete
     const emitResult       = await build(genericRequiredBaseText)
     const sourceViewResult = await build(genericRequiredBaseText, { noEmit: true })
 
-    t.equal(emitResult.exitCode, 0,
-        `Emit build of a forwarded generic required base succeeds.\n${commandOutput(emitResult)}`)
+    t.equal(
+        emitResult.exitCode,
+        0,
+        `Emit build of a forwarded generic required base succeeds.\n${commandOutput(emitResult)}`
+    )
 
-    t.equal(sourceViewResult.exitCode, 0,
-        `Source-view (noEmit) build of a forwarded generic required base succeeds.\n${commandOutput(sourceViewResult)}`)
+    t.equal(
+        sourceViewResult.exitCode,
+        0,
+        `Source-view (noEmit) build of a forwarded generic required base succeeds.\n${commandOutput(sourceViewResult)}`
+    )
 })
 
 // VARIANCE ANNOTATIONS (`in` / `out`, TS 4.7) on a generic mixin's type parameters. Legal on
@@ -176,13 +188,19 @@ const varianceAnnotatedMixins = trimIndent(`
 it("variance-annotated mixin type parameters compile in emit", async (t: Test) => {
     const result = await build(varianceAnnotatedMixins)
 
-    t.equal(result.exitCode, 0,
-        `in/out on a mixin's type parameters must not leak into signature positions (TS1274).\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `in/out on a mixin's type parameters must not leak into signature positions (TS1274).\n${commandOutput(result)}`
+    )
 })
 
 it("variance-annotated mixin type parameters stay clean in source-view", async (t: Test) => {
     const result = await build(varianceAnnotatedMixins, { noEmit: true })
 
-    t.equal(result.exitCode, 0,
-        `the source-view plane accepts the annotations too.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the source-view plane accepts the annotations too.\n${commandOutput(result)}`
+    )
 })

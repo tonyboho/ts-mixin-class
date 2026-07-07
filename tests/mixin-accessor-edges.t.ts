@@ -67,8 +67,11 @@ const superAccessorOverride = trimIndent(`
 it("a consumer accessor override reaches the mixin's accessor through super (emit)", async (t: Test) => {
     const result = await build(superAccessorOverride)
 
-    t.equal(result.exitCode, 0,
-        `super.value get/set resolves against the generated base.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `super.value get/set resolves against the generated base.\n${commandOutput(result)}`
+    )
 })
 
 it("a consumer accessor override reaches the mixin's accessor through super (source view)", async (t: Test) => {
@@ -105,8 +108,11 @@ it("a mixin getter with a polymorphic `this` return narrows to the consumer", as
         void built
     `))
 
-    t.equal(result.exitCode, 0,
-        `the this-returning GETTER narrows at the consumer (§1.14's accessor twin).\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `the this-returning GETTER narrows at the consumer (§1.14's accessor twin).\n${commandOutput(result)}`
+    )
 })
 
 it("this-typed accessor SHAPES do not crash the compiler (upstream TS bug workaround)", async (t: Test) => {
@@ -149,8 +155,11 @@ it("this-typed accessor SHAPES do not crash the compiler (upstream TS bug workar
         void [ paired, owned ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `nested / setter-side this types compile through the property-signature fallback.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `nested / setter-side this types compile through the property-signature fallback.\n${commandOutput(result)}`
+    )
 })
 
 it("a SYMBOL-named accessor pair survives into the consumer's interface", async (t: Test) => {
@@ -179,6 +188,9 @@ it("a SYMBOL-named accessor pair survives into the consumer's interface", async 
         void [ tag, printed ]
     `))
 
-    t.equal(result.exitCode, 0,
-        `a computed well-known-symbol GETTER is a typed member of the consumer (§1.17's accessor twin).\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `a computed well-known-symbol GETTER is a typed member of the consumer (§1.17's accessor twin).\n${commandOutput(result)}`
+    )
 })

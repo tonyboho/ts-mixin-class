@@ -74,6 +74,9 @@ it("a construction-base mixin imported through a re-export barrel stays construc
         }
     ])
 
-    t.equal(result.exitCode, 0,
-        `a barrel-imported construction-base mixin keeps the consumer construction-enabled.\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `a barrel-imported construction-base mixin keeps the consumer construction-enabled.\n${commandOutput(result)}`
+    )
 })

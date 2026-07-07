@@ -281,7 +281,11 @@ function createSourceViewConsumerBaseCastType(
 ): ts.TypeNode {
     const types = [
         createSourceViewConsumerBaseHeadType(
-            tsInstance, extendsType, implicitRequiredBase, emptyBaseName, construction
+            tsInstance,
+            extendsType,
+            implicitRequiredBase,
+            emptyBaseName,
+            construction
         ),
         ...mixinStaticsTypes(tsInstance, mixinRefs)
     ]
@@ -414,10 +418,14 @@ export function consumerHeritageClauses(
         ? [ ...ownTypeArguments, ...extraTypeArguments ]
         : undefined
 
-    const extendsType = preserveTextRange(tsInstance, factory.createExpressionWithTypeArguments(
-        factory.createIdentifier(baseName),
-        typeArguments
-    ), generatedTypeRange)
+    const extendsType = preserveTextRange(
+        tsInstance,
+        factory.createExpressionWithTypeArguments(
+            factory.createIdentifier(baseName),
+            typeArguments
+        ),
+        generatedTypeRange
+    )
 
     if (tsInstance.isExpressionWithTypeArguments(generatedTypeRange as ts.Node)) {
         const originalGeneratedTypeRange = generatedTypeRange as ts.ExpressionWithTypeArguments
@@ -458,9 +466,13 @@ export function consumerHeritageClauses(
         }
     }
 
-    const extendsHeritage = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-        extendsType
-    ]), generatedRange)
+    const extendsHeritage = preserveTextRange(
+        tsInstance,
+        factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+            extendsType
+        ]),
+        generatedRange
+    )
 
     preserveTextRange(tsInstance, extendsHeritage.types, generatedTypeRange)
 

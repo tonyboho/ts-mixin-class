@@ -99,23 +99,26 @@ export function createMixinFactoryExpression(
         typeParameters?.map((typeParameter) => stripVarianceAnnotations(tsInstance, typeParameter)),
         [ createBaseParameter(tsInstance, declaration, context) ],
         returnAnnotation,
-        factory.createBlock([
-            runtimeClass,
-            // Under the annotation the return is CAST to it (built fresh — AST nodes are
-            // single-parent): checking `typeof __X$class` against `AnyConstructor<X>`
-            // structurally would reject a mixin whose interface gained TRUSTED members through
-            // declaration merging (the class legitimately does not implement them); the real
-            // body-vs-contract checking lives on the runtime class's own `implements` clause.
-            factory.createReturnStatement(returnAnnotation === undefined
-                ? factory.createIdentifier(runtimeClassName)
-                : factory.createAsExpression(
-                    factory.createAsExpression(
-                        factory.createIdentifier(runtimeClassName),
-                        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
-                    ),
-                    createFactoryReturnType(tsInstance, declaration, typeParameters, context)
-                ))
-        ], true)
+        factory.createBlock(
+            [
+                runtimeClass,
+                // Under the annotation the return is CAST to it (built fresh — AST nodes are
+                // single-parent): checking `typeof __X$class` against `AnyConstructor<X>`
+                // structurally would reject a mixin whose interface gained TRUSTED members through
+                // declaration merging (the class legitimately does not implement them); the real
+                // body-vs-contract checking lives on the runtime class's own `implements` clause.
+                factory.createReturnStatement(returnAnnotation === undefined
+                    ? factory.createIdentifier(runtimeClassName)
+                    : factory.createAsExpression(
+                        factory.createAsExpression(
+                            factory.createIdentifier(runtimeClassName),
+                            factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                        ),
+                        createFactoryReturnType(tsInstance, declaration, typeParameters, context)
+                    ))
+            ],
+            true
+        )
     )
 }
 
@@ -620,9 +623,13 @@ function baseStaticsTypes(
     return [
         ...(requiredBase === undefined
             ? []
-            : [ wrapInOmit(tsInstance, factory.createTypeReferenceNode(classStaticsName, [
-                factory.createTypeQueryNode(expressionToEntityName(tsInstance, requiredBase.expression))
-            ]), shadowedLiterals()) ]),
+            : [ wrapInOmit(
+                tsInstance,
+                factory.createTypeReferenceNode(classStaticsName, [
+                    factory.createTypeQueryNode(expressionToEntityName(tsInstance, requiredBase.expression))
+                ]),
+                shadowedLiterals()
+            ) ]),
         // A dependency's statics also drop the framework marker symbols (`keyof
         // RuntimeMixinClass`): the class inside the factory inherits its static side from this
         // parameter type, and DECLARATION emit expands that static side structurally — a

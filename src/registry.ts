@@ -287,7 +287,11 @@ export function buildConstructionBaseRegistry(
         // chain's LOCAL levels contribute `qualifiedBaseConfigProperties`; the imported
         // tail comes from `resolve`.
         const qualifiedExit = qualifiedConstructionChainExit(
-            tsInstance, sourceFile, classFacts.extendsType!, resolvedOptions, facts
+            tsInstance,
+            sourceFile,
+            classFacts.extendsType!,
+            resolvedOptions,
+            facts
         )
 
         return { baseName: qualifiedExit?.unresolvedName, qualifiedExit }

@@ -189,7 +189,10 @@ it("the TS2416 artifact twin is renamed onto the user's mixin and deduped away",
         t.match(output, "base type 'Greeter'", `${label}: naming the mixin.\n${output}`)
         t.notMatch(output, "$base", `${label}: no generated base name leaks`)
         t.notMatch(output, "base type '}'", `${label}: no collapsed-position render leaks`)
-        t.is(output.split("TS2416").length - 1, 1,
-            `${label}: exactly ONE TS2416 remains after the artifact twin is renamed and deduped`)
+        t.is(
+            output.split("TS2416").length - 1,
+            1,
+            `${label}: exactly ONE TS2416 remains after the artifact twin is renamed and deduped`
+        )
     }
 })

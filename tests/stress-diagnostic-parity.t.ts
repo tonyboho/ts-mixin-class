@@ -335,101 +335,104 @@ it("emit and source-view report diagnostics at the same source positions across 
     let ideOnlyCoverageGaps          = 0
     let failure: string | undefined
 
-    const iterations = runWithinBudget(() => {
-        if (failure !== undefined) {
-            return
-        }
+    const iterations = runWithinBudget(
+        () => {
+            if (failure !== undefined) {
+                return
+            }
 
-        const fileName = random.pick(rootNames)
-        const text     = readFileSync(fileName, "utf8")
-        const parsed   = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-        const offsets  = collectPerturbableIdentifierOffsets(parsed, heritageNames)
+            const fileName = random.pick(rootNames)
+            const text     = readFileSync(fileName, "utf8")
+            const parsed   = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+            const offsets  = collectPerturbableIdentifierOffsets(parsed, heritageNames)
 
-        if (offsets.length === 0) {
-            return
-        }
+            if (offsets.length === 0) {
+                return
+            }
 
-        const offset                     = random.pick(offsets)
-        const location                   = ts.getLineAndCharacterOfPosition(parsed, offset)
-        const perturbation: Perturbation = {
-            fileName,
-            text   : `${text.slice(0, offset)}Zq9${text.slice(offset)}`,
-            line   : location.line + 1,
-            column : location.character + 1,
-            word   : text.slice(Math.max(0, offset - 6), offset)
-        }
+            const offset                     = random.pick(offsets)
+            const location                   = ts.getLineAndCharacterOfPosition(parsed, offset)
+            const perturbation: Perturbation = {
+                fileName,
+                text   : `${text.slice(0, offset)}Zq9${text.slice(offset)}`,
+                line   : location.line + 1,
+                column : location.character + 1,
+                word   : text.slice(Math.max(0, offset - 6), offset)
+            }
 
-        // Heritage-clause spans come from the *original* text the compiled file holds:
-        // the perturbed text for the edited file, on-disk text for the rest. Both modes'
-        // diagnostics are in these coordinates, so the same ranges filter both.
-        const perturbedSource   = ts.createSourceFile(fileName, perturbation.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-        const originalSourceFor = (diagnosticFileName: string): ts.SourceFile | undefined => {
-            return diagnosticFileName === fileName ? perturbedSource : originalSourceOfFile(diagnosticFileName)
-        }
+            // Heritage-clause spans come from the *original* text the compiled file holds:
+            // the perturbed text for the edited file, on-disk text for the rest. Both modes'
+            // diagnostics are in these coordinates, so the same ranges filter both.
+            const perturbedSource   = ts.createSourceFile(fileName, perturbation.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+            const originalSourceFor = (diagnosticFileName: string): ts.SourceFile | undefined => {
+                return diagnosticFileName === fileName ? perturbedSource : originalSourceOfFile(diagnosticFileName)
+            }
 
-        const emitEntries = diagnosticEntries(buildProgram(rootNames, "emit", perturbation), originalSourceFor)
-        const ideEntries  = diagnosticEntries(buildProgram(rootNames, "ide", perturbation), originalSourceFor)
+            const emitEntries = diagnosticEntries(buildProgram(rootNames, "emit", perturbation), originalSourceFor)
+            const ideEntries  = diagnosticEntries(buildProgram(rootNames, "ide", perturbation), originalSourceFor)
 
-        const emitLines = new Set(emitEntries.map((entry) => entry.line))
-        const ideLines  = new Set(ideEntries.map((entry) => entry.line))
-        const onlyEmit  = [ ...emitLines ].filter((line) => !ideLines.has(line)).sort()
-        const onlyIde   = [ ...ideLines ].filter((line) => !emitLines.has(line)).sort()
+            const emitLines = new Set(emitEntries.map((entry) => entry.line))
+            const ideLines  = new Set(ideEntries.map((entry) => entry.line))
+            const onlyEmit  = [ ...emitLines ].filter((line) => !ideLines.has(line)).sort()
+            const onlyIde   = [ ...ideLines ].filter((line) => !emitLines.has(line)).sort()
 
-        if (emitLines.size > 0 || ideLines.size > 0) {
-            perturbationsWithDiagnostics++
-        }
+            if (emitLines.size > 0 || ideLines.size > 0) {
+                perturbationsWithDiagnostics++
+            }
 
-        if (onlyIde.length > 0) {
-            // Emit under-reports some mixin-contract errors the source-view tree catches
-            // (a pre-existing dual-tree semantic-coverage gap, not a line-remap issue —
-            // see TODO). We assert only the property the remap owns: emit never places an
-            // error on a line the source has none on.
-            ideOnlyCoverageGaps++
-        }
+            if (onlyIde.length > 0) {
+                // Emit under-reports some mixin-contract errors the source-view tree catches
+                // (a pre-existing dual-tree semantic-coverage gap, not a line-remap issue —
+                // see TODO). We assert only the property the remap owns: emit never places an
+                // error on a line the source has none on.
+                ideOnlyCoverageGaps++
+            }
 
-        // Column parity: for a diagnostic both trees report, the remapped emit column
-        // must match the source-view column. Match on `file:line:code:message` — the
-        // message disambiguates two different errors that share a line+code (e.g.
-        // `this.prefix` vs `this.label` both TS2339 on one line, where the trees' coverage
-        // differs), so only genuinely-the-same diagnostic is compared.
-        const columnKey  = (entry: DiagnosticEntry): string => `${entry.line}:${entry.code}:${entry.message}`
-        const ideColumns = new Map<string, Set<number>>()
+            // Column parity: for a diagnostic both trees report, the remapped emit column
+            // must match the source-view column. Match on `file:line:code:message` — the
+            // message disambiguates two different errors that share a line+code (e.g.
+            // `this.prefix` vs `this.label` both TS2339 on one line, where the trees' coverage
+            // differs), so only genuinely-the-same diagnostic is compared.
+            const columnKey  = (entry: DiagnosticEntry): string => `${entry.line}:${entry.code}:${entry.message}`
+            const ideColumns = new Map<string, Set<number>>()
 
-        for (const entry of ideEntries) {
-            const columns = ideColumns.get(columnKey(entry)) ?? new Set<number>()
+            for (const entry of ideEntries) {
+                const columns = ideColumns.get(columnKey(entry)) ?? new Set<number>()
 
-            columns.add(entry.column)
-            ideColumns.set(columnKey(entry), columns)
-        }
+                columns.add(entry.column)
+                ideColumns.set(columnKey(entry), columns)
+            }
 
-        const columnMismatch = emitEntries.find((entry) => {
-            const columns = ideColumns.get(columnKey(entry))
+            const columnMismatch = emitEntries.find((entry) => {
+                const columns = ideColumns.get(columnKey(entry))
 
-            return columns !== undefined && !columns.has(entry.column)
-        })
+                return columns !== undefined && !columns.has(entry.column)
+            })
 
-        if (onlyEmit.length > 0) {
-            failure = [
-                `Emit reported a diagnostic on a line the source-view path does not ` +
-                    `(MIXIN_STRESS_SEED=${seed}) — a regenerated line that does not exist on disk.`,
-                `Perturbed ${path.basename(fileName)} at ${perturbation.line}:${perturbation.column} ` +
-                    `(renamed identifier ending ${JSON.stringify(perturbation.word)}).`,
-                `Lines only in EMIT (the line-drift this fix removes): ${JSON.stringify(onlyEmit)}`,
-                `Full emit lines: ${JSON.stringify([ ...emitLines ].sort())}`,
-                `Full ide  lines: ${JSON.stringify([ ...ideLines ].sort())}`
-            ].join("\n")
-        } else if (columnMismatch !== undefined) {
-            failure = [
-                `Emit and source-view disagree on the COLUMN of TS${columnMismatch.code} at ` +
-                    `${columnMismatch.line} (MIXIN_STRESS_SEED=${seed}).`,
-                `Perturbed ${path.basename(fileName)} at ${perturbation.line}:${perturbation.column} ` +
-                    `(renamed identifier ending ${JSON.stringify(perturbation.word)}).`,
-                `Message: ${JSON.stringify(columnMismatch.message)}`,
-                `Emit column: ${columnMismatch.column}; source-view columns for the same diagnostic: ` +
-                    `${JSON.stringify([ ...(ideColumns.get(columnKey(columnMismatch)) ?? []) ])}`
-            ].join("\n")
-        }
-    }, resolveStressBudget({ durationMs: 8000, maxIterations: 24 }))
+            if (onlyEmit.length > 0) {
+                failure = [
+                    `Emit reported a diagnostic on a line the source-view path does not ` +
+                        `(MIXIN_STRESS_SEED=${seed}) — a regenerated line that does not exist on disk.`,
+                    `Perturbed ${path.basename(fileName)} at ${perturbation.line}:${perturbation.column} ` +
+                        `(renamed identifier ending ${JSON.stringify(perturbation.word)}).`,
+                    `Lines only in EMIT (the line-drift this fix removes): ${JSON.stringify(onlyEmit)}`,
+                    `Full emit lines: ${JSON.stringify([ ...emitLines ].sort())}`,
+                    `Full ide  lines: ${JSON.stringify([ ...ideLines ].sort())}`
+                ].join("\n")
+            } else if (columnMismatch !== undefined) {
+                failure = [
+                    `Emit and source-view disagree on the COLUMN of TS${columnMismatch.code} at ` +
+                        `${columnMismatch.line} (MIXIN_STRESS_SEED=${seed}).`,
+                    `Perturbed ${path.basename(fileName)} at ${perturbation.line}:${perturbation.column} ` +
+                        `(renamed identifier ending ${JSON.stringify(perturbation.word)}).`,
+                    `Message: ${JSON.stringify(columnMismatch.message)}`,
+                    `Emit column: ${columnMismatch.column}; source-view columns for the same diagnostic: ` +
+                        `${JSON.stringify([ ...(ideColumns.get(columnKey(columnMismatch)) ?? []) ])}`
+                ].join("\n")
+            }
+        },
+        resolveStressBudget({ durationMs: 8000, maxIterations: 24 })
+    )
 
     if (failure !== undefined) {
         t.fail(failure)

@@ -39,7 +39,9 @@ export function appendGeneratedConfigAliasesAsRealText(
     const printer      = tsInstance.createPrinter({ removeComments: true })
     const aliasText    = aliases
         .map((alias) => printer.printNode(
-            tsInstance.EmitHint.Unspecified, deepCloneNode(tsInstance, alias), transformed
+            tsInstance.EmitHint.Unspecified,
+            deepCloneNode(tsInstance, alias),
+            transformed
         ))
         .join("\n")
     const combinedText = `${transformed.text}\n${aliasText}\n`
@@ -47,7 +49,11 @@ export function appendGeneratedConfigAliasesAsRealText(
     // Reparse the combined text purely to obtain the appended aliases with correct, real
     // positions in the [N, …) tail; its leading (re-parsed user) statements are discarded.
     const reparsed    = tsInstance.createSourceFile(
-        fileName, combinedText, languageVersionOrOptions, true, scriptKindFromFileName(tsInstance, fileName)
+        fileName,
+        combinedText,
+        languageVersionOrOptions,
+        true,
+        scriptKindFromFileName(tsInstance, fileName)
     )
     const realAliases = reparsed.statements.slice(reparsed.statements.length - aliases.length)
     const aliasSet    = new Set<ts.Statement>(aliases)

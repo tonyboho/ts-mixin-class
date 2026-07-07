@@ -169,13 +169,19 @@ it("a consumer FIELD shadowing a mixin ACCESSOR is rejected under define semanti
 
     t.ne(rejected.exitCode, 0, "define semantics: rejected")
     t.match(output, "TS990010", `the native guard fires.\n${output}`)
-    t.match(output, "'value' is defined as an accessor in mixin Measured",
-        "the message names the buried accessor and its mixin")
+    t.match(
+        output,
+        "'value' is defined as an accessor in mixin Measured",
+        "the message names the buried accessor and its mixin"
+    )
 
     const legal = await build(fieldOverAccessor, { useDefineForClassFields: false })
 
-    t.equal(legal.exitCode, 0,
-        `set semantics: the field initializer assigns through the mixin setter — legal.\n${commandOutput(legal)}`)
+    t.equal(
+        legal.exitCode,
+        0,
+        `set semantics: the field initializer assigns through the mixin setter — legal.\n${commandOutput(legal)}`
+    )
 })
 
 it("a consumer ACCESSOR over a mixin FIELD is rejected under define semantics only", async (t: Test) => {
@@ -190,8 +196,11 @@ it("a consumer ACCESSOR over a mixin FIELD is rejected under define semantics on
 
     const legal = await build(accessorOverField, { useDefineForClassFields: false })
 
-    t.equal(legal.exitCode, 0,
-        `set semantics: the field assignment fires the overriding setter — legal.\n${commandOutput(legal)}`)
+    t.equal(
+        legal.exitCode,
+        0,
+        `set semantics: the field assignment fires the overriding setter — legal.\n${commandOutput(legal)}`
+    )
 })
 
 it("a nearer mixin FIELD over a deeper mixin ACCESSOR is rejected across one implements list", async (t: Test) => {
@@ -205,8 +214,11 @@ it("a nearer mixin FIELD over a deeper mixin ACCESSOR is rejected across one imp
 
     const legal = await build(mixinOverMixin, { useDefineForClassFields: false })
 
-    t.equal(legal.exitCode, 0,
-        `set semantics: the nearer field initializes through the deeper setter — legal.\n${commandOutput(legal)}`)
+    t.equal(
+        legal.exitCode,
+        0,
+        `set semantics: the nearer field initializes through the deeper setter — legal.\n${commandOutput(legal)}`
+    )
 })
 
 it("a consumer FIELD shadowing a mixin AUTO-ACCESSOR is rejected under define semantics only", async (t: Test) => {
@@ -218,13 +230,19 @@ it("a consumer FIELD shadowing a mixin AUTO-ACCESSOR is rejected under define se
 
     t.ne(rejected.exitCode, 0, "define semantics: rejected")
     t.match(output, "TS990010", `the native guard fires.\n${output}`)
-    t.match(output, "'count' is defined as an accessor in mixin Counted",
-        "the auto-accessor classifies as an accessor in the message")
+    t.match(
+        output,
+        "'count' is defined as an accessor in mixin Counted",
+        "the auto-accessor classifies as an accessor in the message"
+    )
 
     const legal = await build(fieldOverAutoAccessor, { useDefineForClassFields: false })
 
-    t.equal(legal.exitCode, 0,
-        `set semantics: the field initializer assigns through the generated setter — legal.\n${commandOutput(legal)}`)
+    t.equal(
+        legal.exitCode,
+        0,
+        `set semantics: the field initializer assigns through the generated setter — legal.\n${commandOutput(legal)}`
+    )
 })
 
 it("a consumer get/set PAIR over a mixin AUTO-ACCESSOR is a legal accessor-over-accessor override", async (t: Test) => {
@@ -233,13 +251,19 @@ it("a consumer get/set PAIR over a mixin AUTO-ACCESSOR is a legal accessor-over-
     // misread the auto-accessor as a field and reject the pair.
     const define = await build(pairOverAutoAccessor, { useDefineForClassFields: true })
 
-    t.equal(define.exitCode, 0,
-        `define semantics: accessor-over-accessor stays legal.\n${commandOutput(define)}`)
+    t.equal(
+        define.exitCode,
+        0,
+        `define semantics: accessor-over-accessor stays legal.\n${commandOutput(define)}`
+    )
 
     const set = await build(pairOverAutoAccessor, { useDefineForClassFields: false })
 
-    t.equal(set.exitCode, 0,
-        `set semantics: accessor-over-accessor stays legal.\n${commandOutput(set)}`)
+    t.equal(
+        set.exitCode,
+        0,
+        `set semantics: accessor-over-accessor stays legal.\n${commandOutput(set)}`
+    )
 })
 
 it("a consumer AUTO-ACCESSOR over a mixin FIELD is rejected under BOTH semantics", async (t: Test) => {
@@ -297,12 +321,16 @@ it("a @mixin FIELD over its DEPENDENCY's accessor is rejected under define seman
 
     const legal = await build(mixinOverDependency, { useDefineForClassFields: false })
 
-    t.equal(legal.exitCode, 0,
-        `set semantics: legal, exactly like the consumer case.\n${commandOutput(legal)}`)
+    t.equal(
+        legal.exitCode,
+        0,
+        `set semantics: legal, exactly like the consumer case.\n${commandOutput(legal)}`
+    )
 })
 
 it("a consumer overriding a mixin METHOD with a narrowed return still chains through super", async (t: Test) => {
-    const result = await build(trimIndent(`
+    const result = await build(
+        trimIndent(`
         import { mixin } from "ts-mixin-class"
 
         @mixin()
@@ -321,10 +349,15 @@ it("a consumer overriding a mixin METHOD with a narrowed return still chains thr
         const narrowed: "wrapped(base)" = new Narrowed().describe()
 
         void narrowed
-    `), { noImplicitOverride: true })
+    `),
+        { noImplicitOverride: true }
+    )
 
-    t.equal(result.exitCode, 0,
-        `an override with a narrowed return type + super chaining compiles (noImplicitOverride).\n${commandOutput(result)}`)
+    t.equal(
+        result.exitCode,
+        0,
+        `an override with a narrowed return type + super chaining compiles (noImplicitOverride).\n${commandOutput(result)}`
+    )
 })
 
 it("a consumer overriding a mixin get/set PAIR keeps the accessor contract", async (t: Test) => {

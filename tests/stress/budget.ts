@@ -82,11 +82,14 @@ export async function runStressAsync<Item>(
         return count
     }
 
-    return runWithinBudgetAsync(async () => {
-        if (!stop()) {
-            await probe(pickRandom())
-        }
-    }, resolveStressBudget())
+    return runWithinBudgetAsync(
+        async () => {
+            if (!stop()) {
+                await probe(pickRandom())
+            }
+        },
+        resolveStressBudget()
+    )
 }
 
 export function runStress<Item>(
@@ -110,11 +113,14 @@ export function runStress<Item>(
         return count
     }
 
-    return runWithinBudget(() => {
-        if (!stop()) {
-            probe(pickRandom())
-        }
-    }, resolveStressBudget())
+    return runWithinBudget(
+        () => {
+            if (!stop()) {
+                probe(pickRandom())
+            }
+        },
+        resolveStressBudget()
+    )
 }
 
 export function runWithinBudget(

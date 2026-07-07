@@ -83,7 +83,9 @@ function mixinExtendsMixinDiagnostic(
     }
 
     return nativeDiagnosticOn(
-        tsInstance, sourceFile, base.expression,
+        tsInstance,
+        sourceFile,
+        base.expression,
         mixinDiagnosticCode.MixinExtendsMixin,
         `Invalid mixin class declaration. Mixin class ${ref.className} cannot extend another mixin class (${baseName}). ` +
             "A mixin consumes other mixins through `implements` (which builds the runtime chain); " +
@@ -149,7 +151,9 @@ export function expandMixinClass(
     // node, pushed before the source-view/emit split so it surfaces identically in both.
     for (const diagnostic of collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)) {
         context.nativeDiagnostics.push(nativeDiagnosticOn(
-            tsInstance, sourceFile, diagnostic.node,
+            tsInstance,
+            sourceFile,
+            diagnostic.node,
             mixinDiagnosticCode.MixinInvalidDeclaration,
             diagnostic.message
         ))
@@ -228,7 +232,14 @@ export function expandMixinClass(
     const needsProtocolInitialize = dependencyRefs.length > 0 &&
         !declaresInstanceInitialize(tsInstance, declaration) &&
         isConstructionBaseOptIn(
-            tsInstance, sourceFile, requiredBase, options, facts, new Set(), context.crossFile, baseImportMap
+            tsInstance,
+            sourceFile,
+            requiredBase,
+            options,
+            facts,
+            new Set(),
+            context.crossFile,
+            baseImportMap
         )
     const interfaceMembers        = needsProtocolInitialize
         ? factory.createNodeArray([
@@ -252,70 +263,92 @@ export function expandMixinClass(
         baseImportMap
     )
 
-    const interfaceDeclaration = preserveTextRange(tsInstance, factory.createInterfaceDeclaration(
-        exportModifiers,
-        ref.className,
-        typeParameters,
-        interfaceHeritageClauses(tsInstance, declaration, context),
-        interfaceMembers
-    ), interfaceDeclarationRange(declaration, interfaceMembers))
+    const interfaceDeclaration = preserveTextRange(
+        tsInstance,
+        factory.createInterfaceDeclaration(
+            exportModifiers,
+            ref.className,
+            typeParameters,
+            interfaceHeritageClauses(tsInstance, declaration, context),
+            interfaceMembers
+        ),
+        interfaceDeclarationRange(declaration, interfaceMembers)
+    )
 
-    const factoryStatement = preserveTextRange(tsInstance, factory.createVariableStatement(
-        factoryExportModifiers,
-        factory.createVariableDeclarationList([
-            factory.createVariableDeclaration(
-                ref.localFactoryName,
-                undefined,
-                undefined,
-                createMixinFactoryExpression(
-                    tsInstance,
-                    sourceFile,
-                    declaration,
-                    typeParameters,
-                    generatedName(ref.className, mixinRuntimeClassSuffix),
-                    context,
-                    options
-                )
+    const factoryStatement = preserveTextRange(
+        tsInstance,
+        factory.createVariableStatement(
+            factoryExportModifiers,
+            factory.createVariableDeclarationList(
+                [
+                    factory.createVariableDeclaration(
+                        ref.localFactoryName,
+                        undefined,
+                        undefined,
+                        createMixinFactoryExpression(
+                            tsInstance,
+                            sourceFile,
+                            declaration,
+                            typeParameters,
+                            generatedName(ref.className, mixinRuntimeClassSuffix),
+                            context,
+                            options
+                        )
+                    )
+                ],
+                tsInstance.NodeFlags.Const
             )
-        ], tsInstance.NodeFlags.Const)
-    ), generatedTextRange(sourceFile, declaration.end))
+        ),
+        generatedTextRange(sourceFile, declaration.end)
+    )
 
-    const valueStatement = preserveTextRange(tsInstance, factory.createVariableStatement(
-        exportModifiers,
-        factory.createVariableDeclarationList([
-            factory.createVariableDeclaration(
-                ref.className,
-                undefined,
-                undefined,
-                factory.createAsExpression(
-                    factory.createAsExpression(
-                        factory.createCallExpression(
-                            factory.createIdentifier(defineMixinClassLocalName),
-                            undefined,
-                            defineMixinClassArguments(
-                                tsInstance,
-                                ref,
-                                dependencyRefs,
-                                requiredBase,
-                                linearizationPlan,
-                                linearizationMode(options),
-                                createMixinDecorateCallback(tsInstance, sourceFile, declaration, ref, options)
-                            )
-                        ),
-                        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
-                    ),
-                    createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType)
-                )
+    const valueStatement = preserveTextRange(
+        tsInstance,
+        factory.createVariableStatement(
+            exportModifiers,
+            factory.createVariableDeclarationList(
+                [
+                    factory.createVariableDeclaration(
+                        ref.className,
+                        undefined,
+                        undefined,
+                        factory.createAsExpression(
+                            factory.createAsExpression(
+                                factory.createCallExpression(
+                                    factory.createIdentifier(defineMixinClassLocalName),
+                                    undefined,
+                                    defineMixinClassArguments(
+                                        tsInstance,
+                                        ref,
+                                        dependencyRefs,
+                                        requiredBase,
+                                        linearizationPlan,
+                                        linearizationMode(options),
+                                        createMixinDecorateCallback(tsInstance, sourceFile, declaration, ref, options)
+                                    )
+                                ),
+                                factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                            ),
+                            createMixinValueCastType(tsInstance, declaration, ref, typeParameters, constructionNew?.newType)
+                        )
+                    )
+                ],
+                tsInstance.NodeFlags.Const
             )
-        ], tsInstance.NodeFlags.Const)
-    ), generatedTextRange(sourceFile, declaration.end))
+        ),
+        generatedTextRange(sourceFile, declaration.end)
+    )
 
     const defaultExportStatement = defaultExport
-        ? [ preserveTextRange(tsInstance, factory.createExportAssignment(
-            undefined,
-            undefined,
-            factory.createIdentifier(ref.className)
-        ), generatedTextRange(sourceFile, declaration.end)) ]
+        ? [ preserveTextRange(
+            tsInstance,
+            factory.createExportAssignment(
+                undefined,
+                undefined,
+                factory.createIdentifier(ref.className)
+            ),
+            generatedTextRange(sourceFile, declaration.end)
+        ) ]
         : []
 
     const configAliasStatement = constructionNew === undefined

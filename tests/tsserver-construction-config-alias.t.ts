@@ -235,10 +235,16 @@ it("tsserver quickinfo on a NESTED class's config-alias reference names the alia
         )
         const display = info.displayString ?? ""
 
-        t.match(display, "type PointConfig =",
-            `Hover on the nested config alias names it, got:\n${display}`)
-        t.notMatch(display, "type } =",
-            "The collapsed-position render never surfaces in the hover")
+        t.match(
+            display,
+            "type PointConfig =",
+            `Hover on the nested config alias names it, got:\n${display}`
+        )
+        t.notMatch(
+            display,
+            "type } =",
+            "The collapsed-position render never surfaces in the hover"
+        )
     } finally {
         await fixture.dispose()
     }
@@ -452,7 +458,9 @@ it("editor names the config alias natively and the ls-plugin keeps its appended 
 
         // The failing `.new(...)` diagnostic names the alias NATIVELY (real appended text).
         const diagnostics = assertResponseBody<Array<{ code?: number, text?: string }>>(
-            t, await session.request("semanticDiagnosticsSync", { file: sourceFile }))
+            t,
+            await session.request("semanticDiagnosticsSync", { file: sourceFile })
+        )
         const diagText    = diagnostics.map((d) => d.text ?? "").join("\n")
 
         t.match(diagText, "AccountConfig", "diagnostic names the alias natively")
@@ -461,21 +469,30 @@ it("editor names the config alias natively and the ls-plugin keeps its appended 
         // find-references on the class name returns NO phantom span past the on-disk document.
         const accountPosition = navigationTailText.indexOf("class Account") + "class ".length + 1
         const references      = assertResponseBody<RefBody>(
-            t, await session.request("references", { file: sourceFile, ...positionToLineOffset(navigationTailText, accountPosition) }))
+            t,
+            await session.request("references", { file: sourceFile, ...positionToLineOffset(navigationTailText, accountPosition) })
+        )
         const referenceLines  = (references.refs ?? []).map((reference) => reference.start.line)
 
         t.ne(referenceLines.length, 0, "references are found")
-        t.true(referenceLines.every((line) => line <= navigationTailLineCount),
-            `no reference past the on-disk document (lineCount=${navigationTailLineCount}, got ${JSON.stringify(referenceLines)})`)
+        t.true(
+            referenceLines.every((line) => line <= navigationTailLineCount),
+            `no reference past the on-disk document (lineCount=${navigationTailLineCount}, got ${JSON.stringify(referenceLines)})`
+        )
 
         // go-to-definition on the alias reference REMAPS onto the owning class' name.
         const aliasUse   = navigationTailText.indexOf("config?: AccountConfig") + "config?: ".length + 1
         const definition = assertResponseBody<DefBody>(
-            t, await session.request("definition", { file: sourceFile, ...positionToLineOffset(navigationTailText, aliasUse) }))
+            t,
+            await session.request("definition", { file: sourceFile, ...positionToLineOffset(navigationTailText, aliasUse) })
+        )
         const classLine  = positionToLineOffset(navigationTailText, navigationTailText.indexOf("class Account")).line
 
-        t.eq(definition.map((entry) => entry.start.line), [ classLine ],
-            "go-to-definition on the alias lands on the owning class, not the appended tail")
+        t.eq(
+            definition.map((entry) => entry.start.line),
+            [ classLine ],
+            "go-to-definition on the alias lands on the owning class, not the appended tail"
+        )
 
         await session.close()
     } finally {

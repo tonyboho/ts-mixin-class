@@ -126,12 +126,21 @@ it("expands an imported class-level @mixin() class into interface + factory + co
             "type MixinApplication, type MixinFactory, type RuntimeMixinClass } from \"ts-mixin-class\"",
         "Helper import is added (pruned to the helpers this file references)"
     )
-    t.match(printed, "function <T>(base: AnyConstructor)",
-        "Factory takes a typed base")
-    t.match(printed, "class __SourceClass$class extends base",
-        "Factory takes a base and declares the named runtime class (a DECLARATION, so legacy member decorators stay legal)")
-    t.match(printed, "return __SourceClass$class",
-        "…and returns it by name")
+    t.match(
+        printed,
+        "function <T>(base: AnyConstructor)",
+        "Factory takes a typed base"
+    )
+    t.match(
+        printed,
+        "class __SourceClass$class extends base",
+        "Factory takes a base and declares the named runtime class (a DECLARATION, so legacy member decorators stay legal)"
+    )
+    t.match(
+        printed,
+        "return __SourceClass$class",
+        "…and returns it by name"
+    )
     t.match(printed, "static staticHelper", "Static members stay in the factory body")
     t.notMatch(printedInterface(printed), "staticHelper", "Static members are not in the interface")
     t.match(
@@ -194,17 +203,21 @@ it("supports aliased and namespace decorator imports", async (t: Test) => {
 })
 
 it("supports custom package and decorator options", async (t: Test) => {
-    const transformedFile = transformSourceFile(ts, createSourceFile(`
+    const transformedFile = transformSourceFile(
+        ts,
+        createSourceFile(`
         import { compose } from "custom-mixin-package"
 
         @compose()
         class SourceClass {
             value: string = "ok"
         }
-    `), {
-        decoratorName : "compose",
-        packageName   : "custom-mixin-package"
-    })
+    `),
+        {
+            decoratorName : "compose",
+            packageName   : "custom-mixin-package"
+        }
+    )
 
     t.not.isStrict(findInterface(transformedFile, "SourceClass"), undefined, "Custom marker expands the class")
     t.match(
@@ -231,17 +244,31 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed,
+    t.match(
+        printed,
         "function <T>(base: AnyConstructor<SourceClass1<T>> & Omit<ClassStatics<typeof SourceClass1>, \"mix\" | keyof RuntimeMixinClass>)",
-        "Dependent mixin base parameter is typed with the dependency's instance AND static sides")
-    t.match(printed, "class __ChildMixin$class extends base",
-        "Dependent mixin factory declares the named runtime class")
-    t.match(printed, "return __ChildMixin$class",
-        "…and returns it by name")
-    t.match(printed, "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
-        "Value const registers the direct dependency with the runtime helper")
-    t.match(printed, "interface ChildMixin<T> extends SourceClass1<T>",
-        "Generated interface extends the dependency")
+        "Dependent mixin base parameter is typed with the dependency's instance AND static sides"
+    )
+    t.match(
+        printed,
+        "class __ChildMixin$class extends base",
+        "Dependent mixin factory declares the named runtime class"
+    )
+    t.match(
+        printed,
+        "return __ChildMixin$class",
+        "…and returns it by name"
+    )
+    t.match(
+        printed,
+        "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
+        "Value const registers the direct dependency with the runtime helper"
+    )
+    t.match(
+        printed,
+        "interface ChildMixin<T> extends SourceClass1<T>",
+        "Generated interface extends the dependency"
+    )
 })
 
 // needed because of: https://github.com/microsoft/TypeScript/issues/63555
@@ -266,12 +293,21 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed, "interface LeafMixin extends ChildMixin",
-        "Generated mixin interface keeps only the non-transitive type heritage")
-    t.notMatch(printed, "interface LeafMixin extends ChildMixin, BaseMixin",
-        "Generated mixin interface drops transitive type heritage")
-    t.match(printed, "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
-        "Runtime dependency metadata keeps the direct dependency list")
+    t.match(
+        printed,
+        "interface LeafMixin extends ChildMixin",
+        "Generated mixin interface keeps only the non-transitive type heritage"
+    )
+    t.notMatch(
+        printed,
+        "interface LeafMixin extends ChildMixin, BaseMixin",
+        "Generated mixin interface drops transitive type heritage"
+    )
+    t.match(
+        printed,
+        "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
+        "Runtime dependency metadata keeps the direct dependency list"
+    )
     t.expect(typecheckText(printed)).toEqual([])
 })
 
@@ -292,12 +328,21 @@ it("keeps non-mixin implements entries on a mixin as type-only contracts", async
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed, "interface SourceMixin extends PlainContract",
-        "Generated mixin interface keeps the plain TypeScript contract")
-    t.match(printed, "__defineMixinClass__(\"SourceMixin\", __SourceMixin$mixin as unknown as MixinFactory, [])",
-        "Plain contract is not registered as a runtime mixin dependency")
-    t.notMatch(printed, "__mixinChain__(PlainContract",
-        "Plain contract is not used in the runtime chain")
+    t.match(
+        printed,
+        "interface SourceMixin extends PlainContract",
+        "Generated mixin interface keeps the plain TypeScript contract"
+    )
+    t.match(
+        printed,
+        "__defineMixinClass__(\"SourceMixin\", __SourceMixin$mixin as unknown as MixinFactory, [])",
+        "Plain contract is not registered as a runtime mixin dependency"
+    )
+    t.notMatch(
+        printed,
+        "__mixinChain__(PlainContract",
+        "Plain contract is not used in the runtime chain"
+    )
     t.expect(typecheckText(printed)).toEqual([])
 })
 
@@ -323,20 +368,41 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
     `))
     const printed         = printSourceFile(ts, transformedFile)
 
-    t.match(printed, "interface RequiredMixin extends RequiredBase",
-        "Generated interface keeps the required base as an instance constraint")
-    t.match(printed, "function (base: AnyConstructor<RequiredBase> & ClassStatics<typeof RequiredBase>)",
-        "Mixin factory parameter is constrained to the required base, instance AND static sides")
-    t.match(printed, "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
-        "Value const registers the required runtime base")
-    t.match(printed, "class __Consumer$base<__mixinRequiredBase0 extends never>",
-        "Consumer base carries a required-base constraint for diagnostics")
-    t.match(printed, "extends (__mixinChainLinearized__(RealBase, [RequiredMixin], [[0, 0, 1]], \"verify\")",
-        "Consumer still supplies its concrete descendant base to the runtime chain")
-    t.match(printed, "class Consumer extends __Consumer$base<RealBase extends RequiredBase ? never :",
-        "Consumer maps required-base diagnostics to the original extends heritage")
-    t.match(printed, "Mixin required base mismatch.",
-        "Consumer required-base diagnostic carries a custom message")
+    t.match(
+        printed,
+        "interface RequiredMixin extends RequiredBase",
+        "Generated interface keeps the required base as an instance constraint"
+    )
+    t.match(
+        printed,
+        "function (base: AnyConstructor<RequiredBase> & ClassStatics<typeof RequiredBase>)",
+        "Mixin factory parameter is constrained to the required base, instance AND static sides"
+    )
+    t.match(
+        printed,
+        "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
+        "Value const registers the required runtime base"
+    )
+    t.match(
+        printed,
+        "class __Consumer$base<__mixinRequiredBase0 extends never>",
+        "Consumer base carries a required-base constraint for diagnostics"
+    )
+    t.match(
+        printed,
+        "extends (__mixinChainLinearized__(RealBase, [RequiredMixin], [[0, 0, 1]], \"verify\")",
+        "Consumer still supplies its concrete descendant base to the runtime chain"
+    )
+    t.match(
+        printed,
+        "class Consumer extends __Consumer$base<RealBase extends RequiredBase ? never :",
+        "Consumer maps required-base diagnostics to the original extends heritage"
+    )
+    t.match(
+        printed,
+        "Mixin required base mismatch.",
+        "Consumer required-base diagnostic carries a custom message"
+    )
 })
 
 it("gives a standalone construction-base mixin its own construction `new` in the emit value cast", async (t: Test) => {
@@ -354,35 +420,57 @@ it("gives a standalone construction-base mixin its own construction `new` in the
         void [ created, configured ]
     `)))
 
-    t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
-        "Construction-base mixin emits a named config alias")
-    t.match(printed, "\"new\"(props?: SerializableConfig): Serializable;",
-        "Value cast prepends a construction `new` referencing the named config alias")
+    t.match(
+        printed,
+        "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
+        "Construction-base mixin emits a named config alias"
+    )
+    t.match(
+        printed,
+        "\"new\"(props?: SerializableConfig): Serializable;",
+        "Value cast prepends a construction `new` referencing the named config alias"
+    )
 
     t.expect(typecheckText(printed)).toEqual([])
 })
 
 it("gives a standalone construction-base mixin its own `static new` in the source view", async (t: Test) => {
-    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+    const printed = printSourceFile(ts, transformSourceFile(
+        ts,
+        createSourceFile(`
         import { Base, mixin } from "ts-mixin-class"
 
         @mixin()
         export class Serializable extends Base {
             public format?: string = "json"
         }
-    `), { sourceView: true }))
+    `),
+        { sourceView: true }
+    ))
 
-    t.match(printed, "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
-        "Source-view construction-base mixin emits a named config alias")
-    t.match(printed, "static new(props?: SerializableConfig): Serializable;",
-        "Source-view mixin class regenerates its own static new referencing the named config alias")
+    t.match(
+        printed,
+        "export type SerializableConfig = Partial<Pick<Serializable, \"format\">>;",
+        "Source-view construction-base mixin emits a named config alias"
+    )
+    t.match(
+        printed,
+        "static new(props?: SerializableConfig): Serializable;",
+        "Source-view mixin class regenerates its own static new referencing the named config alias"
+    )
     // The navigable mixin heritage: the class re-extends the real `Base` under the
     // branded single-source cast (no `__Serializable$base` pair), so the static new
     // attaches to the real class AND the base name stays navigable.
-    t.match(printed, "class Serializable extends (Base as unknown as",
-        "Source view keeps the mixin as a real class extending the navigable cast")
-    t.match(printed, "use_the_static_new_factory",
-        "The direct-`new` construction brand rides inside the cast")
+    t.match(
+        printed,
+        "class Serializable extends (Base as unknown as",
+        "Source view keeps the mixin as a real class extending the navigable cast"
+    )
+    t.match(
+        printed,
+        "use_the_static_new_factory",
+        "The direct-`new` construction brand rides inside the cast"
+    )
 })
 
 it("collects the transitive mixin chain into a construction-base mixin's `new` config", async (t: Test) => {
@@ -413,8 +501,11 @@ it("collects the transitive mixin chain into a construction-base mixin's `new` c
         void leaf
     `)))
 
-    t.match(printed, "Pick<Leaf, \"deepValue\" | \"ownValue\">",
-        "Mixin construction config includes the transitive mixin-chain public property")
+    t.match(
+        printed,
+        "Pick<Leaf, \"deepValue\" | \"ownValue\">",
+        "Mixin construction config includes the transitive mixin-chain public property"
+    )
     t.expect(typecheckText(printed)).toEqual([])
 })
 

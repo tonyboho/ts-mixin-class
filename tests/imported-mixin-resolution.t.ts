@@ -96,8 +96,11 @@ async function assertApplied(t: Test, label: string, localName: string, files: T
     const { result, consumerJs } = await build(files)
 
     t.equal(result.exitCode, 0, `${label}: the consumer should compile (mixin resolved).\n${commandOutput(result)}`)
-    t.match(consumerJs, `__mixinChainLinearized__(__Service$empty, [${localName}], [[0, 0, 1]], "verify")`,
-        `${label}: the resolved mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(
+        consumerJs,
+        `__mixinChainLinearized__(__Service$empty, [${localName}], [[0, 0, 1]], "verify")`,
+        `${label}: the resolved mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`
+    )
 }
 
 it("resolves an aliased mixin import (import { Logger as Log })", async (t: Test) => {
@@ -196,10 +199,16 @@ it("resolves two SAME-NAMED mixins from different files consumed in one file", a
     ])
 
     t.equal(result.exitCode, 0, `same-named mixins from two files compile.\n${commandOutput(result)}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__UsesA$empty, [WidgetA]",
-        `the first consumer applies the first file's mixin.\n--- consumer.js ---\n${consumerJs}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__UsesB$empty, [WidgetB]",
-        "the second consumer applies the second file's mixin")
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__UsesA$empty, [WidgetA]",
+        `the first consumer applies the first file's mixin.\n--- consumer.js ---\n${consumerJs}`
+    )
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__UsesB$empty, [WidgetB]",
+        "the second consumer applies the second file's mixin"
+    )
 })
 
 it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
@@ -244,8 +253,11 @@ it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
     ])
 
     t.equal(result.exitCode, 0, `circularly importing mixin files compile.\n${commandOutput(result)}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__Service$empty, [Alpha, Beta]",
-        `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__Service$empty, [Alpha, Beta]",
+        `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`
+    )
 })
 
 // A QUALIFIED heritage reference through a NAMESPACE import (`import * as lib` +
@@ -266,8 +278,11 @@ it("resolves a mixin referenced through a NAMESPACE import (implements lib.Logge
     ])
 
     t.equal(result.exitCode, 0, `namespace-qualified mixin reference compiles (mixin resolved).\n${commandOutput(result)}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__Service$empty, [lib.Logger]",
-        `the qualified mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__Service$empty, [lib.Logger]",
+        `the qualified mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`
+    )
 })
 
 // The local-namespace form: a TOP-LEVEL namespace exposes its EXPORTED `@mixin` members
@@ -315,8 +330,11 @@ it("routes a TYPE-ONLY namespace import's value through a generated import (impo
     ])
 
     t.equal(result.exitCode, 0, `type-only namespace-qualified reference compiles.\n${commandOutput(result)}`)
-    t.match(consumerJs, `import { Logger as __lib$Logger$mixinValue } from "./logger"`,
-        `the value rides through a generated import, not the erased namespace.\n--- consumer.js ---\n${consumerJs}`)
+    t.match(
+        consumerJs,
+        `import { Logger as __lib$Logger$mixinValue } from "./logger"`,
+        `the value rides through a generated import, not the erased namespace.\n--- consumer.js ---\n${consumerJs}`
+    )
     t.match(consumerJs, "[__lib$Logger$mixinValue]", "the generated value name is used in the chain")
 })
 
@@ -352,10 +370,16 @@ it("resolves two namespace imports exposing the SAME member name to their own mo
     ])
 
     t.equal(result.exitCode, 0, `same-named members from two namespaces compile.\n${commandOutput(result)}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__UsesA$empty, [libA.Widget]",
-        `the first consumer applies libA's Widget.\n--- consumer.js ---\n${consumerJs}`)
-    t.match(consumerJs, "__mixinChainLinearized__(__UsesB$empty, [libB.Widget]",
-        "the second consumer applies libB's Widget")
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__UsesA$empty, [libA.Widget]",
+        `the first consumer applies libA's Widget.\n--- consumer.js ---\n${consumerJs}`
+    )
+    t.match(
+        consumerJs,
+        "__mixinChainLinearized__(__UsesB$empty, [libB.Widget]",
+        "the second consumer applies libB's Widget"
+    )
 })
 
 // A THREE-level qualified name (`Outer.Inner.Deep`) is NOT resolved — only the two-level

@@ -40,6 +40,8 @@ import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workar
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { createStaticCollisionValidations } from "./static-collisions.js"
 import {
+    type ImportMap,
+    nativeDiagnosticOn,
     consumerBaseSuffix,
     consumerEmptyBaseSuffix,
     DependencyLinearizationError,
@@ -48,7 +50,6 @@ import {
     mixinDiagnosticCode,
     requiredBaseType,
     type FileMixinContext,
-    type ImportedNameBinding,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -540,16 +541,11 @@ function expandConsumerClassWithUnsupportedBaseDiagnostic(
     // error, so the push (and `getStart`, which asserts a real position) is gated on a real position —
     // exactly the boundary the old type-encoded carrier got for free by riding the discarded node.
     if (extendsType.expression.pos >= 0 && extendsType.expression.end >= 0) {
-        const baseStart = extendsType.expression.getStart(sourceFile)
-
-        context.nativeDiagnostics.push({
-            fileName    : sourceFile.fileName,
-            start       : baseStart,
-            length      : extendsType.expression.getEnd() - baseStart,
-            code        : mixinDiagnosticCode.MixinUnsupportedBase,
-            category    : tsInstance.DiagnosticCategory.Error,
-            messageText : unsupportedBaseDiagnosticMessage(tsInstance, sourceFile, declaration, extendsType)
-        })
+        context.nativeDiagnostics.push(nativeDiagnosticOn(
+            tsInstance, sourceFile, extendsType.expression,
+            mixinDiagnosticCode.MixinUnsupportedBase,
+            unsupportedBaseDiagnosticMessage(tsInstance, sourceFile, declaration, extendsType)
+        ))
     }
 
     const checkedTypeParameters = appendRequiredBaseValidationTypeParameters(
@@ -772,7 +768,7 @@ function consumerBaseImportMap(
     context: FileMixinContext,
     mixinRefs: ResolvedMixinRef[],
     facts: SourceFileFacts
-): Map<string, ImportedNameBinding> | undefined {
+): ImportMap | undefined {
     const crossFile = context.crossFile
 
     if (crossFile === undefined) {

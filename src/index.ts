@@ -22,6 +22,8 @@ import { linearizeDependencies } from "./linearization.js"
 import { hasMixinDecorator } from "./decorators.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
+    type ImportMap,
+    nativeDiagnosticOn,
     anyConstructorName,
     applyLegacyClassDecoratorsName,
     applyLegacyClassDecoratorsLocalName,
@@ -48,7 +50,6 @@ import {
     type CrossFileContext,
     type FileMixinContext,
     type FillMissedInitializersWith,
-    type ImportedNameBinding,
     type MixinClassTransformerConfig,
     type MixinDecoratorImports,
     type NativeMixinDiagnostic,
@@ -885,8 +886,8 @@ export function transformSourceFile(
 
     // Resolves local base identifiers to cross-file construction-base entries.
     // Built lazily, only when a class actually needs construction-base resolution.
-    let baseImportMapCache: Map<string, ImportedNameBinding> | undefined
-    const getBaseImportMap = (): Map<string, ImportedNameBinding> | undefined => {
+    let baseImportMapCache: ImportMap | undefined
+    const getBaseImportMap = (): ImportMap | undefined => {
         if (crossFile === undefined) {
             return undefined
         }
@@ -943,20 +944,15 @@ export function transformSourceFile(
                 continue
             }
 
-            const start = expression.getStart(sourceFile)
-
-            context.nativeDiagnostics.push({
-                fileName    : sourceFile.fileName,
-                start,
-                length      : expression.getEnd() - start,
-                code        : mixinDiagnosticCode.MixinUsedBeforeDeclaration,
-                category    : tsInstance.DiagnosticCategory.Error,
-                messageText : "Mixin used before its declaration. " +
+            context.nativeDiagnostics.push(nativeDiagnosticOn(
+                tsInstance, sourceFile, expression,
+                mixinDiagnosticCode.MixinUsedBeforeDeclaration,
+                "Mixin used before its declaration. " +
                     `Class ${classFacts.name ?? "<anonymous>"} implements ${referenceText}, ` +
                     `but @mixin ${referenceText} is declared later in the same scope, so the generated ` +
                     "runtime reference would run before the mixin's definition. " +
                     "Declare the mixin before the class that applies it."
-            })
+            ))
         }
     }
 
@@ -1010,18 +1006,13 @@ export function transformSourceFile(
                     continue
                 }
 
-                const start = sibling.name.getStart(sourceFile)
-
-                context.nativeDiagnostics.push({
-                    fileName    : sourceFile.fileName,
-                    start,
-                    length      : sibling.name.getEnd() - start,
-                    code        : mixinDiagnosticCode.MixinNamespaceMerge,
-                    category    : tsInstance.DiagnosticCategory.Error,
-                    messageText : `Namespace ${classFacts.name} merges with mixin class ${classFacts.name}, ` +
+                context.nativeDiagnostics.push(nativeDiagnosticOn(
+                    tsInstance, sourceFile, sibling.name,
+                    mixinDiagnosticCode.MixinNamespaceMerge,
+                    `Namespace ${classFacts.name} merges with mixin class ${classFacts.name}, ` +
                         "which is not supported: the transformer rewrites the mixin class into a const, and a " +
                         "namespace cannot merge with it. Declare the helpers as static members of the mixin class instead."
-                })
+                ))
             }
         }
     }
@@ -1182,16 +1173,8 @@ export function transformSourceFile(
         const className = classFacts.name ?? "<anonymous>"
 
         const push = (node: ts.Node, message: string): void => {
-            const start = node.getStart(sourceFile)
-
-            context.nativeDiagnostics.push({
-                fileName    : sourceFile.fileName,
-                start,
-                length      : node.getEnd() - start,
-                code        : mixinDiagnosticCode.MixinMemberKindOverride,
-                category    : tsInstance.DiagnosticCategory.Error,
-                messageText : message
-            })
+            context.nativeDiagnostics.push(nativeDiagnosticOn(
+                tsInstance, sourceFile, node, mixinDiagnosticCode.MixinMemberKindOverride, message))
         }
 
         // The class's OWN members against every applied mixin.
@@ -1296,16 +1279,8 @@ export function transformSourceFile(
         const className = classFacts.name ?? "<anonymous>"
 
         const push = (node: ts.Node, message: string): void => {
-            const start = node.getStart(sourceFile)
-
-            context.nativeDiagnostics.push({
-                fileName    : sourceFile.fileName,
-                start,
-                length      : node.getEnd() - start,
-                code        : mixinDiagnosticCode.MixinPartialAccessorOverride,
-                category    : tsInstance.DiagnosticCategory.Error,
-                messageText : message
-            })
+            context.nativeDiagnostics.push(nativeDiagnosticOn(
+                tsInstance, sourceFile, node, mixinDiagnosticCode.MixinPartialAccessorOverride, message))
         }
 
         const shapeOf = (
@@ -1769,7 +1744,7 @@ function expandConstructionBaseClass(
     declaration: ts.ClassDeclaration,
     options: TransformOptions,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined
+    baseImportMap: ImportMap | undefined
 ): ts.Statement[] {
     const factory      = tsInstance.factory
     const extendsType  = declaration.heritageClauses?.find((clause) => {
@@ -1915,16 +1890,8 @@ function anonymousClassNativeDiagnostic(
 ): NativeMixinDiagnostic {
     const keyword = declaration.getChildren(sourceFile)
         .find((child) => child.kind === tsInstance.SyntaxKind.ClassKeyword) ?? declaration
-    const start   = keyword.getStart(sourceFile)
 
-    return {
-        fileName : sourceFile.fileName,
-        start,
-        length   : keyword.getEnd() - start,
-        code,
-        category : tsInstance.DiagnosticCategory.Error,
-        messageText
-    }
+    return nativeDiagnosticOn(tsInstance, sourceFile, keyword, code, messageText)
 }
 
 // Generated imports (type helpers + mixin factories from other modules) are

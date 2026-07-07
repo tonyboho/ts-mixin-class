@@ -31,13 +31,14 @@ type SourceMapGenerator = {
 type EmitTextWriter = {
     getText(): string
 }
-export type DecodedSourceMapMapping = {
+// The printer's own decoded-mapping shape — the minimal view `printSourceFileWithMappings`
+// reads. (The full public decode/encode pair lives in `emit-source-map.ts`.)
+type PrinterDecodedMapping = {
     generatedLine      : number,
     generatedCharacter : number,
     sourceIndex?       : number,
     sourceLine?        : number,
-    sourceCharacter?   : number,
-    nameIndex?         : number
+    sourceCharacter?   : number
 }
 type TypeScriptWithEmitInternals = TypeScript & {
     createTextWriter(newLine: string): EmitTextWriter,
@@ -48,14 +49,9 @@ type TypeScriptWithEmitInternals = TypeScript & {
         sourcesDirectoryPath: string,
         generatorOptions: { sourceMap: boolean }
     ): SourceMapGenerator,
-    decodeMappings(mappings: string): Iterable<DecodedSourceMapMapping>
+    decodeMappings(mappings: string): Iterable<PrinterDecodedMapping>
 }
 
-// Decode a source map `mappings` string into absolute line/character segments, via the
-// TypeScript-internal VLQ decoder (the encoder counterpart lives in `emit-source-map.ts`).
-export function decodeSourceMapMappings(tsInstance: TypeScript, mappings: string): DecodedSourceMapMapping[] {
-    return [ ...(tsInstance as TypeScriptWithEmitInternals).decodeMappings(mappings) ]
-}
 type PrinterWithWriteFile = ts.Printer & {
     writeFile(
         sourceFile: ts.SourceFile,
@@ -266,37 +262,6 @@ function generatedTextPosition(text: string, position: number): number {
 
 function isLineBreak(char: string | undefined): boolean {
     return char === "\n" || char === "\r"
-}
-
-export function preserveSyntheticDescendantRanges(
-    tsInstance: TypeScript,
-    node: ts.Node,
-    parentRange: ts.TextRange
-): void {
-    const currentRange = node.pos >= 0 && node.end >= 0
-        ? {
-            pos : node.pos,
-            end : node.end
-        }
-        : parentRange
-
-    if (node.pos < 0 || node.end < 0) {
-        tsInstance.setTextRange(node, currentRange)
-    }
-
-    // NodeArrays need explicit ranges too: tsserver services such as
-    // getChildren read nodes.pos directly and fail on negative positions.
-    tsInstance.forEachChild(node, (child) => {
-        preserveSyntheticDescendantRanges(tsInstance, child, currentRange)
-    }, (children) => {
-        if (children.pos < 0 || children.end < 0) {
-            tsInstance.setTextRange(children, currentRange)
-        }
-
-        for (const child of children) {
-            preserveSyntheticDescendantRanges(tsInstance, child, currentRange)
-        }
-    })
 }
 
 export function preserveTextRange<Range extends ts.TextRange>(

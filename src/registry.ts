@@ -2,6 +2,8 @@ import type * as ts from "typescript"
 import { isPackageBaseExpression, qualifiedConstructionChainExit, type QualifiedBaseChainExit } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
+    type ImportMap,
+    importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
     defaultTransformOptions,
     normalizePath,
@@ -12,7 +14,6 @@ import {
     uniqueConfigProperties,
     type ConfigProperty,
     type ConstructionBaseRegistry,
-    type ImportedNameBinding,
     type MixinRegistry,
     type TransformOptions
 } from "./model.js"
@@ -70,7 +71,7 @@ export function buildMixinRegistry(
     // so a mixin DEPENDENCY imported via a barrel resolves too.
     addReExportAliasKeys(tsInstance, program, registry)
 
-    const importMaps            = new Map<string, Map<string, ImportedNameBinding>>()
+    const importMaps            = new Map<string, ImportMap>()
     const dependencyNamesByFile = new Map<string, Set<string>>()
 
     for (const candidate of candidates) {
@@ -89,27 +90,18 @@ export function buildMixinRegistry(
     const dependencyCandidateKeys = (
         fileName: string,
         dependencyName: string,
-        importMap: Map<string, ImportedNameBinding>
+        importMap: ImportMap
     ): string[] => {
-        const separator = dependencyName.indexOf(".")
+        const importedKey = importedBindingRegistryKey(dependencyName, importMap)
 
-        if (separator >= 0) {
-            if (dependencyName.indexOf(".", separator + 1) >= 0) {
-                return []
-            }
-
-            const binding = importMap.get(dependencyName.slice(0, separator))
-
-            return binding?.namespace === true
-                ? [ registryKey(binding.resolvedFileName, dependencyName.slice(separator + 1)) ]
-                : []
+        if (dependencyName.includes(".")) {
+            return importedKey === undefined ? [] : [ importedKey ]
         }
 
-        const keys     = [ registryKey(fileName, dependencyName) ]
-        const imported = importMap.get(dependencyName)
+        const keys = [ registryKey(fileName, dependencyName) ]
 
-        if (imported !== undefined) {
-            keys.push(registryKey(imported.resolvedFileName, imported.importedName))
+        if (importedKey !== undefined) {
+            keys.push(importedKey)
         }
 
         return keys
@@ -259,7 +251,7 @@ export function buildConstructionBaseRegistry(
         qualifiedBaseConfigProperties : ConfigProperty[],
         ownConfigProperties           : ConfigProperty[],
         mixinDependencyNames          : string[],
-        importMap                     : Map<string, ImportedNameBinding>
+        importMap                     : ImportMap
     }
 
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
@@ -269,28 +261,6 @@ export function buildConstructionBaseRegistry(
     // a plain identifier through its named-import binding, a dotted name (`lib.Model`)
     // through its namespace-import binding (exactly one dot — candidates are top-level
     // classes of their module). Same-file resolution is the caller's concern.
-    const importedCandidateKey = (
-        baseName: string,
-        importMap: Map<string, ImportedNameBinding>
-    ): string | undefined => {
-        const separator = baseName.indexOf(".")
-
-        if (separator >= 0) {
-            const binding = baseName.indexOf(".", separator + 1) < 0
-                ? importMap.get(baseName.slice(0, separator))
-                : undefined
-
-            return binding?.namespace === true
-                ? registryKey(binding.resolvedFileName, baseName.slice(separator + 1))
-                : undefined
-        }
-
-        const imported = importMap.get(baseName)
-
-        return imported === undefined
-            ? undefined
-            : registryKey(imported.resolvedFileName, imported.importedName)
-    }
 
     // The name a class's base reference contributes to import-level resolution: the
     // identifier text, or — for a QUALIFIED base — where its local chain leaves the file
@@ -323,7 +293,7 @@ export function buildConstructionBaseRegistry(
 
     const collectFileCandidates = (sourceFile: ts.SourceFile): void => {
         const facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
-        let importMap: Map<string, ImportedNameBinding> | undefined
+        let importMap: ImportMap | undefined
 
         for (const classFacts of facts.classes) {
             if (classFacts.name === undefined ||
@@ -390,7 +360,7 @@ export function buildConstructionBaseRegistry(
 
     const fileChainsIntoCandidates = (sourceFile: ts.SourceFile): boolean => {
         const facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
-        let importMap: Map<string, ImportedNameBinding> | undefined
+        let importMap: ImportMap | undefined
 
         for (const classFacts of facts.classes) {
             if (classFacts.name === undefined ||
@@ -409,7 +379,7 @@ export function buildConstructionBaseRegistry(
             // eslint-disable-next-line align-assignments/align-assignments
             importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
 
-            const key = importedCandidateKey(baseName, importMap)
+            const key = importedBindingRegistryKey(baseName, importMap)
 
             if (key !== undefined && candidatesByKey.has(key)) {
                 return true
@@ -449,40 +419,20 @@ export function buildConstructionBaseRegistry(
         }
 
         return uniqueConfigProperties(candidate.mixinDependencyNames.flatMap((name) => {
-            // Same resolution order as the dependency loop above: same file, the named
-            // import binding, or a QUALIFIED `lib.Logger` through its namespace import.
-            const separator = name.indexOf(".")
+            // Same resolution order as the dependency loop above: same file, then the named
+            // import binding or a QUALIFIED `lib.Logger` through its namespace import.
+            const keys        = name.includes(".") ? [] : [ registryKey(candidate.fileName, name) ]
+            const importedKey = importedBindingRegistryKey(name, candidate.importMap)
 
-            if (separator >= 0) {
-                const binding      = separator === name.lastIndexOf(".")
-                    ? candidate.importMap.get(name.slice(0, separator))
-                    : undefined
-                const qualifiedKey = binding?.namespace === true
-                    ? registryKey(binding.resolvedFileName, name.slice(separator + 1))
-                    : undefined
-
-                return qualifiedKey !== undefined && mixinRegistry.has(qualifiedKey)
-                    ? accumulateRegisteredMixinConfig(qualifiedKey, mixinRegistry, new Set())
-                    : []
+            if (importedKey !== undefined) {
+                keys.push(importedKey)
             }
 
-            const sameFileKey = registryKey(candidate.fileName, name)
+            const registeredKey = keys.find((key) => mixinRegistry.has(key))
 
-            if (mixinRegistry.has(sameFileKey)) {
-                return accumulateRegisteredMixinConfig(sameFileKey, mixinRegistry, new Set())
-            }
-
-            const imported = candidate.importMap.get(name)
-
-            if (imported !== undefined) {
-                const importedKey = registryKey(imported.resolvedFileName, imported.importedName)
-
-                if (mixinRegistry.has(importedKey)) {
-                    return accumulateRegisteredMixinConfig(importedKey, mixinRegistry, new Set())
-                }
-            }
-
-            return []
+            return registeredKey === undefined
+                ? []
+                : accumulateRegisteredMixinConfig(registeredKey, mixinRegistry, new Set())
         }))
     }
 
@@ -554,7 +504,7 @@ export function buildConstructionBaseRegistry(
             return undefined
         }
 
-        const key = importedCandidateKey(candidate.baseName, candidate.importMap)
+        const key = importedBindingRegistryKey(candidate.baseName, candidate.importMap)
 
         return key === undefined ? undefined : byKey.get(key)
     }

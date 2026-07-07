@@ -1,6 +1,24 @@
 import type * as ts from "typescript"
-import { decodeSourceMapMappings } from "./util.js"
-import type { DecodedSourceMapMapping, PrintedSourceMapping, TypeScript } from "./util.js"
+import type { PrintedSourceMapping, TypeScript } from "./util.js"
+
+export type DecodedSourceMapMapping = {
+    generatedLine      : number,
+    generatedCharacter : number,
+    sourceIndex?       : number,
+    sourceLine?        : number,
+    sourceCharacter?   : number,
+    nameIndex?         : number
+}
+
+type TypeScriptWithDecodeMappings = TypeScript & {
+    decodeMappings(mappings: string): Iterable<DecodedSourceMapMapping>
+}
+
+// Decode a source map `mappings` string into absolute line/character segments, via the
+// TypeScript-internal VLQ decoder (the encoder counterpart lives in `emit-source-map.ts`).
+export function decodeSourceMapMappings(tsInstance: TypeScript, mappings: string): DecodedSourceMapMapping[] {
+    return [ ...(tsInstance as TypeScriptWithDecodeMappings).decodeMappings(mappings) ]
+}
 
 // ---------------------------------------------------------------------------
 // Emit-path source-map composition

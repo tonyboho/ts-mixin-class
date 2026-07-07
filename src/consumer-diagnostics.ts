@@ -1,11 +1,13 @@
 import type * as ts from "typescript"
 import {
+    entityNameText,
     createDiagnosticLiteralType,
     dottedNameToEntityName,
     heritageTypeText,
     heritageTypeToTypeReference
 } from "./expand-util.js"
 import {
+    nativeDiagnosticOn,
     DependencyLinearizationError,
     extendsClause,
     metadataBaseLocalName,
@@ -41,16 +43,11 @@ export function pushLinearizationConflictDiagnostic(
         return
     }
 
-    const start = anchor.getStart(sourceFile)
-
-    context.nativeDiagnostics.push({
-        fileName    : sourceFile.fileName,
-        start,
-        length      : anchor.getEnd() - start,
-        code        : mixinDiagnosticCode.MixinLinearizationConflict,
-        category    : tsInstance.DiagnosticCategory.Error,
-        messageText : message
-    })
+    context.nativeDiagnostics.push(nativeDiagnosticOn(
+        tsInstance, sourceFile, anchor,
+        mixinDiagnosticCode.MixinLinearizationConflict,
+        message
+    ))
 }
 
 export function unsupportedBaseDiagnosticMessage(
@@ -182,16 +179,11 @@ export function pushMissingRuntimeImportDiagnostics(
             continue
         }
 
-        const start = anchor.getStart(sourceFile)
-
-        context.nativeDiagnostics.push({
-            fileName    : sourceFile.fileName,
-            start,
-            length      : anchor.getEnd() - start,
-            code        : mixinDiagnosticCode.MixinMissingRuntime,
-            category    : tsInstance.DiagnosticCategory.Error,
-            messageText : missingRuntimeImportDiagnosticMessage(declaration, ref)
-        })
+        context.nativeDiagnostics.push(nativeDiagnosticOn(
+            tsInstance, sourceFile, anchor,
+            mixinDiagnosticCode.MixinMissingRuntime,
+            missingRuntimeImportDiagnosticMessage(declaration, ref)
+        ))
     }
 }
 
@@ -330,14 +322,6 @@ function typeReferenceNameText(tsInstance: TypeScript, typeNode: ts.TypeNode): s
     }
 
     return entityNameText(tsInstance, typeNode.typeName)
-}
-
-function entityNameText(tsInstance: TypeScript, name: ts.EntityName): string {
-    if (tsInstance.isIdentifier(name)) {
-        return name.text
-    }
-
-    return `${entityNameText(tsInstance, name.left)}.${name.right.text}`
 }
 
 function createRequiredBaseDiagnosticType(

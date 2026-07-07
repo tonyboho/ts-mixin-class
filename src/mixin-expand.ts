@@ -8,6 +8,7 @@ import {
     interfaceDeclarationRange
 } from "./interface-members.js"
 import {
+    nativeDiagnosticOn,
     anyConstructorName,
     applyLegacyClassDecoratorsLocalName,
     classStaticsName,
@@ -115,20 +116,14 @@ function mixinExtendsMixinDiagnostic(
         return undefined
     }
 
-    const start = base.expression.getStart(sourceFile)
-
-    return {
-        fileName : sourceFile.fileName,
-        start,
-        length   : base.expression.getEnd() - start,
-        code     : mixinDiagnosticCode.MixinExtendsMixin,
-        category : tsInstance.DiagnosticCategory.Error,
-        messageText :
-            `Invalid mixin class declaration. Mixin class ${ref.className} cannot extend another mixin class (${baseName}). ` +
+    return nativeDiagnosticOn(
+        tsInstance, sourceFile, base.expression,
+        mixinDiagnosticCode.MixinExtendsMixin,
+        `Invalid mixin class declaration. Mixin class ${ref.className} cannot extend another mixin class (${baseName}). ` +
             "A mixin consumes other mixins through `implements` (which builds the runtime chain); " +
             "`extends` on a mixin is reserved for a required, non-mixin base class. " +
             `Fix: write \`class ${ref.className} implements ${baseName}\` to mix ${baseName} in, or extend a non-mixin base class.`
-    }
+    )
 }
 
 // Whether `name`, used as a `@mixin`'s `extends` base in `sourceFile`, resolves to a registered
@@ -187,16 +182,11 @@ export function expandMixinClass(
     // family code TS990004), drained by `wrapProgramDiagnostics`. Each is spanned on its offending
     // node, pushed before the source-view/emit split so it surfaces identically in both.
     for (const diagnostic of collectMixinClassDiagnostics(tsInstance, sourceFile, declaration)) {
-        const start = diagnostic.node.getStart(sourceFile)
-
-        context.nativeDiagnostics.push({
-            fileName    : sourceFile.fileName,
-            start,
-            length      : diagnostic.node.getEnd() - start,
-            code        : mixinDiagnosticCode.MixinInvalidDeclaration,
-            category    : tsInstance.DiagnosticCategory.Error,
-            messageText : diagnostic.message
-        })
+        context.nativeDiagnostics.push(nativeDiagnosticOn(
+            tsInstance, sourceFile, diagnostic.node,
+            mixinDiagnosticCode.MixinInvalidDeclaration,
+            diagnostic.message
+        ))
     }
 
     // A `@mixin` must not `extends` another mixin (that consumes it as a required base, which is

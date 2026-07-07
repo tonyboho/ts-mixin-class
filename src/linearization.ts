@@ -1,4 +1,5 @@
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
+import type { LinearizationSlice } from "./runtime.js"
 import {
     DependencyLinearizationError,
     type FileMixinContext,
@@ -25,7 +26,10 @@ export function linearizeDependencies(
 // positional, so a plan derived here over keys replays identically over runtime values --
 // the inputs are built in the same order in both places. Throws DependencyLinearizationError
 // on a conflict (no plan exists), exactly like `linearizeDependencies`.
-export type LinearizationPlanSlice = readonly [ source: number, offset: number, length: number ]
+//
+// The slice IS the runtime's wire shape: this module derives exactly what the published
+// runtime replays, so the type is shared with `runtime.ts` rather than re-declared.
+export type LinearizationPlanSlice = LinearizationSlice
 
 export function deriveLinearizationPlan(
     dependencyKeys: string[],

@@ -1,13 +1,14 @@
 import type * as ts from "typescript"
 import { dottedExpressionText, intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
 import {
+    type ImportMap,
+    importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
     registryKey,
     uniqueConfigProperties,
     type ConfigProperty,
     type ConstructionBaseEntry,
     type CrossFileContext,
-    type ImportedNameBinding,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -57,7 +58,7 @@ export function createConstructionMembers(
     options: TransformOptions,
     generatedRange: ts.TextRange,
     crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>,
+    baseImportMap?: ImportMap,
     requiredBaseIsConstructionBase = false
 ): ConstructionMembers {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
@@ -280,7 +281,7 @@ export function createMixinConstructionNewType(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>
+    baseImportMap?: ImportMap
 ): MixinConstructionNew | undefined {
     if (declaration.name === undefined ||
         facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
@@ -339,7 +340,7 @@ export function isConstructionBaseOptIn(
     facts = getSourceFileFacts(tsInstance, sourceFile, options),
     seen = new Set<string>(),
     crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>
+    baseImportMap?: ImportMap
 ): boolean {
     if (baseType === undefined) {
         return false
@@ -404,29 +405,15 @@ export function isConstructionBaseOptIn(
 export function resolveCrossFileConstructionBase(
     name: string,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined
+    baseImportMap: ImportMap | undefined
 ): ConstructionBaseEntry | undefined {
     if (crossFile === undefined || baseImportMap === undefined) {
         return undefined
     }
 
-    const separator = name.indexOf(".")
+    const key = importedBindingRegistryKey(name, baseImportMap)
 
-    if (separator >= 0) {
-        const binding = name.indexOf(".", separator + 1) < 0
-            ? baseImportMap.get(name.slice(0, separator))
-            : undefined
-
-        return binding?.namespace === true
-            ? crossFile.constructionBases.get(registryKey(binding.resolvedFileName, name.slice(separator + 1)))
-            : undefined
-    }
-
-    const imported = baseImportMap.get(name)
-
-    return imported === undefined
-        ? undefined
-        : crossFile.constructionBases.get(registryKey(imported.resolvedFileName, imported.importedName))
+    return key === undefined ? undefined : crossFile.constructionBases.get(key)
 }
 
 export function isPackageBaseExpression(
@@ -526,7 +513,7 @@ function createConstructionConfig(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>
+    baseImportMap?: ImportMap
 ): ConstructionConfig {
     const factory = tsInstance.factory
 
@@ -649,7 +636,7 @@ function staticConstructionConfigProperties(
     mixinRefs: ResolvedMixinRef[],
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
-    baseImportMap?: Map<string, ImportedNameBinding>
+    baseImportMap?: ImportMap
 ): ConfigProperty[] {
     return uniqueConfigProperties([
         ...baseConfigProperties(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
@@ -842,7 +829,7 @@ function baseConfigProperties(
     baseType: ts.ExpressionWithTypeArguments | undefined,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    baseImportMap: ImportMap | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
     if (baseType === undefined) {
@@ -880,7 +867,7 @@ function localClassConfigProperties(
     localClass: ClassFacts,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    baseImportMap: ImportMap | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
     return uniqueConfigProperties([
@@ -897,7 +884,7 @@ function configPropertiesForName(
     name: string,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    baseImportMap: ImportMap | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
     if (seen.has(name)) {
@@ -927,7 +914,7 @@ function configPropertiesForName(
 function importedMixinConfigProperties(
     name: string,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    baseImportMap: ImportMap | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
     const imported = baseImportMap?.get(name)
@@ -963,7 +950,7 @@ function createConsumerInstanceType(
 // suffixed with `_` until it no longer collides with a name already declared or imported
 // at the top level of the file. Falling back to a suffix (rather than to an inline `Pick`)
 // keeps a single code path: the build always exposes a named alias.
-export function constructionConfigAliasName(
+function constructionConfigAliasName(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration

@@ -257,7 +257,7 @@ export function navigableConsumerBaseClassHeritage(
     const factory = tsInstance.factory
 
     const fullRange      = generatedHeritageTypeRange
-    const baseExpression = pinnedNavigableBaseExpression(tsInstance, extendsType.expression, fullRange)
+    const baseExpression = pinnedQualifierExpression(tsInstance, extendsType.expression)
     // The transform runs over a layered clone whose nodes carry `.original` links to
     // the parse tree — ranges resolve through them (sourceRangeOf); the arguments
     // themselves are ALWAYS threaded (the signature's carrier arity must match even
@@ -388,16 +388,6 @@ export function navigableConsumerBaseClassHeritage(
 // claim the punctuation between). A qualified base (`ns.Base`, arbitrarily deep)
 // pins each qualifier step the same way — this is what the old shallow clone lacked
 // (its inner `Base` sat at `[-1, -1]`, unreachable for navigation).
-export function pinnedNavigableBaseExpression(
-    tsInstance: TypeScript,
-    expression: ts.Expression,
-    fullRange: ts.TextRange
-): ts.Expression {
-    void fullRange
-
-    return pinnedQualifierExpression(tsInstance, expression)
-}
-
 // The qualifier chain below the outermost name: every node keeps its exact source range.
 function pinnedQualifierExpression(tsInstance: TypeScript, expression: ts.Expression): ts.Expression {
     if (tsInstance.isPropertyAccessExpression(expression) && tsInstance.isIdentifier(expression.name)) {

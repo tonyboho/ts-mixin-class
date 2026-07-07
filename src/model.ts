@@ -124,6 +124,28 @@ export const mixinDiagnosticCode = {
     MixinManualApplication       : 990012
 } as const
 
+// The one shared constructor for a transformer-authored error: spans `node`'s own
+// `getStart..getEnd` range on the original on-disk source (every push site used to
+// hand-inline this literal).
+export function nativeDiagnosticOn(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    node: ts.Node,
+    code: number,
+    messageText: string
+): NativeMixinDiagnostic {
+    const start = node.getStart(sourceFile)
+
+    return {
+        fileName : sourceFile.fileName,
+        start,
+        length   : node.getEnd() - start,
+        code,
+        category : tsInstance.DiagnosticCategory.Error,
+        messageText
+    }
+}
+
 export type ImportedNameBinding = {
     resolvedFileName : string,
     importedName     : string,
@@ -133,6 +155,9 @@ export type ImportedNameBinding = {
     // name-keyed consumers must not treat it as a value/type binding itself.
     namespace?       : boolean
 }
+
+// The per-file import-name map: local binding name (or namespace alias) -> what it imports.
+export type ImportMap = Map<string, ImportedNameBinding>
 
 // Mixin reference from the transformed file's point of view
 export type ResolvedMixinRef = {
@@ -363,6 +388,35 @@ export function accumulateRegisteredMixinConfig(
 
 export function registryKey(fileName: string, name: string): string {
     return `${normalizePath(fileName)}::${name}`
+}
+
+// Resolves a possibly-dotted reference name to its registry key through the import map:
+// a two-level `ns.Member` resolves through a NAMESPACE binding (`import * as ns`) to
+// `registryKey(<ns module>, Member)`; a plain name resolves through its named-import
+// binding. Returns undefined for a three-level name, an unknown binding, or a dotted
+// prefix that is not a namespace import. (This walk used to be hand-inlined at every
+// cross-file resolution site.)
+export function importedBindingRegistryKey(
+    name: string,
+    importMap: ImportMap
+): string | undefined {
+    const separator = name.indexOf(".")
+
+    if (separator >= 0) {
+        const binding = name.indexOf(".", separator + 1) < 0
+            ? importMap.get(name.slice(0, separator))
+            : undefined
+
+        return binding?.namespace === true
+            ? registryKey(binding.resolvedFileName, name.slice(separator + 1))
+            : undefined
+    }
+
+    const imported = importMap.get(name)
+
+    return imported === undefined
+        ? undefined
+        : registryKey(imported.resolvedFileName, imported.importedName)
 }
 
 export function normalizePath(fileName: string): string {

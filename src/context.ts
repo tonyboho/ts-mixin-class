@@ -1,6 +1,7 @@
 import path from "node:path"
 import type * as ts from "typescript"
 import {
+    type ImportMap,
     generatedName,
     mixinFactorySuffix,
     mixinValueSuffix,
@@ -8,7 +9,6 @@ import {
     registryKey,
     type CrossFileContext,
     type FileMixinContext,
-    type ImportedNameBinding,
     type MixinDecoratorImports,
     type NativeMixinDiagnostic,
     type ResolvedMixinRef,
@@ -18,13 +18,13 @@ import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./sou
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 
+
 // Unfiltered import maps are recomputed for the same file across the construction-base
 // registry, the per-file mixin context, the base-import lookup, and the cross-file
 // construction gate — all within one program, where the `resolveModuleFileName` closure
 // is a stable identity. Memoize the unfiltered result per (resolveFn, sourceFile); the
 // map is only ever read by callers, so sharing it is safe. The filtered variant (registry
 // dependency pruning) is left uncached — it is already locally cached at its one caller.
-type ImportMap = Map<string, ImportedNameBinding>
 
 const importedNameMapCache = new WeakMap<
     (specifier: string, containingFile: string) => string | undefined,
@@ -38,7 +38,7 @@ export function buildImportedNameMap(
     facts?: SourceFileFacts,
     localNameFilter?: ReadonlySet<string>
 ): ImportMap {
-    const importMap = new Map<string, ImportedNameBinding>()
+    const importMap: ImportMap = new Map()
 
     if (resolveModuleFileName === undefined) {
         return importMap
@@ -179,7 +179,7 @@ function importHasFilteredLocalName(
 }
 
 function importedRequiredBaseRef(
-    importMap: Map<string, ImportedNameBinding>,
+    importMap: ImportMap,
     resolvedFileName: string,
     specifier: string,
     importedName: string,
@@ -670,7 +670,7 @@ function addTransitiveRegistryClosure(
     }
 }
 
-export function relativeImportSpecifier(fromFileName: string, toFileName: string): string {
+function relativeImportSpecifier(fromFileName: string, toFileName: string): string {
     const relative = path.posix.relative(
         path.posix.dirname(normalizePath(fromFileName)),
         normalizePath(toFileName)

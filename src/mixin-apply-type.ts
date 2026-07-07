@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import {
+    nativeDiagnosticOn,
     anyConstructorName,
     isDeclarationFileName,
     mixinApplicationName,
@@ -46,16 +47,11 @@ export function pushManualMixinApplicationDiagnostics(
                 : dottedTextRef(tsInstance, node.expression, context)
 
             if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
-                const start = node.getStart(sourceFile)
-
-                context.nativeDiagnostics.push({
-                    fileName    : sourceFile.fileName,
-                    start,
-                    length      : node.getEnd() - start,
-                    code        : mixinDiagnosticCode.MixinManualApplication,
-                    category    : tsInstance.DiagnosticCategory.Error,
-                    messageText : manualMixinApplicationMessage(ref)
-                })
+                context.nativeDiagnostics.push(nativeDiagnosticOn(
+                    tsInstance, sourceFile, node,
+                    mixinDiagnosticCode.MixinManualApplication,
+                    manualMixinApplicationMessage(ref)
+                ))
             }
         }
 

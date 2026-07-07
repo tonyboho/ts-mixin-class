@@ -108,7 +108,7 @@ export function collectMixinDecoratorImports(
     return imports
 }
 
-export function isPackageImport(
+function isPackageImport(
     tsInstance: TypeScript,
     statement: ts.Statement,
     options: TransformOptions

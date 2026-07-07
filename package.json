@@ -1,6 +1,6 @@
 {
     "name": "ts-mixin-class",
-    "version": "0.0.9",
+    "version": "0.0.10",
     "description": "Multiple inheritance for TypeScript with native syntax, full generics support and zero runtime overhead",
     "type": "module",
     "packageManager": "pnpm@11.7.0",

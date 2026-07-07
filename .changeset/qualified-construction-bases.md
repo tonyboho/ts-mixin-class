@@ -2,8 +2,9 @@
 "ts-mixin-class": patch
 ---
 
-A qualified base resolved through a local namespace (`class Widget extends data.Model`
-where `data.Model` extends `Base`) is now a full construction base: the consumer gets the
-generated `static new` factory and its `<Name>Config` alias, with the base's config keys
-accumulated through the qualified chain — including subclassing such a consumer from
-another file.
+Qualified bases are now full construction bases. A consumer extending a class through a
+local namespace (`class Widget extends data.Model` where `data.Model` extends `Base`),
+through a namespace import (`import * as lib` → `extends lib.Widget`), or through a local
+namespace chain that passes over an imported intermediate base, gets the generated
+`static new` factory and its `<Name>Config` alias with the whole chain's config keys
+accumulated — including subclassing such a consumer from another file.

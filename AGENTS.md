@@ -616,15 +616,24 @@ instance type) has its own rules:
    `extends` chain. Both share `accumulateRegisteredMixinConfig` (`model.ts`). This regressed once
    because the only fixtures were one level deep (`X extends Base` directly); keep
    `construction-deep-subclass.t.ts` and the cross-file deep-subclass test honest.
-   A **QUALIFIED base** (`extends data.Model` through a local namespace) is followed in both
-   paths via the local-namespace index (`qualifiedLocalClassFacts` / `classesByQualifiedName`,
-   `source-file-facts.ts`), keyed in the `seen` sets by its dotted text (disjoint from plain
-   identifiers). The registry resolves the qualified link at candidate-collection time with a
-   file-LOCAL walk (`qualifiedBaseFollowed` + `qualifiedBaseConfigProperties`) — a nested class
-   is never a candidate itself, so the chain terminates there. Residual (see TODO): a
-   namespace-IMPORT base (`extends lib.Model`) and a local qualified chain passing through an
-   imported intermediate are not followed. Guarded by `construction-qualified-base.t.ts` and
-   the cross-file `construction-qualified-base-subclass.t.ts`.
+   A **QUALIFIED base** is followed in both paths. Locally (`extends data.Model` through a
+   local namespace) via the local-namespace index (`qualifiedLocalClassFacts` /
+   `classesByQualifiedName`, `source-file-facts.ts`), keyed in the `seen` sets by its dotted
+   text (disjoint from plain identifiers); a dotted name that is NOT a local namespace path
+   falls back to `resolveCrossFileConstructionBase`, which follows a one-dot name through its
+   namespace-import binding into the registry (`extends lib.Model`). The registry resolves a
+   candidate's qualified base at collection time with `qualifiedConstructionChainExit`
+   (`construction-config.ts`): the file-local walk (a nested class is never a candidate
+   itself) either terminates at the package `Base` import or exits at an unresolved reference
+   — an imported identifier or the dotted namespace-import member — which becomes the
+   candidate's `baseName` for the ordinary imported-candidate `resolve` recursion; the local
+   levels contribute `qualifiedBaseConfigProperties`. Guarded by
+   `construction-qualified-base(-subclass).t.ts`, `construction-namespace-import-base.t.ts`
+   and `construction-qualified-imported-chain(-subclass).t.ts`. NOTE the registry's text
+   prefilter (`sourceFile.text.includes(packageName)`): a file that never mentions the package
+   is not scanned for candidates, so its classes — construction consumers included — cannot be
+   REGISTERED (their own in-file `static new` still works; only cross-file subclassing of them
+   is out). Pre-existing and not qualified-specific; recorded in TODO.
 
 8. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
    consumed as published declarations, not source. (i) A `.d.ts` mixin's required base lives in its

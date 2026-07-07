@@ -747,6 +747,88 @@ function literalKeyUnionType(
         }))
 }
 
+// How a QUALIFIED base's locally-resolvable extends chain leaves the file. The
+// construction-base registry resolves a candidate's qualified base with this walk: the
+// chain either reaches the package `Base` import (`isPackageBase`), or exits at a
+// reference no local class declares — an imported identifier, or a namespace-import
+// member when the qualified path itself is not local — whose name (`unresolvedName`)
+// the registry chases through its ordinary imported-candidate resolution.
+// `configProperties` carries what the LOCAL levels of the chain contribute (their own
+// fields, local extends levels and local mixins); the imported tail's contribution is
+// added by the caller's own resolution. Returns undefined when the chain dead-ends
+// locally (no `extends`, a cycle, or an unresolvable dotted path).
+export type QualifiedBaseChainExit = {
+    isPackageBase    : boolean,
+    unresolvedName   : string | undefined,
+    configProperties : ConfigProperty[]
+}
+
+export function qualifiedConstructionChainExit(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    baseType: ts.ExpressionWithTypeArguments,
+    options: TransformOptions,
+    facts: SourceFileFacts
+): QualifiedBaseChainExit | undefined {
+    const dottedName = dottedExpressionText(tsInstance, baseType.expression)
+
+    if (dottedName === undefined) {
+        return undefined
+    }
+
+    const firstLocal = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+
+    // Not a local namespace path — a namespace-import member; nothing local to fold in.
+    if (firstLocal === undefined) {
+        return { isPackageBase: false, unresolvedName: dottedName, configProperties: [] }
+    }
+
+    const seen  = new Set<string>([ dottedName ])
+    let current = firstLocal
+    let exit: { isPackageBase: boolean, unresolvedName: string | undefined }
+
+    for (;;) {
+        const currentBase = current.extendsType
+
+        if (currentBase === undefined) {
+            return undefined
+        }
+
+        if (isPackageBaseExpression(tsInstance, currentBase.expression, options, facts)) {
+            exit = { isPackageBase: true, unresolvedName: undefined }
+            break
+        }
+
+        const key = tsInstance.isIdentifier(currentBase.expression)
+            ? currentBase.expression.text
+            : dottedExpressionText(tsInstance, currentBase.expression)
+
+        if (key === undefined || seen.has(key)) {
+            return undefined
+        }
+
+        seen.add(key)
+
+        const next = tsInstance.isIdentifier(currentBase.expression)
+            ? facts.classesByName.get(key)
+            : qualifiedLocalClassFacts(tsInstance, sourceFile, currentBase.expression, facts)
+
+        if (next === undefined) {
+            exit = { isPackageBase: false, unresolvedName: key }
+            break
+        }
+
+        current = next
+    }
+
+    return {
+        ...exit,
+        configProperties : localClassConfigProperties(
+            tsInstance, sourceFile, firstLocal, facts, undefined, undefined, new Set()
+        )
+    }
+}
+
 // Accumulates the full construction config a base contributes to a subclass's
 // `.new(...)`: the base's own public fields, those inherited up its own `extends`
 // chain, and those of every mixin it consumes - recursively. A local base may itself
@@ -754,9 +836,7 @@ function literalKeyUnionType(
 // mixins), so reading only its own fields drops inherited config and breaks the
 // static-side `new` along the chain (TS2417). Imported bases are read from the
 // cross-file registry, which carries the accumulated extends-chain config.
-// Exported for the construction-base registry, which resolves a candidate's QUALIFIED
-// base through the same local walk (crossFile/baseImportMap omitted - local file only).
-export function baseConfigProperties(
+function baseConfigProperties(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     baseType: ts.ExpressionWithTypeArguments | undefined,

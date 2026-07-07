@@ -1,7 +1,6 @@
 import type * as ts from "typescript"
-import { baseConfigProperties, isConstructionBaseOptIn, isPackageBaseExpression } from "./construction-config.js"
+import { isPackageBaseExpression, qualifiedConstructionChainExit } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
-import { dottedExpressionText } from "./expand-util.js"
 import {
     accumulateRegisteredMixinConfig,
     defaultTransformOptions,
@@ -289,31 +288,29 @@ export function buildConstructionBaseRegistry(
             importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
 
             const baseExpression = classFacts.extendsType.expression
-            // A QUALIFIED base (`extends data.Model`) is followed through the local
-            // namespace index, terminating the candidate chain right here (a nested
-            // class is never a candidate): base-descendance and the qualified chain's
-            // accumulated config are both resolved locally (no cross-file context —
-            // the local walk ends at the package `Base` import of this same file).
-            // A qualified base that is NOT a local namespace path may be a
-            // NAMESPACE-IMPORT member (`extends lib.Model`): its dotted text becomes
-            // the candidate's `baseName`, chased through the namespace binding by
-            // `resolveImportedConstructionBaseCandidate` like any imported base.
-            const qualifiedBaseFollowed = !tsInstance.isIdentifier(baseExpression) &&
-                isConstructionBaseOptIn(tsInstance, sourceFile, classFacts.extendsType, resolvedOptions, facts, new Set())
+            // A QUALIFIED base (`extends data.Model`) is resolved right here at
+            // collection time (a nested class is never a candidate itself): the local
+            // walk (`qualifiedConstructionChainExit`) follows the chain to where it
+            // leaves the file — the package `Base` import, or an unresolved reference
+            // (an imported identifier, or the dotted namespace-import member itself)
+            // that becomes the candidate's `baseName` for the ordinary
+            // imported-candidate resolution. The chain's LOCAL levels contribute
+            // `qualifiedBaseConfigProperties`; the imported tail comes from `resolve`.
+            const qualifiedExit = tsInstance.isIdentifier(baseExpression)
+                ? undefined
+                : qualifiedConstructionChainExit(tsInstance, sourceFile, classFacts.extendsType, resolvedOptions, facts)
 
             const candidate: ConstructionBaseCandidate = {
                 fileName : sourceFile.fileName,
                 name     : classFacts.name,
                 baseName : tsInstance.isIdentifier(baseExpression)
                     ? baseExpression.text
-                    : qualifiedBaseFollowed ? undefined : dottedExpressionText(tsInstance, baseExpression),
+                    : qualifiedExit?.unresolvedName,
                 extendsPackageBase : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts) ||
-                    qualifiedBaseFollowed,
-                qualifiedBaseConfigProperties : qualifiedBaseFollowed
-                    ? baseConfigProperties(tsInstance, sourceFile, classFacts.extendsType, facts, undefined, undefined, new Set())
-                    : [],
-                ownConfigProperties  : classFacts.configProperties,
-                mixinDependencyNames : [
+                    qualifiedExit?.isPackageBase === true,
+                qualifiedBaseConfigProperties : qualifiedExit?.configProperties ?? [],
+                ownConfigProperties           : classFacts.configProperties,
+                mixinDependencyNames          : [
                     ...classFacts.implementsIdentifierNames,
                     ...classFacts.implementsQualifiedNames
                 ],

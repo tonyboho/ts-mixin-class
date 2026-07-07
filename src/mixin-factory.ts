@@ -15,8 +15,8 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import { brandedConstructSignatureType } from "./construction-brand.js"
 import {
-    brandedConstructSignatureType,
     cloneExpressionWithTypeArguments,
     dottedNameToEntityName,
     expressionToEntityName,

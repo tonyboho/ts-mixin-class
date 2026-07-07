@@ -35,8 +35,9 @@ export function decodeSourceMapMappings(tsInstance: TypeScript, mappings: string
 // mapping for — are DROPPED: the debugger falls back to raw generated code there, the
 // standard behaviour for generated output. A generated statement never maps onto a user line.
 
-// Structurally matches the `DiagnosticRemap` each reprinted source file carries (index.ts);
-// `sortedMappings` is a shared lazy cache, so both consumers sort at most once.
+// The remap each reprinted source file carries (attached in `emit-diagnostic-remap.ts`,
+// which aliases this type as its `DiagnosticRemap`); `sortedMappings` is a shared lazy
+// cache, so both consumers sort at most once.
 export type EmittedFileRemap = {
     originalSourceFile : ts.SourceFile,
     mappings           : PrintedSourceMapping[],
@@ -229,7 +230,9 @@ function baseName(fileName: string): string {
 // ---------------------------------------------------------------------------
 // The `printed -> original` translation
 
-function sortedMappingsOf(remap: EmittedFileRemap): PrintedSourceMapping[] {
+// Shared with the diagnostic remap (`emit-diagnostic-remap.ts`) — the two consumers of a
+// reprinted file's remap sort its mappings at most once between them.
+export function sortedMappingsOf(remap: EmittedFileRemap): PrintedSourceMapping[] {
     if (remap.sortedMappings === undefined) {
         remap.sortedMappings = [ ...remap.mappings ].sort((left, right) => {
             return left.generatedLine - right.generatedLine ||
@@ -240,9 +243,12 @@ function sortedMappingsOf(remap: EmittedFileRemap): PrintedSourceMapping[] {
     return remap.sortedMappings
 }
 
-// Index of the greatest entry whose printed position is `<=` the queried one; -1 when the
-// query precedes every entry.
-function precedingMappingIndex(
+// Index of the greatest entry whose printed (generated) position is `<=` the queried one, by
+// binary search; -1 when the query precedes every entry. Shared with the diagnostic remap:
+// there, the nearest PRECEDING entry still recovers the correct source line for a fully
+// generated line (a transformer-emitted diagnostic anchored to synthetic code), while the
+// source-map translation deliberately stays same-line only (see translatePrintedPosition).
+export function precedingMappingIndex(
     sortedMappings: PrintedSourceMapping[],
     printedLine: number,
     printedCharacter: number

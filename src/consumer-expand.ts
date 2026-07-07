@@ -1,11 +1,13 @@
 import type * as ts from "typescript"
 import {
     consumerBaseClassHeritage,
+    consumerHeritageClauses,
     consumerRuntimeBaseType,
     isSupportedBaseExpression,
     navigableConsumerBaseClassHeritage,
     unsupportedBaseConsumerHeritage
 } from "./consumer-base-heritage.js"
+import { brandConstructorParameter, type ConstructionBrand } from "./construction-brand.js"
 import {
     appendRequiredBaseValidationTypeParameters,
     appendSourceViewValidationTypeParameters,
@@ -27,11 +29,8 @@ import {
 } from "./construction-chain.js"
 import { buildImportedNameMap } from "./context.js"
 import {
-    brandConstructorParameter,
     cloneExpressionWithTypeArguments,
-    consumerHeritageClauses,
-    MixinTransformError,
-    type ConstructionBrand
+    MixinTransformError
 } from "./expand-util.js"
 import { deriveLinearizationPlan, linearizeDependencies } from "./linearization.js"
 import {

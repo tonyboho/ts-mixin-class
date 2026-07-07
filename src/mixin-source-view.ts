@@ -18,8 +18,6 @@ import {
 } from "./model.js"
 import {
     cloneExpressionWithTypeArguments,
-    consumerHeritageClauses,
-    createSourceViewConsumerBaseHeadType,
     dottedNameToEntityName,
     MixinTransformError
 } from "./expand-util.js"
@@ -30,7 +28,11 @@ import {
     localMixinHeritageTypes,
     localMixinRefs
 } from "./mixin-refs.js"
-import { navigableConsumerBaseClassHeritage } from "./consumer-base-heritage.js"
+import {
+    consumerHeritageClauses,
+    createSourceViewConsumerBaseHeadType,
+    navigableConsumerBaseClassHeritage
+} from "./consumer-base-heritage.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
 import { linearizeDependencies } from "./linearization.js"
 import {

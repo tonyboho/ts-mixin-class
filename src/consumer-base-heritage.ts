@@ -1,16 +1,14 @@
 import type * as ts from "typescript"
+import { constructionHeadType, type ConstructionBrand } from "./construction-brand.js"
 import {
     cloneExpressionWithTypeArguments,
-    constructionHeadType,
     createLinearizationPlanLiteral,
-    createSourceViewConsumerBaseHeadType,
     dottedNameToEntityName,
     expressionToEntityName,
     heritageTypeToTypeReference,
     intersectionOrSingle,
     linearizationMode,
-    mixinValueIdentifier,
-    type ConstructionBrand
+    mixinValueIdentifier
 } from "./expand-util.js"
 import {
     anyConstructorName,
@@ -669,6 +667,50 @@ function createUnsupportedBaseConsumerCastType(
     return intersectionOrSingle(tsInstance, types)
 }
 
+// The source-view twin of `createConsumerBaseHeadType` below: the `$base` interface always
+// re-extends the base in source view, so the construction head's construct returns a plain
+// `object` instead of naming the base. Exported for the mixin's own source-view heritage
+// (`mixin-source-view.ts`), which reuses the consumer head for its `$base` cast.
+export function createSourceViewConsumerBaseHeadType(
+    tsInstance: TypeScript,
+    extendsType: ts.ExpressionWithTypeArguments | undefined,
+    implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
+    emptyBaseName: string | undefined,
+    construction?: ConstructionBrand
+): ts.TypeNode {
+    const factory  = tsInstance.factory
+    const baseType = extendsType ?? implicitRequiredBase
+
+    if (baseType === undefined) {
+        return factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName as string))
+    }
+
+    if (construction !== undefined) {
+        // Source view: the `$base` interface always re-extends the base (even without
+        // type arguments), so it carries the base instance and the construct returns a
+        // plain `object` — naming the base here would either double-extend it (TS2320)
+        // or, for a generic base, reference the consumer's type parameter in a base
+        // expression (TS2562).
+        return constructionHeadType(
+            tsInstance,
+            expressionToEntityName(tsInstance, baseType.expression),
+            construction,
+            factory.createKeywordTypeNode(tsInstance.SyntaxKind.ObjectKeyword)
+        )
+    }
+
+    if (baseType.typeArguments === undefined) {
+        return factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
+    }
+
+    return factory.createIntersectionTypeNode([
+        factory.createTypeReferenceNode(anyConstructorName, undefined),
+        factory.createTypeReferenceNode(classStaticsName, [
+            factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
+        ])
+    ])
+}
+
 function createConsumerBaseHeadType(
     tsInstance: TypeScript,
     extendsType: ts.ExpressionWithTypeArguments | undefined,
@@ -711,6 +753,92 @@ function createConsumerBaseHeadType(
             factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
         ])
     ])
+}
+
+// The consumer's REPLACED heritage: `extends <baseName><typeArguments>` (the generated
+// `$base`), keeping the source `implements` clause (and its positions) when requested.
+// Shared by the consumer expansion and the mixin's own source-view heritage. The pinning
+// below maps the generated clause onto the source heritage ranges so source view stays
+// navigable; on emit the ranges are throwaway synthetic ones.
+export function consumerHeritageClauses(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    baseName: string,
+    generatedRange: ts.TextRange,
+    generatedTypeRange: ts.TextRange = generatedRange,
+    extraTypeArguments: ts.TypeNode[] = [],
+    keepImplements = true
+): ts.NodeArray<ts.HeritageClause> {
+    const factory = tsInstance.factory
+
+    const ownTypeArguments = declaration.typeParameters !== undefined && declaration.typeParameters.length > 0
+        ? declaration.typeParameters.map((typeParameter): ts.TypeNode => {
+            return factory.createTypeReferenceNode(typeParameter.name.text, undefined)
+        })
+        : []
+    const typeArguments    = ownTypeArguments.length > 0 || extraTypeArguments.length > 0
+        ? [ ...ownTypeArguments, ...extraTypeArguments ]
+        : undefined
+
+    const extendsType = preserveTextRange(tsInstance, factory.createExpressionWithTypeArguments(
+        factory.createIdentifier(baseName),
+        typeArguments
+    ), generatedTypeRange)
+
+    if (tsInstance.isExpressionWithTypeArguments(generatedTypeRange as ts.Node)) {
+        const originalGeneratedTypeRange = generatedTypeRange as ts.ExpressionWithTypeArguments
+
+        preserveTextRange(tsInstance, extendsType.expression, originalGeneratedTypeRange.expression)
+
+        if (extendsType.typeArguments !== undefined) {
+            const generatedTypeArgumentRange = zeroWidthRange(originalGeneratedTypeRange.expression.end)
+
+            preserveTextRange(
+                tsInstance,
+                extendsType.typeArguments,
+                originalGeneratedTypeRange.typeArguments ?? generatedTypeArgumentRange
+            )
+
+            const sourceTypeArguments    = originalGeneratedTypeRange.typeArguments
+            const lastSourceTypeArgument = sourceTypeArguments?.[sourceTypeArguments.length - 1]
+
+            extendsType.typeArguments.forEach((typeArgument, index) => {
+                const originalTypeArgument = sourceTypeArguments?.[index]
+
+                if (originalTypeArgument !== undefined) {
+                    preserveSubtreeTextRange(tsInstance, typeArgument, originalTypeArgument)
+                } else if (index < ownTypeArguments.length && lastSourceTypeArgument !== undefined) {
+                    // The consumer's own type params re-referenced past the source
+                    // heritage's type-argument count (the `A` in `__C$base<T, A>`
+                    // positioned over `SourceClass1<T>`) have no source counterpart.
+                    // Left unranged they inherit a wide ancestor range that strands
+                    // the source type identifiers in a SyntaxList trivia gap
+                    // (invariant #5). Overlap the last source argument: width >= 1
+                    // (not "missing"/`any`, invariant #2) and ending at the list end
+                    // so no trailing gap is scanned. Validation type arguments
+                    // (index >= ownTypeArguments.length) keep their own diagnostic
+                    // ranges and must not be touched here.
+                    preserveSubtreeTextRange(tsInstance, typeArgument, lastSourceTypeArgument)
+                }
+            })
+        }
+    }
+
+    const extendsHeritage = preserveTextRange(tsInstance, factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+        extendsType
+    ]), generatedRange)
+
+    preserveTextRange(tsInstance, extendsHeritage.types, generatedTypeRange)
+
+    const implementsHeritage = declaration.heritageClauses?.find((heritageClause) => {
+        return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword
+    })
+    const clauses            = keepImplements && implementsHeritage !== undefined
+        ? [ extendsHeritage, implementsHeritage ]
+        : [ extendsHeritage ]
+    const heritageRange      = keepImplements ? declaration.heritageClauses ?? generatedRange : generatedRange
+
+    return preserveTextRange(tsInstance, factory.createNodeArray(clauses), heritageRange)
 }
 
 export { isSupportedBaseExpression } from "./model.js"

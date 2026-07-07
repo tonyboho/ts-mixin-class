@@ -2,7 +2,12 @@ import type * as ts from "typescript"
 
 import { generatedStaticNewMarker } from "./construction-config.js"
 import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
-import { composeEmittedSourceMap } from "./emit-source-map.js"
+import {
+    composeEmittedSourceMap,
+    precedingMappingIndex,
+    sortedMappingsOf,
+    type EmittedFileRemap
+} from "./emit-source-map.js"
 import type { CrossFileContext, NativeMixinDiagnostic, TransformOptions } from "./model.js"
 import type { PrintedSourceMapping, TypeScript } from "./util.js"
 
@@ -18,11 +23,10 @@ import type { PrintedSourceMapping, TypeScript } from "./util.js"
 // language-service / `--noEmit` path is position-preserving already and never reaches
 // this code.
 
-type DiagnosticRemap = {
-    originalSourceFile : ts.SourceFile,
-    mappings           : PrintedSourceMapping[],
-    sortedMappings?    : PrintedSourceMapping[]
-}
+// The remap is the same object shape the source-map composition reads (the two are the
+// twin consumers of the printer's `printed -> original` mappings) — one type, one lazy
+// `sortedMappings` cache, aliased here under the diagnostic-side name.
+type DiagnosticRemap = EmittedFileRemap
 
 const diagnosticRemapKey = "__tsMixinClassDiagnosticRemap"
 
@@ -43,50 +47,6 @@ function diagnosticRemapOf(file: ts.SourceFile | undefined): DiagnosticRemap | u
     }
 
     return (file as { [diagnosticRemapKey]?: DiagnosticRemap })[diagnosticRemapKey]
-}
-
-function sortedMappingsOf(remap: DiagnosticRemap): PrintedSourceMapping[] {
-    if (remap.sortedMappings !== undefined) {
-        return remap.sortedMappings
-    }
-
-    remap.sortedMappings = [ ...remap.mappings ].sort((left, right) => {
-        return left.generatedLine - right.generatedLine ||
-            left.generatedCharacter - right.generatedCharacter
-    })
-
-    return remap.sortedMappings
-}
-
-// Index of the greatest source-map entry whose generated position is `<=` the queried
-// one, by binary search; -1 when the query precedes every entry. The entry on the
-// *same* generated line gives a column-accurate translation; when the queried line has
-// no entry — a fully generated line, e.g. a transformer-emitted diagnostic anchored to
-// synthetic code — the nearest preceding entry still recovers the correct source line.
-function precedingMappingIndex(
-    sortedMappings: PrintedSourceMapping[],
-    generatedLine: number,
-    generatedCharacter: number
-): number {
-    let low   = 0
-    let high  = sortedMappings.length - 1
-    let match = -1
-
-    while (low <= high) {
-        const mid     = (low + high) >> 1
-        const mapping = sortedMappings[mid]
-        const ordered = mapping.generatedLine < generatedLine ||
-            mapping.generatedLine === generatedLine && mapping.generatedCharacter <= generatedCharacter
-
-        if (ordered) {
-            match = mid
-            low   = mid + 1
-        } else {
-            high = mid - 1
-        }
-    }
-
-    return match
 }
 
 // Translate an offset in the reprinted text to the matching offset in the original

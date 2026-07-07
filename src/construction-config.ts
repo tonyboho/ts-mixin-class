@@ -351,17 +351,23 @@ export function isConstructionBaseOptIn(
 
     // A QUALIFIED base (`data.Model`) resolves through the local-namespace index; the
     // dotted text keys the `seen` set (disjoint from plain identifiers, which never
-    // contain a dot). Cross-file qualified bases (namespace imports) are not followed —
-    // `isPackageBaseExpression` above already accepted the package `ns.Base` form.
+    // contain a dot). When the dotted name is not a local namespace path, it may be a
+    // NAMESPACE-IMPORT member (`lib.Model`), resolved through the cross-file registry.
+    // (`isPackageBaseExpression` above already accepted the package `ns.Base` form.)
     if (!tsInstance.isIdentifier(baseType.expression)) {
-        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
-        const dottedName    = dottedExpressionText(tsInstance, baseType.expression)
+        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
 
-        if (qualifiedBase === undefined || dottedName === undefined || seen.has(dottedName)) {
+        if (dottedName === undefined || seen.has(dottedName)) {
             return false
         }
 
         seen.add(dottedName)
+
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+
+        if (qualifiedBase === undefined) {
+            return resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.isBaseDescendant === true
+        }
 
         return isConstructionBaseOptIn(
             tsInstance, sourceFile, qualifiedBase.extendsType, options, facts, seen, crossFile, baseImportMap
@@ -392,6 +398,9 @@ export function isConstructionBaseOptIn(
 
 // Resolves a local base identifier to its cross-file construction-base entry,
 // when the name is imported and the imported class transitively extends `Base`.
+// A DOTTED name (`lib.Model`) resolves through its namespace-import binding —
+// exactly one dot: registry entries are top-level classes of their module, so a
+// deeper path can never name one.
 export function resolveCrossFileConstructionBase(
     name: string,
     crossFile: CrossFileContext | undefined,
@@ -399,6 +408,18 @@ export function resolveCrossFileConstructionBase(
 ): ConstructionBaseEntry | undefined {
     if (crossFile === undefined || baseImportMap === undefined) {
         return undefined
+    }
+
+    const separator = name.indexOf(".")
+
+    if (separator >= 0) {
+        const binding = name.indexOf(".", separator + 1) < 0
+            ? baseImportMap.get(name.slice(0, separator))
+            : undefined
+
+        return binding?.namespace === true
+            ? crossFile.constructionBases.get(registryKey(binding.resolvedFileName, name.slice(separator + 1)))
+            : undefined
     }
 
     const imported = baseImportMap.get(name)
@@ -749,16 +770,23 @@ export function baseConfigProperties(
     }
 
     // A QUALIFIED base contributes its accumulated config through the local-namespace
-    // index, keyed in `seen` by its dotted text (same convention as the opt-in walk).
+    // index, keyed in `seen` by its dotted text (same convention as the opt-in walk);
+    // a NAMESPACE-IMPORT member (`lib.Model`) reads its accumulated config from the
+    // cross-file registry entry instead.
     if (!tsInstance.isIdentifier(baseType.expression)) {
-        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
-        const dottedName    = dottedExpressionText(tsInstance, baseType.expression)
+        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
 
-        if (qualifiedBase === undefined || dottedName === undefined || seen.has(dottedName)) {
+        if (dottedName === undefined || seen.has(dottedName)) {
             return []
         }
 
         seen.add(dottedName)
+
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+
+        if (qualifiedBase === undefined) {
+            return resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.configProperties ?? []
+        }
 
         return localClassConfigProperties(tsInstance, sourceFile, qualifiedBase, facts, crossFile, baseImportMap, seen)
     }

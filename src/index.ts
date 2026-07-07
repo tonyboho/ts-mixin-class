@@ -2114,10 +2114,23 @@ function extendsCrossFileConstructionBase(
         return false
     }
 
+    // Identifier bases by name; QUALIFIED bases by their dotted text (`lib.Widget`) —
+    // `resolveCrossFileConstructionBase` follows a dotted name through its
+    // namespace-import binding.
     const extendsNames = facts.classes.flatMap((classFacts) => {
         const expression = classFacts.extendsType?.expression
 
-        return expression !== undefined && tsInstance.isIdentifier(expression) ? [ expression.text ] : []
+        if (expression === undefined) {
+            return []
+        }
+
+        if (tsInstance.isIdentifier(expression)) {
+            return [ expression.text ]
+        }
+
+        const dottedName = dottedExpressionText(tsInstance, expression)
+
+        return dottedName === undefined ? [] : [ dottedName ]
     })
 
     if (extendsNames.length === 0) {

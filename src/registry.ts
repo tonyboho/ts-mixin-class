@@ -1,6 +1,7 @@
 import type * as ts from "typescript"
 import { baseConfigProperties, isConstructionBaseOptIn, isPackageBaseExpression } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
+import { dottedExpressionText } from "./expand-util.js"
 import {
     accumulateRegisteredMixinConfig,
     defaultTransformOptions,
@@ -293,13 +294,19 @@ export function buildConstructionBaseRegistry(
             // class is never a candidate): base-descendance and the qualified chain's
             // accumulated config are both resolved locally (no cross-file context —
             // the local walk ends at the package `Base` import of this same file).
+            // A qualified base that is NOT a local namespace path may be a
+            // NAMESPACE-IMPORT member (`extends lib.Model`): its dotted text becomes
+            // the candidate's `baseName`, chased through the namespace binding by
+            // `resolveImportedConstructionBaseCandidate` like any imported base.
             const qualifiedBaseFollowed = !tsInstance.isIdentifier(baseExpression) &&
                 isConstructionBaseOptIn(tsInstance, sourceFile, classFacts.extendsType, resolvedOptions, facts, new Set())
 
             const candidate: ConstructionBaseCandidate = {
-                fileName           : sourceFile.fileName,
-                name               : classFacts.name,
-                baseName           : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
+                fileName : sourceFile.fileName,
+                name     : classFacts.name,
+                baseName : tsInstance.isIdentifier(baseExpression)
+                    ? baseExpression.text
+                    : qualifiedBaseFollowed ? undefined : dottedExpressionText(tsInstance, baseExpression),
                 extendsPackageBase : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts) ||
                     qualifiedBaseFollowed,
                 qualifiedBaseConfigProperties : qualifiedBaseFollowed
@@ -429,6 +436,20 @@ export function buildConstructionBaseRegistry(
     ): ConstructionBaseCandidate | undefined {
         if (candidate.baseName === undefined) {
             return undefined
+        }
+
+        // A DOTTED baseName (`lib.Model`) resolves through its namespace-import
+        // binding — exactly one dot: candidates are top-level classes of their module.
+        const separator = candidate.baseName.indexOf(".")
+
+        if (separator >= 0) {
+            const binding = candidate.baseName.indexOf(".", separator + 1) < 0
+                ? candidate.importMap.get(candidate.baseName.slice(0, separator))
+                : undefined
+
+            return binding?.namespace === true
+                ? byKey.get(registryKey(binding.resolvedFileName, candidate.baseName.slice(separator + 1)))
+                : undefined
         }
 
         const imported = candidate.importMap.get(candidate.baseName)

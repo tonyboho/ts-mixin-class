@@ -616,6 +616,15 @@ instance type) has its own rules:
    `extends` chain. Both share `accumulateRegisteredMixinConfig` (`model.ts`). This regressed once
    because the only fixtures were one level deep (`X extends Base` directly); keep
    `construction-deep-subclass.t.ts` and the cross-file deep-subclass test honest.
+   A **QUALIFIED base** (`extends data.Model` through a local namespace) is followed in both
+   paths via the local-namespace index (`qualifiedLocalClassFacts` / `classesByQualifiedName`,
+   `source-file-facts.ts`), keyed in the `seen` sets by its dotted text (disjoint from plain
+   identifiers). The registry resolves the qualified link at candidate-collection time with a
+   file-LOCAL walk (`qualifiedBaseFollowed` + `qualifiedBaseConfigProperties`) — a nested class
+   is never a candidate itself, so the chain terminates there. Residual (see TODO): a
+   namespace-IMPORT base (`extends lib.Model`) and a local qualified chain passing through an
+   imported intermediate are not followed. Guarded by `construction-qualified-base.t.ts` and
+   the cross-file `construction-qualified-base-subclass.t.ts`.
 
 8. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
    consumed as published declarations, not source. (i) A `.d.ts` mixin's required base lives in its

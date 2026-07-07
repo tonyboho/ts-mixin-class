@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { isPackageBaseExpression } from "./construction-config.js"
+import { baseConfigProperties, isConstructionBaseOptIn, isPackageBaseExpression } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
     accumulateRegisteredMixinConfig,
@@ -248,13 +248,18 @@ export function buildConstructionBaseRegistry(
     }
 
     type ConstructionBaseCandidate = {
-        fileName             : string,
-        name                 : string,
-        baseName             : string | undefined,
-        extendsPackageBase   : boolean,
-        ownConfigProperties  : ConfigProperty[],
-        mixinDependencyNames : string[],
-        importMap            : Map<string, ImportedNameBinding>
+        fileName                      : string,
+        name                          : string,
+        baseName                      : string | undefined,
+        extendsPackageBase            : boolean,
+        // The accumulated config of a QUALIFIED base (`extends data.Model`) resolved
+        // through the file's local namespace index. A qualified chain is resolved right
+        // here at collection time (nested classes are never candidates themselves), so
+        // its contribution rides on the candidate instead of the `resolve` recursion.
+        qualifiedBaseConfigProperties : ConfigProperty[],
+        ownConfigProperties           : ConfigProperty[],
+        mixinDependencyNames          : string[],
+        importMap                     : Map<string, ImportedNameBinding>
     }
 
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
@@ -282,12 +287,24 @@ export function buildConstructionBaseRegistry(
             // eslint-disable-next-line align-assignments/align-assignments
             importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
 
-            const baseExpression                       = classFacts.extendsType.expression
+            const baseExpression = classFacts.extendsType.expression
+            // A QUALIFIED base (`extends data.Model`) is followed through the local
+            // namespace index, terminating the candidate chain right here (a nested
+            // class is never a candidate): base-descendance and the qualified chain's
+            // accumulated config are both resolved locally (no cross-file context —
+            // the local walk ends at the package `Base` import of this same file).
+            const qualifiedBaseFollowed = !tsInstance.isIdentifier(baseExpression) &&
+                isConstructionBaseOptIn(tsInstance, sourceFile, classFacts.extendsType, resolvedOptions, facts, new Set())
+
             const candidate: ConstructionBaseCandidate = {
-                fileName             : sourceFile.fileName,
-                name                 : classFacts.name,
-                baseName             : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
-                extendsPackageBase   : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts),
+                fileName           : sourceFile.fileName,
+                name               : classFacts.name,
+                baseName           : tsInstance.isIdentifier(baseExpression) ? baseExpression.text : undefined,
+                extendsPackageBase : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts) ||
+                    qualifiedBaseFollowed,
+                qualifiedBaseConfigProperties : qualifiedBaseFollowed
+                    ? baseConfigProperties(tsInstance, sourceFile, classFacts.extendsType, facts, undefined, undefined, new Set())
+                    : [],
                 ownConfigProperties  : classFacts.configProperties,
                 mixinDependencyNames : [
                     ...classFacts.implementsIdentifierNames,
@@ -352,6 +369,7 @@ export function buildConstructionBaseRegistry(
     // mixin config from the subclass's `.new`.
     const ownPlusMixinConfig = (candidate: ConstructionBaseCandidate): ConfigProperty[] =>
         uniqueConfigProperties([
+            ...candidate.qualifiedBaseConfigProperties,
             ...candidateMixinConfig(candidate),
             ...candidate.ownConfigProperties
         ])

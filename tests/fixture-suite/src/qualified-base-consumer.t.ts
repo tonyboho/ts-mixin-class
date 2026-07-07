@@ -7,8 +7,9 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 // with a GENERIC consumer and a generic mixin — the navigable-base fast path's hardest
 // non-construction shape: the qualified chain is pinned per token, the consumer's type
 // parameter threads through the cast's generic construct signature, and the runtime
-// chain must construct through the namespace value. (A qualified base is not recognized
-// as a CONSTRUCTION base yet — see TODO "Qualified construction bases".)
+// chain must construct through the namespace value. (`data.Model` here does NOT extend
+// the package `Base`, so this stays a manually-constructed, non-construction consumer —
+// the construction twin is `construction-qualified-base.t.ts`.)
 
 namespace data {
     export class Model {

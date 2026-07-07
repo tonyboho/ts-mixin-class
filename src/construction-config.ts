@@ -11,7 +11,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, qualifiedLocalClassFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
     collapseSubtreeTextRange,
     deepCloneNode,
@@ -349,12 +349,23 @@ export function isConstructionBaseOptIn(
         return true
     }
 
-    // A QUALIFIED base (`data.Model`) is NOT recognized as a construction base yet:
-    // enabling it requires the whole construction pipeline (config accumulation,
-    // alias generation) to follow the qualified chain — see TODO "Qualified
-    // construction bases".
+    // A QUALIFIED base (`data.Model`) resolves through the local-namespace index; the
+    // dotted text keys the `seen` set (disjoint from plain identifiers, which never
+    // contain a dot). Cross-file qualified bases (namespace imports) are not followed —
+    // `isPackageBaseExpression` above already accepted the package `ns.Base` form.
     if (!tsInstance.isIdentifier(baseType.expression)) {
-        return false
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+        const dottedName    = dottedExpressionText(tsInstance, baseType.expression)
+
+        if (qualifiedBase === undefined || dottedName === undefined || seen.has(dottedName)) {
+            return false
+        }
+
+        seen.add(dottedName)
+
+        return isConstructionBaseOptIn(
+            tsInstance, sourceFile, qualifiedBase.extendsType, options, facts, seen, crossFile, baseImportMap
+        )
     }
 
     const baseName = baseType.expression.text
@@ -722,7 +733,9 @@ function literalKeyUnionType(
 // mixins), so reading only its own fields drops inherited config and breaks the
 // static-side `new` along the chain (TS2417). Imported bases are read from the
 // cross-file registry, which carries the accumulated extends-chain config.
-function baseConfigProperties(
+// Exported for the construction-base registry, which resolves a candidate's QUALIFIED
+// base through the same local walk (crossFile/baseImportMap omitted - local file only).
+export function baseConfigProperties(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     baseType: ts.ExpressionWithTypeArguments | undefined,
@@ -731,8 +744,23 @@ function baseConfigProperties(
     baseImportMap: Map<string, ImportedNameBinding> | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
-    if (baseType === undefined || !tsInstance.isIdentifier(baseType.expression)) {
+    if (baseType === undefined) {
         return []
+    }
+
+    // A QUALIFIED base contributes its accumulated config through the local-namespace
+    // index, keyed in `seen` by its dotted text (same convention as the opt-in walk).
+    if (!tsInstance.isIdentifier(baseType.expression)) {
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+        const dottedName    = dottedExpressionText(tsInstance, baseType.expression)
+
+        if (qualifiedBase === undefined || dottedName === undefined || seen.has(dottedName)) {
+            return []
+        }
+
+        seen.add(dottedName)
+
+        return localClassConfigProperties(tsInstance, sourceFile, qualifiedBase, facts, crossFile, baseImportMap, seen)
     }
 
     return configPropertiesForName(tsInstance, sourceFile, baseType.expression.text, facts, crossFile, baseImportMap, seen)

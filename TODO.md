@@ -102,19 +102,15 @@ type arguments (see AGENTS.md "Heritage-clause navigation"). Still resolving to 
 diagnostic validations (broken code — `$base` positions those diagnostics), and a `@mixin`
 class's own heritage. For those, navigate from the base class's own declaration instead.
 
-### 4a. Qualified construction bases (`class W extends ns.Model` where Model extends Base)
+### 4a. Qualified construction bases — residual cross-file forms
 
-A QUALIFIED base is not recognized as a construction base: no `static new` is generated for
-its consumers (they construct manually; navigation works). Enabling it needs the whole
-construction pipeline to follow the qualified chain — a first attempt hit two real bugs and
-was scoped out: the config accumulated as `Pick<..., never>` (empty — silently accepts any
-object), and under a namespace the `<Name>Config` alias was generated repeatedly
-(`WidgetConfig`, `WidgetConfig_`, `WidgetConfig__` — the file was transformed over its own
-appended alias text). Ready infrastructure: `classesByQualifiedName` /
-`qualifiedLocalClassFacts` in `source-file-facts.ts` resolve dotted local-namespace chains
-from facts (immune to the in-place namespace mutation during expansion). Wire it into
-`isConstructionBaseOptIn` + `baseConfigProperties` (both gate on
-`isIdentifier(baseType.expression)`), then chase the alias duplication.
+A LOCAL qualified base (`class W extends data.Model` where the namespace-nested `Model`
+extends `Base`) is a full construction base: generated `static new`, `<Name>Config`,
+cross-file subclassing of the consumer included. Not followed yet: a namespace-IMPORT base
+(`import * as lib` → `extends lib.Model`), and a registry candidate whose local qualified
+chain passes through an *imported* intermediate base (the construction-base registry
+resolves qualified links with a file-local walk — see AGENTS.md construction invariant 7).
+Such consumers construct manually; navigation works.
 
 ### 5. A mixin that violates its `implements` contract is flagged twice in the editor
 

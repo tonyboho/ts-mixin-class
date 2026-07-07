@@ -30,9 +30,9 @@ import {
 } from "./mixin-refs.js"
 import {
     consumerHeritageClauses,
-    createSourceViewConsumerBaseHeadType,
-    navigableConsumerBaseClassHeritage
+    createSourceViewConsumerBaseHeadType
 } from "./consumer-base-heritage.js"
+import { navigableConsumerBaseClassHeritage } from "./consumer-navigable-heritage.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
 import { linearizeDependencies } from "./linearization.js"
 import {

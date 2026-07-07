@@ -4,9 +4,9 @@ import {
     consumerHeritageClauses,
     consumerRuntimeBaseType,
     isSupportedBaseExpression,
-    navigableConsumerBaseClassHeritage,
     unsupportedBaseConsumerHeritage
 } from "./consumer-base-heritage.js"
+import { navigableConsumerBaseClassHeritage } from "./consumer-navigable-heritage.js"
 import { brandConstructorParameter, type ConstructionBrand } from "./construction-brand.js"
 import {
     appendRequiredBaseValidationTypeParameters,

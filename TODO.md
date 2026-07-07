@@ -92,53 +92,29 @@ A dynamic base would need to be evaluated exactly once, stored in a generated ru
 constant, represented on both the instance and static sides, and emitted correctly in `.d.ts`
 files. Use a named base class for now.
 
-### 4. Base-name navigation is limited for generic / construction / qualified consumers
+### 4. Base-name navigation — residual cases
 
-Go-to-definition, find-all-references, and quickinfo on a base type name *inside* a class
-heritage clause work for a **non-generic** consumer that does not use construction and extends
-a plain (unqualified) base name (`extends Base` / `extends Base implements Mixin`): the
-transformer keeps the real base on its source position, so navigation reaches the real type.
+Go-to-definition, find-all-references, rename and quickinfo on a base type name *inside* a
+class heritage clause work for every well-typed consumer with an explicit entity-name base —
+plain, generic, construction and qualified (`extends ns.Base`) alike, including the `<...>`
+type arguments (see AGENTS.md "Heritage-clause navigation"). Still resolving to the internal
+`$base`: consumers with no explicit `extends` (implicit required base), consumers with
+diagnostic validations (broken code — `$base` positions those diagnostics), and a `@mixin`
+class's own heritage. For those, navigate from the base class's own declaration instead.
 
-They still do **not** work for a **generic** consumer (`class Consumer<T> extends Base`), a
-**construction-base** consumer, or a **qualified base** (`extends ns.Base`): in the IDE
-"source view" the transformer rewrites those to `extends Consumer$base` and pins the generated
-reference onto the source `Base` position, so clicking the base name resolves to the internal
-generated base instead of the real type — references and go-to-definition come back empty and
-quickinfo reports `any`. The class name itself, its type parameters, and its members navigate
-correctly in every case. For the affected consumers, navigate from the base class's own
-declaration or another usage instead.
+### 4a. Qualified construction bases (`class W extends ns.Model` where Model extends Base)
 
-**Probe-verified escape routes (2026-07-06, tsc 6.0.3, plain-TS probes — turn into fixture
-tests when implementing):**
-
-- **Generic consumers — the trilemma has a fourth exit.** The blocked horn was TS2562 ("base
-  class expressions cannot reference class type parameters") — but that bans `T` only in the
-  base *expression*; a heritage *type argument* referencing `T` is legal (`class C<T> extends
-  Array<T>`). So give the navigable single-source cast a GENERIC construct signature and pass
-  `T` as the heritage type argument:
-  `class Consumer<T> extends (Base as unknown as (new <U>(...args: any[]) => Base & Holder<U> &
-  Greeter) & Omit<typeof Base, "prototype" | "new">)<T>`. Verified clean: `super.<generic mixin
-  member>` threads `T`, statics survive, `override` and `implements` resolve, instantiation is
-  exact (`@ts-expect-error` fires on a wrong-type read).
-- **Construction consumers.** The direct-`new` brand rides INSIDE the cast's construct
-  signature — `new <U>(brand: Brand) => Base & Holder<U>` (the mirror of the emitted
-  `__X$base_base` type). Verified clean: `new Consumer()` and a forged brand both error,
-  `super.initialize(...)` resolves, generated `static new` + generics thread. Combines with the
-  generic route in one cast.
-- **Qualified bases (`ns.Base`).** Not fundamental — the `isIdentifier` gate exists because a
-  shallow clone leaves the inner `Base` at `[-1, -1]`. Deep-pin the property-access clone per
-  child (`ns` and `Base` each onto their source ranges); precedent: qualified mixin references
-  (namespace imports) already do child-level positioning.
-- **Residual + universal fallback.** Diagnostic-validation consumers (broken code only) keep
-  `$base`. If any case resists the type-level routes, the companion language-service plugin can
-  serve navigation from transform-recorded metadata (source span → real target), the same way
-  it already remaps config-alias phantom spans.
-
-Implementation cautions (same sharp edges as the existing non-generic cast): the cast must stay
-single-source (a competing construct signature strands mixin members → TS2720/TS4112); the cast
-type nodes stay SYNTHETIC (collapsing re-reads `Omit<…, "prototype" | "new">` literals from
-source and degrades to `any`); heritage type-argument positioning must not strand source
-characters (invariant #5) — stress arbitrates.
+A QUALIFIED base is not recognized as a construction base: no `static new` is generated for
+its consumers (they construct manually; navigation works). Enabling it needs the whole
+construction pipeline to follow the qualified chain — a first attempt hit two real bugs and
+was scoped out: the config accumulated as `Pick<..., never>` (empty — silently accepts any
+object), and under a namespace the `<Name>Config` alias was generated repeatedly
+(`WidgetConfig`, `WidgetConfig_`, `WidgetConfig__` — the file was transformed over its own
+appended alias text). Ready infrastructure: `classesByQualifiedName` /
+`qualifiedLocalClassFacts` in `source-file-facts.ts` resolve dotted local-namespace chains
+from facts (immune to the in-place namespace mutation during expansion). Wire it into
+`isConstructionBaseOptIn` + `baseConfigProperties` (both gate on
+`isIdentifier(baseType.expression)`), then chase the alias duplication.
 
 ### 5. A mixin that violates its `implements` contract is flagged twice in the editor
 

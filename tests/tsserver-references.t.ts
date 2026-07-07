@@ -292,18 +292,22 @@ function countLocalSpans(sourceFile: string, spans: Array<TextSpan & { file?: st
     return keys.size
 }
 
-// Navigable-base fast path (non-generic consumer): go-to-definition + quickinfo on
-// the base name in `extends <Base>` reach the real base class. Variants beyond the
-// plain-local case: a concrete-generic base, a qualified base, and a cross-file base.
+// Navigable-base fast path: go-to-definition + quickinfo on the base name in
+// `extends <Base>` reach the real base class. Variants beyond the plain-local case:
+// a concrete-generic base, a qualified base, a cross-file base, and the formerly
+// `$base`-locked consumers (generic, construction, qualified — each an escape route
+// of the navigation trilemma). `expectCleanSemantics` additionally pins that the
+// rewritten heritage type-checks with no IDE diagnostics.
 async function assertBaseNameNavigates(t: Test, options: {
-    sourceFiles       : Array<{ fileName: string, text: string }>,
-    targetFileName    : string,
-    targetText        : string,
-    baseNameIndex     : number,
-    baseDeclFileName  : string,
-    baseDeclText      : string,
-    baseDeclNameIndex : number,
-    displayString     : string
+    sourceFiles           : Array<{ fileName: string, text: string }>,
+    targetFileName        : string,
+    targetText            : string,
+    baseNameIndex         : number,
+    baseDeclFileName      : string,
+    baseDeclText          : string,
+    baseDeclNameIndex     : number,
+    displayString         : string,
+    expectCleanSemantics? : boolean
 }): Promise<void> {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
@@ -315,6 +319,18 @@ async function assertBaseNameNavigates(t: Test, options: {
         const declFile   = requiredFixtureSourceFile(fixture.sourceFiles, options.baseDeclFileName)
         const baseOffset = positionToLineOffset(options.targetText, options.baseNameIndex)
         const declPos    = positionToLineOffset(options.baseDeclText, options.baseDeclNameIndex)
+
+        if (options.expectCleanSemantics === true) {
+            const diagnostics = assertResponseBody<Array<{ text?: string }>>(
+                t,
+                await runTypeScriptServerRequest(fixture.directory, targetFile, options.targetText, "semanticDiagnosticsSync", {
+                    file : targetFile
+                })
+            )
+
+            t.equal(diagnostics.map((diagnostic) => diagnostic.text ?? "").join("\n"), "",
+                "The consumer compiles with no IDE diagnostics")
+        }
 
         const definitions = assertResponseBody<DefinitionInfo[]>(
             t,
@@ -423,6 +439,182 @@ it("tsserver keeps a qualified-base consumer (`extends shapes.Base`) type-checki
     } finally {
         await fixture.dispose()
     }
+})
+
+// The three formerly `$base`-locked consumers — each an escape route of the navigation
+// trilemma (see TODO #4): a GENERIC consumer threads its type parameter through the
+// heritage TYPE ARGUMENT of a generic single-source cast (TS2562 bans it only in the
+// base expression), a CONSTRUCTION consumer carries the direct-`new` brand inside the
+// cast's construct signature, and a QUALIFIED base deep-pins the property-access clone.
+
+it("tsserver navigation on a GENERIC consumer's base name reaches the base class", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class LocalBase {
+            baseValue: number = 0
+        }
+
+        @mixin()
+        class Holder<V> {
+            stored: V | undefined = undefined
+
+            take(): V | undefined {
+                return this.stored
+            }
+        }
+
+        class Widget<T> extends LocalBase implements Holder<T> {
+            grab(): T | undefined {
+                return this.take()
+            }
+
+            viaSuper(): T | undefined {
+                return super.take()
+            }
+        }
+
+        const widget = new Widget<string>()
+        widget.stored = "x"
+        const grabbed: string | undefined = widget.grab()
+        const viaBase: number = widget.baseValue
+        void grabbed
+        void viaBase
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("extends LocalBase") + "extends ".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("class LocalBase") + "class ".length,
+        displayString        : "class LocalBase",
+        expectCleanSemantics : true
+    })
+})
+
+it("tsserver navigation on a CONSTRUCTION consumer's base name reaches the base class", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+        import { Base } from "ts-mixin-class/base"
+
+        class Model extends Base {
+            modelValue: number = 0
+        }
+
+        @mixin()
+        class Feature {
+            feature?: string
+        }
+
+        class Widget extends Model implements Feature {
+            widget: boolean = false
+        }
+
+        const widget = Widget.new({ widget: true, modelValue: 1, feature: "x" })
+        const value: number = widget.modelValue
+        void value
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("extends Model") + "extends ".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("class Model") + "class ".length,
+        displayString        : "class Model",
+        expectCleanSemantics : true
+    })
+})
+
+it("tsserver navigation on a QUALIFIED base name (`extends shapes.Base`) reaches the base class", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        namespace shapes {
+            export class Base {
+                baseValue: number = 0
+            }
+        }
+
+        @mixin()
+        class Feature {
+            feature?: string
+        }
+
+        class Widget extends shapes.Base implements Feature {
+            widget?: boolean
+        }
+
+        const widget = new Widget()
+        const value: number = widget.baseValue
+        void value
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("extends shapes.Base") + "extends shapes.".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("export class Base") + "export class ".length,
+        displayString        : "Base",
+        expectCleanSemantics : true
+    })
+})
+
+it("tsserver navigation works with generic + qualified combined", async (t: Test) => {
+    // Generic consumer + qualified base + generic mixin in one shape. (A qualified base
+    // is not recognized as a CONSTRUCTION base yet — see TODO "Qualified construction
+    // bases" — so this combination instantiates directly.)
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        namespace data {
+            export class Model {
+                modelValue: number = 0
+            }
+        }
+
+        @mixin()
+        class Holder<V> {
+            stored: V | undefined = undefined
+
+            take(): V | undefined {
+                return this.stored
+            }
+        }
+
+        class Widget<T> extends data.Model implements Holder<T> {
+            grab(): T | undefined {
+                return super.take()
+            }
+        }
+
+        const widget = new Widget<string>()
+        widget.stored = "x"
+        const grabbed: string | undefined = widget.grab()
+        const viaBase: number = widget.modelValue
+        void grabbed
+        void viaBase
+    `)
+
+    await assertBaseNameNavigates(t, {
+        sourceFiles          : [ { fileName: "source.ts", text } ],
+        targetFileName       : "source.ts",
+        targetText           : text,
+        baseNameIndex        : text.indexOf("extends data.Model") + "extends data.".length,
+        baseDeclFileName     : "source.ts",
+        baseDeclText         : text,
+        baseDeclNameIndex    : text.indexOf("export class Model") + "export class ".length,
+        displayString        : "Model",
+        expectCleanSemantics : true
+    })
 })
 
 it("tsserver navigation on a cross-file base name (`extends RemoteBase`) reaches the base class", async (t: Test) => {

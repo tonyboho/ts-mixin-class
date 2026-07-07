@@ -301,12 +301,17 @@ export function constructionHeadType(
     // members (e.g. `initialize`, the base's own fields) flow only through this return —
     // `object` would drop them. For a generic base the type argument matches the `$base`
     // interface's own `extends GenericBase<T>`, so the two agree (no `unknown`).
-    instanceReturnType: ts.TypeNode
+    instanceReturnType: ts.TypeNode,
+    // Makes the construct signature generic — the navigable fast path of a GENERIC
+    // consumer threads the consumer's type parameters through the signature (the
+    // instance return references them; declaring them on the signature keeps them out
+    // of the base expression scope, dodging TS2562).
+    typeParameters?: readonly ts.TypeParameterDeclaration[]
 ): ts.TypeNode {
     const factory = tsInstance.factory
 
     return factory.createIntersectionTypeNode([
-        constructionConstructSignatureType(tsInstance, construction, instanceReturnType),
+        constructionConstructSignatureType(tsInstance, construction, instanceReturnType, typeParameters),
         // Inline `Omit<typeof Base, "prototype">` (not the `ClassStatics` alias) so the
         // construction-base path, which does not request generated imports, needs none:
         // `Omit` is a global lib utility. This keeps the base's statics while the mapped

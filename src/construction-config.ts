@@ -11,7 +11,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import {
     collapseSubtreeTextRange,
     deepCloneNode,
@@ -349,6 +349,10 @@ export function isConstructionBaseOptIn(
         return true
     }
 
+    // A QUALIFIED base (`data.Model`) is NOT recognized as a construction base yet:
+    // enabling it requires the whole construction pipeline (config accumulation,
+    // alias generation) to follow the qualified chain — see TODO "Qualified
+    // construction bases".
     if (!tsInstance.isIdentifier(baseType.expression)) {
         return false
     }
@@ -496,6 +500,7 @@ function createConstructionConfig(
 
     const properties              = staticConstructionConfigProperties(
         tsInstance,
+        sourceFile,
         declaration,
         extendsType,
         implicitRequiredBase,
@@ -605,6 +610,7 @@ function flattenIfIntersection(tsInstance: TypeScript, parts: ts.TypeNode[]): ts
 
 function staticConstructionConfigProperties(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     extendsType: ts.ExpressionWithTypeArguments | undefined,
     implicitRequiredBase: ts.ExpressionWithTypeArguments | undefined,
@@ -614,7 +620,7 @@ function staticConstructionConfigProperties(
     baseImportMap?: Map<string, ImportedNameBinding>
 ): ConfigProperty[] {
     return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
+        ...baseConfigProperties(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
         ...mixinRefs.flatMap((ref) => substituteMixinConfigTypeParameters(tsInstance, declaration, ref)),
         ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? [])
     ])
@@ -718,6 +724,7 @@ function literalKeyUnionType(
 // cross-file registry, which carries the accumulated extends-chain config.
 function baseConfigProperties(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     baseType: ts.ExpressionWithTypeArguments | undefined,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
@@ -728,11 +735,29 @@ function baseConfigProperties(
         return []
     }
 
-    return configPropertiesForName(tsInstance, baseType.expression.text, facts, crossFile, baseImportMap, seen)
+    return configPropertiesForName(tsInstance, sourceFile, baseType.expression.text, facts, crossFile, baseImportMap, seen)
+}
+
+function localClassConfigProperties(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    localClass: ClassFacts,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: Map<string, ImportedNameBinding> | undefined,
+    seen: Set<string>
+): ConfigProperty[] {
+    return uniqueConfigProperties([
+        ...baseConfigProperties(tsInstance, sourceFile, localClass.extendsType, facts, crossFile, baseImportMap, seen),
+        ...localClass.implementsIdentifierNames.flatMap((implemented) =>
+            configPropertiesForName(tsInstance, sourceFile, implemented, facts, crossFile, baseImportMap, seen)),
+        ...localClass.configProperties
+    ])
 }
 
 function configPropertiesForName(
     tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
     name: string,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
@@ -748,12 +773,7 @@ function configPropertiesForName(
     const localClass = facts.classesByName.get(name)
 
     if (localClass !== undefined) {
-        return uniqueConfigProperties([
-            ...baseConfigProperties(tsInstance, localClass.extendsType, facts, crossFile, baseImportMap, seen),
-            ...localClass.implementsIdentifierNames.flatMap((implemented) =>
-                configPropertiesForName(tsInstance, implemented, facts, crossFile, baseImportMap, seen)),
-            ...localClass.configProperties
-        ])
+        return localClassConfigProperties(tsInstance, sourceFile, localClass, facts, crossFile, baseImportMap, seen)
     }
 
     // Not declared in this file: an imported construction base (its accumulated

@@ -889,11 +889,46 @@ The same crash text has several possible causes; check in this order before assu
 
 ## Current gaps
 
-### Heritage-clause navigation (partially closed)
+### Heritage-clause navigation (closed for explicit-base consumers)
 
-go-to-def / find-all-references / quickinfo on a base type name *inside* a rewritten `extends` /
-`implements` clause **reaches the real base for a well-typed, non-generic, non-construction
-consumer**, and still resolves to the internal `$base` otherwise.
+go-to-def / find-all-references / rename / quickinfo on a base type name *inside* a rewritten
+`extends` clause **reaches the real base for every well-typed consumer with an explicit
+entity-name base** — plain, GENERIC, CONSTRUCTION and QUALIFIED (`ns.Base`) alike. The former
+gate to non-generic, non-construction, identifier-only bases is superseded (kept for context
+below); the trilemma exits:
+- **generic consumers**: TS2562 bans the consumer's type parameter only in the base
+  EXPRESSION — the navigable cast's construct signature is generic (clones of the consumer's
+  parameters, variance stripped) and the heritage instantiates it via TYPE ARGUMENTS;
+- **construction consumers**: the direct-`new` brand (or the permissive manual-constructor
+  form) rides inside that same construct signature — the mirror of the emitted `$base_base`;
+- **qualified bases**: the base expression clone pins every qualifier step onto its own
+  source token (ranges resolved through `.original` — the layered clone drops positions);
+- **source base type arguments** (`extends Base<T>`): pinned deep clones ride as heritage
+  type arguments feeding INERT CARRIER type parameters appended to the signature (carriers
+  first, consumer params after — argument order must mirror it), so hover/rename inside the
+  `<...>` region resolves in CLASS scope exactly as written.
+
+Positioning sharp edges (each has a suite guard; violating any one breaks silently
+elsewhere):
+- **no zero-width real range anywhere the checker reads** — `nodeIsMissing` (pos === end,
+  pos >= 0) silently drops the node: a zero-width construct signature or heritage type
+  argument degrades the whole cast to `any` (members vanish; `tsserver-diagnostics` and the
+  fixture `@ts-expect-error` directives catch it). Width-1 anchors at the heritage END are
+  the substitute (`referenceAnchor`).
+- **no identifier-bearing gap in any getChildren scan** — the cast is stamped UNIFORMLY over
+  the heritage span (identical ranges cannot gap; `source-view-trivia` catches offenders,
+  incl. NodeArrays the synthetic-descendant pass skips).
+- **tsserver prefers the identifier ENDING at the cursor** (`getTouchingToken` at-end
+  preference) — no generated identifier may END exactly where a queried token STARTS
+  (`stress-quickinfo` highlight-exactness catches it).
+- the `as unknown as <cast>` chain is narrowed to the base token span so position lookups
+  never descend into the cast.
+
+**Superseded original fix (kept for context):** the fast path used to be gated to well-typed,
+NON-generic, non-construction consumers extending a plain identifier base, with the navigable
+base identifier STRETCHED over the whole heritage span (`Base<...>`) — the stretch produced
+fat reference/rename spans over the type-argument tail, which the tightened `stress-references`
+span checks would now reject.
 
 Why it was a gap: a class's `extends Base` is genuinely rewritten to `extends X$base` in source
 view, with the `$base` reference pinned onto the source `Base` position — so no node there carries
@@ -921,17 +956,17 @@ sharp failure modes:
   claim the `<…>` tail and avoid stranding, #5).
 
 **Residual gap** — these keep `$base`, so their base name still resolves to `$base`:
-- **generic** consumers — instance members must thread `T`, which can only live on a generic base
-  the consumer extends (the `$base` interface); merging onto `interface Consumer<T>` instead makes
-  `super.<mixinMember>` miss them (members land on `this`, not the base), and putting `Base<T>` in
-  the consumer's own base expression trips TS2562;
-- **construction-base** consumers — generated construction members + synthetic
-  `super.initialize(...)` are wired against `$base`;
-- **qualified bases** (`extends ns.Base`) — a shallow clone of the property-access leaves its
-  inner `Base` at `[-1, -1]`, so navigation cannot land on it; gated out by an
-  `isIdentifier(extendsType.expression)` check;
+- consumers with NO explicit extends clause (implicit required base / empty base);
 - consumers **emitting diagnostic validations** (unsatisfied required base, static collisions,
-  missing runtime values) — only on broken code; `$base` positions those diagnostics.
+  missing runtime values) — only on broken code; `$base` positions those diagnostics
+  (`type-errors.ts` heritage sites are the tolerated empties in `stress-references`);
+- a `@mixin` class's OWN heritage (the mixin expansion, not the consumer path).
+
+Superseded residual list (all three closed by the navigable fast path above, kept for
+context): generic consumers (the `$base`-interface reasoning predated the generic-construct-
+signature exit), construction-base consumers, qualified bases (the shallow-clone `[-1, -1]`
+reasoning — the REAL root was `factory.cloneNode` SHARING children with the parse tree, which
+the `$base` class's subtree collapse then mutated; `consumerBaseClassHeritage` now deep-clones).
 
 Compiler reports heritage base-name errors at the *real* name, so emit is the correct path here.
 Guard: `tsserver-references.t.ts` "navigation on a base type in an extends clause reaches the base

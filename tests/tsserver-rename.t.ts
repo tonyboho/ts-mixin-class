@@ -229,12 +229,12 @@ const renameBaseBoundaryText = trimIndent(`
     }
 `)
 
-it("tsserver rename of a base class reaches a non-generic consumer's extends clause but not a generic one", async (t: Test) => {
-    // After the navigable-base fast path, a non-generic consumer's `extends LocalBase`
-    // is the REAL `LocalBase` identifier, so renaming the base class updates that
-    // occurrence. A generic consumer still goes through `$base`, so its `extends
-    // LocalBase` is not a `LocalBase` reference and is (correctly) left untouched —
-    // the residual heritage-navigation gap (AGENTS.md invariant #9 / Current gaps).
+it("tsserver rename of a base class reaches both a non-generic and a generic consumer's extends clause", async (t: Test) => {
+    // The navigable-base fast path keeps the REAL `LocalBase` identifier in every
+    // consumer's `extends LocalBase` — non-generic AND generic alike (a generic
+    // consumer threads its type parameters through the cast's generic construct
+    // signature instead of falling back to `$base`) — so renaming the base class
+    // updates both occurrences.
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [ { fileName: "source.ts", text: renameBaseBoundaryText } ]
@@ -269,8 +269,8 @@ it("tsserver rename of a base class reaches a non-generic consumer's extends cla
 
         t.true(coversBaseNameAt(nonGenericExtends),
             "Rename reaches the non-generic consumer's `extends LocalBase` (navigable-base fast path)")
-        t.false(coversBaseNameAt(genericExtends),
-            "Rename does NOT reach the generic consumer's `extends LocalBase` (still `$base`, residual gap)")
+        t.true(coversBaseNameAt(genericExtends),
+            "Rename reaches the generic consumer's `extends LocalBase` (navigable-base fast path, generic form)")
     } finally {
         await fixture.dispose()
     }

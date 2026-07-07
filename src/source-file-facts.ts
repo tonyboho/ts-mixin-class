@@ -44,20 +44,24 @@ export type ClassFacts = {
 }
 
 export type SourceFileFacts = {
-    mixinDecoratorImports : MixinDecoratorImports,
-    imports               : ImportFacts[],
-    classes               : ClassFacts[],
-    classesByName         : Map<string, ClassFacts>,
-    classesByDeclaration  : Map<ts.ClassDeclaration, ClassFacts>,
+    mixinDecoratorImports  : MixinDecoratorImports,
+    imports                : ImportFacts[],
+    classes                : ClassFacts[],
+    classesByName          : Map<string, ClassFacts>,
+    // Namespace-nested classes by their dotted path (`data.Model`) — resolvable BEFORE
+    // expansion mutates namespace bodies in place. Pure namespace chains only: a class
+    // inside a function/block has no qualified name.
+    classesByQualifiedName : Map<string, ClassFacts>,
+    classesByDeclaration   : Map<ts.ClassDeclaration, ClassFacts>,
     // Every NAMED class declaration (top-level and nested) by name, each with its
     // enclosing-scope range and depth — the index lexical mixin resolution
     // (`resolveLexicalMixinRef`) answers from in O(same-named entries), no tree walk.
     // Collected here because this pass already visits every class exactly once.
-    classScopesByName     : Map<string, ClassScopeEntry[]>,
+    classScopesByName      : Map<string, ClassScopeEntry[]>,
     // True when at least one class is declared below the top level (inside a function body,
     // block, or namespace). The driver only walks into nested statement lists when this is set,
     // so a file with only top-level classes keeps the original flat, top-level-only pass.
-    hasNestedClasses      : boolean
+    hasNestedClasses       : boolean
 }
 
 const sourceFileFactsCache = new WeakMap<ts.SourceFile, Map<string, SourceFileFacts>>()
@@ -92,6 +96,7 @@ function collectSourceFileFacts(
     const imports: ImportFacts[] = []
     const classes: ClassFacts[]  = []
     const classesByName          = new Map<string, ClassFacts>()
+    const classesByQualifiedName = new Map<string, ClassFacts>()
     const classesByDeclaration   = new Map<ts.ClassDeclaration, ClassFacts>()
     const classScopesByName      = new Map<string, ClassScopeEntry[]>()
 
@@ -140,31 +145,47 @@ function collectSourceFileFacts(
     // enclosing-scope range down, feeding `classScopesByName`.
     let hasNestedClasses = false
 
-    const indexNestedClasses = (node: ts.Node, scope: ScopeRange): void => {
+    const indexNestedClasses = (node: ts.Node, scope: ScopeRange, namespacePath: string[] | undefined): void => {
         tsInstance.forEachChild(node, (child) => {
             const childScope = isScopeContainer(tsInstance, child)
                 ? { start: child.pos, end: child.end, depth: scope.depth + 1 }
                 : scope
+            // The dotted path stays alive only through namespace links (`namespace a` /
+            // the nested ModuleDeclaration of a dotted `namespace a.b`); any other scope
+            // container (a function body, a block) breaks it.
+            const childPath = tsInstance.isModuleDeclaration(child) && tsInstance.isIdentifier(child.name)
+                ? namespacePath === undefined ? undefined : [ ...namespacePath, child.name.text ]
+                : tsInstance.isModuleBlock(child) || !isScopeContainer(tsInstance, child)
+                    ? namespacePath
+                    : undefined
 
             if (tsInstance.isClassDeclaration(child) && !classesByDeclaration.has(child)) {
                 hasNestedClasses = true
-                classesByDeclaration.set(child, classFacts(tsInstance, child, mixinDecoratorImports, options))
+
+                const facts = classFacts(tsInstance, child, mixinDecoratorImports, options)
+
+                classesByDeclaration.set(child, facts)
                 addScopeEntry(child, childScope)
+
+                if (childPath !== undefined && childPath.length > 0 && facts.name !== undefined) {
+                    classesByQualifiedName.set([ ...childPath, facts.name ].join("."), facts)
+                }
             }
 
-            indexNestedClasses(child, childScope)
+            indexNestedClasses(child, childScope, childPath)
         })
     }
 
-    for (const statement of sourceFile.statements) {
-        indexNestedClasses(statement, topLevelScope)
-    }
+    // Walk from the FILE so a top-level namespace statement is itself visited as a
+    // child and contributes its name to the dotted path of everything inside it.
+    indexNestedClasses(sourceFile, topLevelScope, [])
 
     return {
         mixinDecoratorImports,
         imports,
         classes,
         classesByName,
+        classesByQualifiedName,
         classesByDeclaration,
         classScopesByName,
         hasNestedClasses
@@ -342,4 +363,26 @@ function sourceFileFactsCacheKey(options: TransformOptions): string {
         options.packageName,
         options.decoratorName
     ].join("|")
+}
+
+// Resolve an all-identifier QUALIFIED base reference (`data.Model`, arbitrarily deep)
+// to the facts of a class declared in a LOCAL namespace of this file. Namespaces may
+// be merged (several declarations of one name) and dotted (`namespace a.b {}`), so
+// every matching module is searched. Cross-file qualified bases (namespace imports)
+// are not resolved here — the caller falls through to its cross-file route.
+export function qualifiedLocalClassFacts(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    expression: ts.Expression,
+    facts: SourceFileFacts
+): ClassFacts | undefined {
+    void sourceFile
+
+    const dotted = dottedExpressionText(tsInstance, expression)
+
+    if (dotted === undefined || !dotted.includes(".")) {
+        return undefined
+    }
+
+    return facts.classesByQualifiedName.get(dotted)
 }

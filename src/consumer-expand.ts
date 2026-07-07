@@ -28,7 +28,8 @@ import {
     brandConstructorParameter,
     cloneExpressionWithTypeArguments,
     consumerHeritageClauses,
-    MixinTransformError
+    MixinTransformError,
+    type ConstructionBrand
 } from "./expand-util.js"
 import { deriveLinearizationPlan, linearizeDependencies } from "./linearization.js"
 import {
@@ -213,6 +214,93 @@ export function expandConsumerClass(
             consumerValidations
         )
 
+    const construction        = createConstructionMembers(
+        tsInstance,
+        sourceFile,
+        declaration,
+        expansion.extendsType,
+        implicitRequiredBase,
+        linearized,
+        options,
+        options.sourceView ? generatedTextRange(sourceFile, declaration.members.end) : expansion.generatedRange,
+        context.crossFile,
+        consumerBaseImports,
+        linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
+    )
+    const constructionMembers = construction.members
+    // A construction consumer that declares its OWN constructor brands THAT constructor's parameter
+    // so an external `new Consumer(...)` is a type error while its `super()` stays valid against the
+    // clean `$base`. EMIT only: the brand inserts a parameter (shifting the constructor body), which
+    // emit absorbs via its diagnostic remap but position-preserving source view cannot — so in the
+    // IDE a with-constructor consumer is left un-banned, and the build (`tsc`) is what catches it.
+    const brandedConsumerSource    = !options.sourceView && isConstructionConsumer && hasOwnConstructor && declaration.name !== undefined
+        ? brandConstructorParameter(tsInstance, declaration.members, declaration.name.text)
+        : declaration.members
+    const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
+        tsInstance,
+        sourceFile,
+        brandedConsumerSource,
+        expansion.originalExtendsClause === undefined
+    )
+    const consumerMembers          = isConstructionConsumer
+        ? fillMissedInitializers(tsInstance, consumerMembersWithSuper, options)
+        : consumerMembersWithSuper
+    const updatedConsumerMembers   = constructionMembers.length === 0
+        ? consumerMembers
+        : preserveTextRange(tsInstance, factory.createNodeArray([ ...consumerMembers, ...constructionMembers ]), consumerMembers)
+
+    // Source-view navigable-base fast path: a well-typed consumer with an explicit
+    // `extends Base` (or `extends ns.Base`) and no diagnostic validations needs no
+    // `$base` indirection. The consumer re-extends the real base under a
+    // single-source cast (`extends (Base as unknown as <ctor carrying base + mixin
+    // instances> & <statics>)`), so the base name in `extends Base` resolves to the
+    // real base class — closing the heritage-navigation gap — while
+    // `super.<mixinMember>`, statics and own members all keep resolving. A GENERIC
+    // consumer threads its type parameters through the cast's generic construct
+    // signature and back as heritage type arguments (TS2562 bans them only in the
+    // base expression); a CONSTRUCTION consumer's brand (or the permissive
+    // manual-constructor form) rides inside that construct signature; a QUALIFIED
+    // base pins every step of the access chain onto its own source token.
+    // Diagnostic validations only arise on broken code; those keep the `$base`
+    // carrier below, which positions their diagnostics onto the source base name.
+    const hasEntityNameBase = expansion.extendsType !== undefined &&
+        isSupportedBaseExpression(tsInstance, expansion.extendsType.expression)
+
+    // The config alias goes AFTER the consumer: its anchor is just past the closing brace,
+    // so listing it last keeps the statement ranges ordered and non-overlapping.
+    const configAliasStatement = construction.configAlias === undefined
+        ? []
+        : [ positionConstructionConfigAlias(
+            tsInstance,
+            construction.configAlias,
+            generatedTextRange(sourceFile, declaration.end),
+            declaration
+        ) ]
+
+    if (options.sourceView &&
+        consumerValidations.length === 0 &&
+        expansion.extendsType !== undefined &&
+        hasEntityNameBase) {
+        return [
+            ...expandNavigableSourceViewConsumer(
+                tsInstance,
+                sourceFile,
+                declaration,
+                expansion.extendsType,
+                reducedMixinHeritage,
+                linearized,
+                updatedConsumerMembers,
+                isConstructionConsumer
+                    ? { consumerName: expansion.name, branded: brandsConstruction }
+                    : undefined
+            ),
+            ...configAliasStatement
+        ]
+    }
+
+    // The `$base` carrier pair, built only when the fast path above did not take the
+    // consumer (a validation-carrying, implicit-base or unsupported-base shape).
+    //
     // A construction consumer's `$base` interface extends `Base` plus mixins that may
     // each override the cooperative `initialize` with their own strict `<Mixin>Config`.
     // Those overrides are NOT identical, so an interface inheriting two of them fails with
@@ -274,79 +362,6 @@ export function expandConsumerClass(
         ? preserveSourceViewGeneratedClassLikeRange(tsInstance, baseClassNode, declaration)
         : preserveGeneratedDeclarationRange(tsInstance, baseClassNode, expansion.generatedRange, declaration)
 
-    const construction        = createConstructionMembers(
-        tsInstance,
-        sourceFile,
-        declaration,
-        expansion.extendsType,
-        implicitRequiredBase,
-        linearized,
-        options,
-        options.sourceView ? generatedTextRange(sourceFile, declaration.members.end) : expansion.generatedRange,
-        context.crossFile,
-        consumerBaseImports,
-        linearized.some((ref) => ref.requiredBase?.isPackageBase === true)
-    )
-    const constructionMembers = construction.members
-    // A construction consumer that declares its OWN constructor brands THAT constructor's parameter
-    // so an external `new Consumer(...)` is a type error while its `super()` stays valid against the
-    // clean `$base`. EMIT only: the brand inserts a parameter (shifting the constructor body), which
-    // emit absorbs via its diagnostic remap but position-preserving source view cannot — so in the
-    // IDE a with-constructor consumer is left un-banned, and the build (`tsc`) is what catches it.
-    const brandedConsumerSource    = !options.sourceView && isConstructionConsumer && hasOwnConstructor && declaration.name !== undefined
-        ? brandConstructorParameter(tsInstance, declaration.members, declaration.name.text)
-        : declaration.members
-    const consumerMembersWithSuper = addSyntheticSuperCallToConstructors(
-        tsInstance,
-        sourceFile,
-        brandedConsumerSource,
-        expansion.originalExtendsClause === undefined
-    )
-    const consumerMembers          = isConstructionConsumer
-        ? fillMissedInitializers(tsInstance, consumerMembersWithSuper, options)
-        : consumerMembersWithSuper
-    const updatedConsumerMembers   = constructionMembers.length === 0
-        ? consumerMembers
-        : preserveTextRange(tsInstance, factory.createNodeArray([ ...consumerMembers, ...constructionMembers ]), consumerMembers)
-
-    // Source-view navigable-base fast path: a well-typed NON-GENERIC consumer with
-    // an explicit `extends Base` and no diagnostic validations needs no `$base`
-    // indirection. The consumer re-extends the real base under a single-source cast
-    // (`extends (Base as unknown as <ctor carrying base + mixin instances> &
-    // <statics>)`), so the base name in `extends Base` resolves to the real base
-    // class — closing the heritage-navigation gap — while `super.<mixinMember>`,
-    // statics and own members all keep resolving. A GENERIC consumer is excluded:
-    // its instance members must thread the consumer type parameter, which can only
-    // live on a generic base declaration the consumer extends (the `$base`
-    // interface), so a generic `super.<mixinMember>` genuinely needs `$base`.
-    // Diagnostic validations only arise on broken code; those keep the `$base`
-    // carrier below, which positions their diagnostics onto the source base name.
-    // Construction-base consumers are excluded too: their generated construction
-    // members and synthetic `super.initialize(...)` calls are wired against the
-    // `$base` declaration, so they keep it. A qualified base (`ns.Base`, a
-    // property-access) is excluded as well: a shallow clone leaves its inner `Base`
-    // identifier at `[-1, -1]`, so navigation cannot land on it — those keep `$base`.
-    const isGenericConsumer       = declaration.typeParameters !== undefined && declaration.typeParameters.length > 0
-    const hasSimpleIdentifierBase = expansion.extendsType !== undefined &&
-        tsInstance.isIdentifier(expansion.extendsType.expression)
-
-    if (options.sourceView &&
-        consumerValidations.length === 0 &&
-        expansion.extendsType !== undefined &&
-        hasSimpleIdentifierBase &&
-        !isGenericConsumer &&
-        !isConstructionConsumer) {
-        return expandNavigableSourceViewConsumer(
-            tsInstance,
-            sourceFile,
-            declaration,
-            expansion.extendsType,
-            reducedMixinHeritage,
-            linearized,
-            updatedConsumerMembers
-        )
-    }
-
     const updatedConsumer = factory.updateClassDeclaration(
         declaration,
         declaration.modifiers,
@@ -380,24 +395,14 @@ export function expandConsumerClass(
                 declaration
             ) ]
 
-    const configAliasStatement = construction.configAlias === undefined
-        ? []
-        : [ positionConstructionConfigAlias(
-            tsInstance,
-            construction.configAlias,
-            generatedTextRange(sourceFile, declaration.end),
-            declaration
-        ) ]
-
-    // The config alias goes AFTER the consumer: its anchor is just past the closing brace,
-    // so listing it last keeps the statement ranges ordered and non-overlapping.
     return [ ...emptyBaseClass, baseInterface, baseClass, updatedConsumer, ...configAliasStatement ]
 }
 
-// Builds the source-view navigable-base fast path (non-generic consumer): the
-// consumer class re-extends the real base under a single-source cast carrying the
-// base + mixin instances and statics. No generated `$base` is emitted. See the
-// call site in `expandConsumerClass` for when this applies.
+// Builds the source-view navigable-base fast path: the consumer class re-extends
+// the real base under a single-source cast carrying the base + mixin instances and
+// statics (generic construct signature for a generic consumer, branded/permissive
+// for a construction consumer). No generated `$base` is emitted. See the call site
+// in `expandConsumerClass` for when this applies.
 function expandNavigableSourceViewConsumer(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -405,7 +410,8 @@ function expandNavigableSourceViewConsumer(
     extendsType: ts.ExpressionWithTypeArguments,
     reducedMixinHeritage: ts.ExpressionWithTypeArguments[],
     linearizedMixinRefs: ResolvedMixinRef[],
-    members: ts.NodeArray<ts.ClassElement>
+    members: ts.NodeArray<ts.ClassElement>,
+    construction: ConstructionBrand | undefined
 ): ts.Statement[] {
     const factory = tsInstance.factory
 
@@ -418,7 +424,9 @@ function expandNavigableSourceViewConsumer(
         extendsType,
         reducedMixinHeritage,
         linearizedMixinRefs,
-        extendsType
+        extendsType,
+        declaration.typeParameters,
+        construction
     )
     const implementsClause = declaration.heritageClauses?.find((heritageClause) => {
         return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword

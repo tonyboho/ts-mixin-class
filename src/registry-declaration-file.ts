@@ -4,12 +4,12 @@ import {
     isPackageBaseExpression
 } from "./construction-chain.js"
 import {
-    propertyNameText,
-    runtimeMixinClassName,
     uniqueConfigProperties,
     type ConfigProperty,
     type TransformOptions
 } from "./model.js"
+import { runtimeMixinClassName } from "./naming.js"
+import { propertyNameText } from "./util.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import type { Candidate } from "./registry.js"
 import { hasModifier } from "./util.js"

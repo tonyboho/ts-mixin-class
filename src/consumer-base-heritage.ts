@@ -10,14 +10,13 @@ import {
     linearizationMode,
     mixinValueIdentifier
 } from "./expand-util.js"
+import { type ResolvedMixinRef, type TransformOptions } from "./model.js"
 import {
     anyConstructorName,
     classStaticsName,
     mixinChainLocalName,
-    mixinChainLinearizedLocalName,
-    type ResolvedMixinRef,
-    type TransformOptions
-} from "./model.js"
+    mixinChainLinearizedLocalName
+} from "./naming.js"
 import type { LinearizationPlanSlice } from "./linearization.js"
 import { cloneNode, deepCloneNode } from "./util.js"
 import { preserveSubtreeTextRange, preserveTextRange, zeroWidthRange } from "./text-range.js"
@@ -487,4 +486,4 @@ export function consumerHeritageClauses(
     return preserveTextRange(tsInstance, factory.createNodeArray(clauses), heritageRange)
 }
 
-export { isSupportedBaseExpression } from "./model.js"
+export { isSupportedBaseExpression } from "./heritage.js"

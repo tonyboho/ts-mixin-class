@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import type { PluginConfig } from "ts-patch"
+import { normalizePath } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 export type MixinClassTransformerConfig = PluginConfig & {
@@ -280,68 +281,6 @@ export const defaultTransformOptions: TransformOptions = {
     isolatedDeclarations       : false
 }
 
-export const anyConstructorName = "AnyConstructor"
-export const classStaticsName = "ClassStatics"
-export const defineMixinClassName = "defineMixinClass"
-export const mixinChainName = "mixinChain"
-export const mixinChainLinearizedName = "mixinChainLinearized"
-// The VALUE helpers are imported under reserved double-underscore LOCAL aliases so the injected
-// import can never collide with a user binding of the package name (TS2440).
-export const defineMixinClassLocalName = "__defineMixinClass__"
-export const applyLegacyClassDecoratorsName = "applyLegacyClassDecorators"
-export const applyLegacyClassDecoratorsLocalName = "__applyLegacyClassDecorators__"
-export const mixinChainLocalName = "__mixinChain__"
-export const mixinChainLinearizedLocalName = "__mixinChainLinearized__"
-export const mixinApplicationName = "MixinApplication"
-export const mixinFactoryName = "MixinFactory"
-export const runtimeMixinClassName = "RuntimeMixinClass"
-export const mixinClassValueName = "MixinClassValue"
-export const constructionMixinClassValueName = "ConstructionMixinClassValue"
-export const staticNeverConflictKeysName = "StaticNeverConflictKeys"
-export const staticStrictConflictKeysName = "StaticStrictConflictKeys"
-export const metadataBaseImportName = "base"
-export const metadataBaseLocalName = "__mixinBase"
-export const mixinFactorySuffix = "$mixin"
-export const mixinRuntimeClassSuffix = "$class"
-export const consumerBaseSuffix = "$base"
-export const consumerEmptyBaseSuffix = "$empty"
-export const mixinValueSuffix = "$mixinValue"
-
-export function staticConflictKeysName(mode: Exclude<StaticCollisionCheckMode, false>): string {
-    return mode === "strict" ? staticStrictConflictKeysName : staticNeverConflictKeysName
-}
-
-export function generatedName(name: string, suffix: string): string {
-    return `__${name}${suffix}`
-}
-
-// A type-parameter name based on `baseName` that does not collide with the class's own
-// type parameters; `_1`, `_2`, … are appended until it is unique. Used for the synthetic
-// diagnostic-carrier type parameters appended to generated `$base` declarations.
-export function uniqueTypeParameterName(
-    declaration: ts.ClassDeclaration,
-    baseName: string
-): string {
-    const existing = new Set(declaration.typeParameters?.map((typeParameter) => typeParameter.name.text) ?? [])
-    let name       = baseName
-    let index      = 0
-
-    while (existing.has(name)) {
-        index++
-        name = `${baseName}_${index}`
-    }
-
-    return name
-}
-
-export function propertyNameText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
-    if (tsInstance.isIdentifier(name) || tsInstance.isStringLiteral(name) || tsInstance.isNumericLiteral(name)) {
-        return name.text
-    }
-
-    return undefined
-}
-
 export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty[] {
     const byName = new Map<string, ConfigProperty>()
 
@@ -417,85 +356,4 @@ export function importedBindingRegistryKey(
     return imported === undefined
         ? undefined
         : registryKey(imported.resolvedFileName, imported.importedName)
-}
-
-export function normalizePath(fileName: string): string {
-    return fileName.replaceAll("\\", "/")
-}
-
-export function isDeclarationFileName(fileName: string): boolean {
-    return /\.d\.[cm]?ts$/.test(normalizePath(fileName))
-}
-
-export function shouldSkipFileName(fileName: string): boolean {
-    const normalizedFileName = normalizePath(fileName)
-
-    return normalizedFileName.includes("/node_modules/") ||
-        normalizedFileName.endsWith(".d.ts") ||
-        !/\.[cm]?tsx?$/.test(normalizedFileName)
-}
-
-export function implementsTypes(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.ExpressionWithTypeArguments[] {
-    const clause = declaration.heritageClauses?.find((heritageClause) => {
-        return heritageClause.token === tsInstance.SyntaxKind.ImplementsKeyword
-    })
-
-    return clause === undefined ? [] : [ ...clause.types ]
-}
-
-// A runtime base must be a plain entity name (an identifier or a dotted access),
-// the only forms the transform can turn into `typeof Base` / a heritage
-// reference. Anything else — a call expression, or the `{` body brace parsed as
-// an object literal while `extends` is being typed in tsserver — is not a usable
-// base. `requiredBaseType` treats those as "no base" so the whole transform
-// degrades gracefully rather than throwing (a throwing ProgramTransformer crashes
-// the program build and sticks tsserver with the untransformed fallback).
-export function isSupportedBaseExpression(tsInstance: TypeScript, expression: ts.Expression): boolean {
-    if (tsInstance.isIdentifier(expression)) {
-        return true
-    }
-
-    return tsInstance.isPropertyAccessExpression(expression) &&
-        tsInstance.isIdentifier(expression.name) &&
-        isSupportedBaseExpression(tsInstance, expression.expression)
-}
-
-export function requiredBaseType(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.ExpressionWithTypeArguments | undefined {
-    const base = extendsClause(tsInstance, declaration)?.types[0]
-
-    return base !== undefined && isSupportedBaseExpression(tsInstance, base.expression)
-        ? base
-        : undefined
-}
-
-export function requiredBaseIdentifierName(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): string | undefined {
-    const requiredBase = requiredBaseType(tsInstance, declaration)
-
-    return requiredBase !== undefined && tsInstance.isIdentifier(requiredBase.expression)
-        ? requiredBase.expression.text
-        : undefined
-}
-
-export function extendsClause(
-    tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration
-): ts.HeritageClause | undefined {
-    return declaration.heritageClauses?.find((heritageClause) => {
-        return heritageClause.token === tsInstance.SyntaxKind.ExtendsKeyword
-    })
-}
-
-export function isNamedClassElement(
-    member: ts.ClassElement
-): member is ts.ClassElement & { name: ts.PropertyName } {
-    return member.name !== undefined
 }

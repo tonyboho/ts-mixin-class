@@ -2,10 +2,6 @@ import path from "node:path"
 import type * as ts from "typescript"
 import {
     type ImportMap,
-    generatedName,
-    mixinFactorySuffix,
-    mixinValueSuffix,
-    normalizePath,
     registryKey,
     type CrossFileContext,
     type FileMixinContext,
@@ -14,6 +10,8 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import { generatedName, mixinFactorySuffix, mixinValueSuffix } from "./naming.js"
+import { normalizePath } from "./util.js"
 import { buildImportedNameMap } from "./import-map.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { hasModifier } from "./util.js"

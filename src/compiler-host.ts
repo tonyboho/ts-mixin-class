@@ -1,12 +1,12 @@
 import type * as ts from "typescript"
 import { attachDiagnosticRemap } from "./emit-diagnostic-remap.js"
 import {
-    shouldSkipFileName,
     type CrossFileContext,
     type MixinClassTransformerConfig,
     type NativeMixinDiagnostic,
     type TransformOptions
 } from "./model.js"
+import { shouldSkipFileName } from "./util.js"
 import { appendGeneratedConfigAliasesAsRealText } from "./source-view-config-alias.js"
 import { preserveTopLevelStatementRanges } from "./text-range.js"
 import { effectiveUseDefineForClassFields, resolveTransformOptions, resolveUsePrintedSourceFile } from "./transform-options.js"

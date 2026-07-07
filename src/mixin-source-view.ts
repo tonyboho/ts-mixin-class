@@ -5,17 +5,18 @@ import {
     constructionProtocolInitializeSignature
 } from "./interface-members.js"
 import {
-    anyConstructorName,
-    applyLegacyClassDecoratorsLocalName,
-    classStaticsName,
-    consumerBaseSuffix,
-    extendsClause,
-    generatedName,
-    requiredBaseType,
     type FileMixinContext,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import {
+    anyConstructorName,
+    applyLegacyClassDecoratorsLocalName,
+    classStaticsName,
+    consumerBaseSuffix,
+    generatedName
+} from "./naming.js"
+import { extendsClause, requiredBaseType } from "./heritage.js"
 import {
     cloneExpressionWithTypeArguments,
     dottedNameToEntityName,

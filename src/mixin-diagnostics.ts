@@ -2,14 +2,13 @@ import type * as ts from "typescript"
 import { dottedExpressionText } from "./expand-util.js"
 import { resolveLexicalMixinRef } from "./mixin-refs.js"
 import {
-    isDeclarationFileName,
-    isNamedClassElement,
     mixinDiagnosticCode,
     nativeDiagnosticOn,
     type FileMixinContext,
     type MixinDeclarationDiagnostic,
     type ResolvedMixinRef
 } from "./model.js"
+import { isDeclarationFileName, isNamedClassElement } from "./util.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 

@@ -1,11 +1,11 @@
 import type * as ts from "typescript"
 import { dottedExpressionText } from "./expand-util.js"
 import {
-    implementsTypes,
     type ClassScopeEntry,
     type FileMixinContext,
     type ResolvedMixinRef
 } from "./model.js"
+import { implementsTypes } from "./heritage.js"
 import type { ClassFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
 

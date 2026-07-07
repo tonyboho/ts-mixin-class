@@ -2,16 +2,14 @@ import type * as ts from "typescript"
 import { collectMixinDecoratorImports, hasMixinDecorator } from "./decorators.js"
 import { dottedExpressionText } from "./expand-util.js"
 import {
-    extendsClause,
-    implementsTypes,
-    propertyNameText,
-    requiredBaseIdentifierName,
     uniqueConfigProperties,
     type ClassScopeEntry,
     type ConfigProperty,
     type MixinDecoratorImports,
     type TransformOptions
 } from "./model.js"
+import { extendsClause, implementsTypes, requiredBaseIdentifierName } from "./heritage.js"
+import { propertyNameText } from "./util.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 

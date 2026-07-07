@@ -28,7 +28,6 @@ import {
     type ImportMap,
     nativeDiagnosticOn,
     defaultTransformOptions,
-    implementsTypes,
     mixinDiagnosticCode,
     type CrossFileContext,
     type FileMixinContext,
@@ -36,6 +35,7 @@ import {
     type NativeMixinDiagnostic,
     type TransformOptions
 } from "./model.js"
+import { implementsTypes } from "./heritage.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { cloneSourceFileForTransform } from "./util.js"
 import type { TypeScript } from "./util.js"

@@ -43,17 +43,14 @@ import { createStaticCollisionValidations } from "./static-collisions.js"
 import {
     type ImportMap,
     nativeDiagnosticOn,
-    consumerBaseSuffix,
-    consumerEmptyBaseSuffix,
     DependencyLinearizationError,
-    extendsClause,
-    generatedName,
     mixinDiagnosticCode,
-    requiredBaseType,
     type FileMixinContext,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import { consumerBaseSuffix, consumerEmptyBaseSuffix, generatedName } from "./naming.js"
+import { extendsClause, requiredBaseType } from "./heritage.js"
 import { generatedTextRange, preserveGeneratedDeclarationRange, preserveSourceViewGeneratedClassLikeRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
 

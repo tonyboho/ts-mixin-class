@@ -6,13 +6,12 @@ import {
     heritageTypeText
 } from "./expand-util.js"
 import {
-    staticConflictKeysName,
-    uniqueTypeParameterName,
     type RequiredBaseValidation,
     type ResolvedMixinRef,
     type StaticCollisionCheckMode,
     type StaticSource
 } from "./model.js"
+import { staticConflictKeysName, uniqueTypeParameterName } from "./naming.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
 import { cloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"

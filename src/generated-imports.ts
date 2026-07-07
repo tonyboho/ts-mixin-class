@@ -1,4 +1,5 @@
 import type * as ts from "typescript"
+import { type FileMixinContext, type TransformOptions } from "./model.js"
 import {
     anyConstructorName,
     applyLegacyClassDecoratorsName,
@@ -17,10 +18,8 @@ import {
     mixinClassValueName,
     mixinFactoryName,
     runtimeMixinClassName,
-    staticConflictKeysName,
-    type FileMixinContext,
-    type TransformOptions
-} from "./model.js"
+    staticConflictKeysName
+} from "./naming.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
 

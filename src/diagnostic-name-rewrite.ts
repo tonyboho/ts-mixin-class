@@ -2,15 +2,9 @@ import type * as ts from "typescript"
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
 import { buildImportedNameMap } from "./import-map.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
-import {
-    implementsTypes,
-    isDeclarationFileName,
-    propertyNameText,
-    registryKey,
-    requiredBaseType,
-    type CrossFileContext,
-    type TransformOptions
-} from "./model.js"
+import { registryKey, type CrossFileContext, type TransformOptions } from "./model.js"
+import { implementsTypes, requiredBaseType } from "./heritage.js"
+import { isDeclarationFileName, propertyNameText } from "./util.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 

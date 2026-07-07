@@ -1,9 +1,6 @@
 import type * as ts from "typescript"
-import {
-    anyConstructorName,
-    mixinApplicationName,
-    requiredBaseType
-} from "./model.js"
+import { anyConstructorName, mixinApplicationName } from "./naming.js"
+import { requiredBaseType } from "./heritage.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
 import { deepCloneNode, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"

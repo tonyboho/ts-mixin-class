@@ -2,19 +2,20 @@ import type * as ts from "typescript"
 import { fillMissedInitializers } from "./construction-initializers.js"
 import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
 import {
-    anyConstructorName,
-    classStaticsName,
-    implementsTypes,
-    isNamedClassElement,
-    constructionMixinClassValueName,
-    mixinClassValueName,
-    mixinFactoryName,
-    requiredBaseType,
-    runtimeMixinClassName,
     type FileMixinContext,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import {
+    anyConstructorName,
+    classStaticsName,
+    constructionMixinClassValueName,
+    mixinClassValueName,
+    mixinFactoryName,
+    runtimeMixinClassName
+} from "./naming.js"
+import { implementsTypes, requiredBaseType } from "./heritage.js"
+import { isNamedClassElement } from "./util.js"
 import { brandedConstructSignatureType } from "./construction-brand.js"
 import {
     cloneExpressionWithTypeArguments,

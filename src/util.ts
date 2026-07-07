@@ -450,3 +450,36 @@ export function scriptKindFromFileName(tsInstance: TypeScript, fileName: string)
 
     return tsInstance.ScriptKind.TS
 }
+
+// ---------------------------------------------------------------------------
+// File-name and class-member readers
+
+export function normalizePath(fileName: string): string {
+    return fileName.replaceAll("\\", "/")
+}
+
+export function isDeclarationFileName(fileName: string): boolean {
+    return /\.d\.[cm]?ts$/.test(normalizePath(fileName))
+}
+
+export function shouldSkipFileName(fileName: string): boolean {
+    const normalizedFileName = normalizePath(fileName)
+
+    return normalizedFileName.includes("/node_modules/") ||
+        normalizedFileName.endsWith(".d.ts") ||
+        !/\.[cm]?tsx?$/.test(normalizedFileName)
+}
+
+export function propertyNameText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
+    if (tsInstance.isIdentifier(name) || tsInstance.isStringLiteral(name) || tsInstance.isNumericLiteral(name)) {
+        return name.text
+    }
+
+    return undefined
+}
+
+export function isNamedClassElement(
+    member: ts.ClassElement
+): member is ts.ClassElement & { name: ts.PropertyName } {
+    return member.name !== undefined
+}

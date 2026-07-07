@@ -9,17 +9,15 @@ import {
 import {
     nativeDiagnosticOn,
     DependencyLinearizationError,
-    extendsClause,
-    metadataBaseLocalName,
     mixinDiagnosticCode,
-    requiredBaseType,
-    uniqueTypeParameterName,
     type FileMixinContext,
     type RequiredBaseRequirement,
     type RequiredBaseValidation,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import { metadataBaseLocalName, uniqueTypeParameterName } from "./naming.js"
+import { extendsClause, requiredBaseType } from "./heritage.js"
 import { cloneNode, deepCloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"

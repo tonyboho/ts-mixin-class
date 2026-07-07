@@ -10,15 +10,14 @@ import {
     importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
     defaultTransformOptions,
-    normalizePath,
     registryKey,
-    shouldSkipFileName,
     uniqueConfigProperties,
     type ConfigProperty,
     type ConstructionBaseRegistry,
     type MixinRegistry,
     type TransformOptions
 } from "./model.js"
+import { normalizePath, shouldSkipFileName } from "./util.js"
 import { collectDeclarationFileConstructionBases, collectDeclarationFileMixinCandidates } from "./registry-declaration-file.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"

@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { isNamedClassElement } from "./model.js"
+import { isNamedClassElement } from "./util.js"
 import { cloneNode, cloneOptionalNode, cloneOptionalNodeArray, hasModifier } from "./util.js"
 import { preserveTextRange, zeroWidthRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"

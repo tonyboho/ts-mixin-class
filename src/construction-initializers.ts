@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
-import { propertyNameText, type FillMissedInitializersWith, type TransformOptions } from "./model.js"
+import { type FillMissedInitializersWith, type TransformOptions } from "./model.js"
+import { propertyNameText } from "./util.js"
 import { hasModifier } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"

@@ -7,18 +7,20 @@ import {
 } from "./interface-members.js"
 import {
     nativeDiagnosticOn,
-    defineMixinClassLocalName,
     DependencyLinearizationError,
-    generatedName,
     mixinDiagnosticCode,
-    mixinRuntimeClassSuffix,
     registryKey,
-    requiredBaseType,
     type FileMixinContext,
     type NativeMixinDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import {
+    defineMixinClassLocalName,
+    generatedName,
+    mixinRuntimeClassSuffix
+} from "./naming.js"
+import { requiredBaseType } from "./heritage.js"
 import {
     createLinearizationPlanLiteral,
     linearizationMode,

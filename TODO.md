@@ -70,13 +70,57 @@ abstract integer graphs; this times real emitted classes end to end.)
 
 ## Limitations (future tasks)
 
-### 1. Mixin members cannot be `private`, `protected`, `#private`, or `abstract`
+### 1. Mixin members cannot be `private`, `protected`, `#private`, or `abstract` (explored — tiered support is feasible)
 
 A mixin is copied into generated inheritance positions and is also exposed structurally
 through interfaces for consumers. TypeScript private/protected identity and ECMAScript
 private fields are intentionally nominal and class-local, which makes them a poor fit for
 this kind of composition. Use ordinary members inside mixins, or keep private state in a
 non-mixin base class.
+
+**Explored 2026-07-07** (every claim below verified by `scripts/exploration-private-modifiers.ts`
+against our actual generated shapes — omitting interface + factory class for emit, claiming
+cast for source view — on the pinned TS; type-level `@ts-expect-error` and runtime chains both
+checked; the probe compiles with the repo build, so the pinned mechanics stay verified):
+
+- **`#private` — the most supportable, tier 1.** The `#` member is not part of the public
+  type surface at all, so the generated interface simply OMITS it; the emit factory class
+  declares and uses it (runtime chain verified, the member works through `this.#x` inside
+  mixin methods); the source-view consumer cast claiming the branded class type typechecks,
+  `implements <mixin with #x>` included. This is also the officially blessed workaround in
+  TS's own mixin docs. One real semantic trap to document: each factory APPLICATION declares
+  a fresh class → a fresh `#x` brand per consumer chain, so a mixin method touching `#x` on
+  an instance from ANOTHER consumer's chain (cross-instance access, `obj.#x` / `#x in obj`)
+  throws at runtime — brands are per-application, not per-mixin. Same-instance access (the
+  overwhelmingly common case) is always fine.
+- **`protected` / `private` as "mixin-internal" hidden members — tier 2.** Same omission
+  modeling: the interface leaves them out, the factory class keeps the modifier, the claiming
+  cast typechecks (`implements` accepts a class with private/protected members when the
+  heritage claims that class's type; external access stays banned). The semantics honestly
+  become "mixin-internal": a consumer/subclass cannot see or override the member (it is not
+  on the surface), so `protected` degrades to `private`-for-the-mixin. Verified danger that
+  makes a NEW diagnostic a prerequisite: a consumer can silently redeclare the invisible name
+  as its own (even incompatibly typed) public member — no type error, silent runtime
+  collision. The transform must statically check hidden names against the consumer's own
+  members and every co-applied mixin's members (the member-walk machinery exists —
+  `collectClassMemberFacts`); the construction config already excludes non-public members,
+  so `<Name>Config` stays correct for free.
+- **`abstract` — feasible, tier 3 (largest surface).** The factory can declare an `abstract
+  class` (legal as a DECLARATION inside the factory function; class expressions cannot be
+  abstract — our factory already uses a declaration), typed outward via TS 4.2 abstract
+  construct signatures. Abstractness does NOT survive a construct-signature cast (the
+  signature erases which members are abstract), but re-declaring the abstract members on the
+  generated `$base` class (declared `abstract`, never instantiated directly) forces the
+  concrete consumer to implement them — verified: the lazy consumer errors, the implementing
+  one compiles and runs. Consequences: abstract-mixin consumers must keep the `$base` pair
+  (the navigable fast path's cast cannot carry abstractness) or accept emit-only enforcement;
+  interplay with construction (`.new` must stay banned on the abstract mixin itself, allowed
+  on concrete consumers) needs design.
+- **Rejected routes:** literal `private`/`protected` on interface members (grammar-banned);
+  the `interface extends class` nominal trick (verified working in isolation — unrelated
+  implementers rejected — but unusable here: the mixin class is erased in emit and its name
+  is taken by the const value, so there is no class type left for the interface to extend
+  without a duplicate-identifier identity rework).
 
 ### 2. Dynamic consumer base expressions (`extends makeBase()`) are not supported yet
 

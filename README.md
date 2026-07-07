@@ -510,12 +510,6 @@ A few things the library does not support yet.
 - **A consumer's base can't be a dynamic expression** such as `extends makeBase()`. Use a
   named base class for now.
 
-- **Editor navigation on the base name in an `extends` clause is limited.** Go-to-definition,
-  find-all-references, and quickinfo on the base name work for a plain `extends Base`, but not
-  for a generic consumer, a `Base`-construction consumer, or a qualified base
-  (`extends ns.Base`) — there the base name doesn't resolve. Everything else (the class name,
-  its type parameters, its members) navigates normally; navigate from the base class's own
-  declaration instead.
 
 
 ## Technical notes

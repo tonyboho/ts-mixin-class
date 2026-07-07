@@ -629,11 +629,17 @@ instance type) has its own rules:
    candidate's `baseName` for the ordinary imported-candidate `resolve` recursion; the local
    levels contribute `qualifiedBaseConfigProperties`. Guarded by
    `construction-qualified-base(-subclass).t.ts`, `construction-namespace-import-base.t.ts`
-   and `construction-qualified-imported-chain(-subclass).t.ts`. NOTE the registry's text
-   prefilter (`sourceFile.text.includes(packageName)`): a file that never mentions the package
-   is not scanned for candidates, so its classes — construction consumers included — cannot be
-   REGISTERED (their own in-file `static new` still works; only cross-file subclassing of them
-   is out). Pre-existing and not qualified-specific; recorded in TODO.
+   and `construction-qualified-imported-chain(-subclass).t.ts`. Candidate collection is
+   TWO-PHASE: the text prefilter (`sourceFile.text.includes(packageName)`) admits every file
+   that can anchor a chain (the package `Base` import lives in one — phase 1), then a fixpoint
+   admits each remaining PACKAGE-FREE file with a top-level class whose base reference
+   resolves through its imports into an already-collected candidate (phase 2,
+   `fileChainsIntoCandidates` — files admitted in one round can anchor the next; a raw
+   statement scan dismisses files with no import or no extending top-level class before any
+   facts are built). Superseded (kept for context): the prefilter used to be the ONLY gate, so
+   a construction consumer declared in a file that never mentions the package could not be
+   registered, and subclassing it from yet another file silently lost construction. Guarded by
+   `construction-package-free-chain.t.ts`.
 
 8. **Construction survives the `.d.ts` package boundary.** Detection must work when the provider is
    consumed as published declarations, not source. (i) A `.d.ts` mixin's required base lives in its

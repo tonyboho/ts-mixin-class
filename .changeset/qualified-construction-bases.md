@@ -7,4 +7,6 @@ local namespace (`class Widget extends data.Model` where `data.Model` extends `B
 through a namespace import (`import * as lib` → `extends lib.Widget`), or through a local
 namespace chain that passes over an imported intermediate base, gets the generated
 `static new` factory and its `<Name>Config` alias with the whole chain's config keys
-accumulated — including subclassing such a consumer from another file.
+accumulated — including subclassing such a consumer from another file. Construction
+chains also survive passing through a module that imports nothing from the package
+itself (one that only imports its base from a sibling module).

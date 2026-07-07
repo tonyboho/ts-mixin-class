@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { isPackageBaseExpression, qualifiedConstructionChainExit } from "./construction-config.js"
+import { isPackageBaseExpression, qualifiedConstructionChainExit, type QualifiedBaseChainExit } from "./construction-config.js"
 import { buildImportedNameMap } from "./context.js"
 import {
     accumulateRegisteredMixinConfig,
@@ -16,7 +16,7 @@ import {
     type MixinRegistry,
     type TransformOptions
 } from "./model.js"
-import { getSourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -265,14 +265,63 @@ export function buildConstructionBaseRegistry(
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
     const candidates: ConstructionBaseCandidate[] = []
 
-    for (const sourceFile of program.getSourceFiles()) {
-        if (shouldSkipRegistrySourceFile(sourceFile) ||
-            sourceFile.isDeclarationFile ||
-            !sourceFile.text.includes(resolvedOptions.packageName)
-        ) {
-            continue
+    // The candidate key a class's base reference resolves to through the file's imports:
+    // a plain identifier through its named-import binding, a dotted name (`lib.Model`)
+    // through its namespace-import binding (exactly one dot — candidates are top-level
+    // classes of their module). Same-file resolution is the caller's concern.
+    const importedCandidateKey = (
+        baseName: string,
+        importMap: Map<string, ImportedNameBinding>
+    ): string | undefined => {
+        const separator = baseName.indexOf(".")
+
+        if (separator >= 0) {
+            const binding = baseName.indexOf(".", separator + 1) < 0
+                ? importMap.get(baseName.slice(0, separator))
+                : undefined
+
+            return binding?.namespace === true
+                ? registryKey(binding.resolvedFileName, baseName.slice(separator + 1))
+                : undefined
         }
 
+        const imported = importMap.get(baseName)
+
+        return imported === undefined
+            ? undefined
+            : registryKey(imported.resolvedFileName, imported.importedName)
+    }
+
+    // The name a class's base reference contributes to import-level resolution: the
+    // identifier text, or — for a QUALIFIED base — where its local chain leaves the file
+    // (an imported identifier / the dotted namespace-import member; the package `Base`
+    // exit needs no name). The exit walk also carries the chain's local config.
+    const classBaseResolution = (
+        sourceFile: ts.SourceFile,
+        classFacts: ClassFacts,
+        facts: SourceFileFacts
+    ): { baseName: string | undefined, qualifiedExit: QualifiedBaseChainExit | undefined } => {
+        const baseExpression = classFacts.extendsType!.expression
+
+        if (tsInstance.isIdentifier(baseExpression)) {
+            return { baseName: baseExpression.text, qualifiedExit: undefined }
+        }
+
+        // A QUALIFIED base (`extends data.Model`) is resolved right here at collection
+        // time (a nested class is never a candidate itself): the local walk
+        // (`qualifiedConstructionChainExit`) follows the chain to where it leaves the
+        // file — the package `Base` import, or an unresolved reference that becomes the
+        // candidate's `baseName` for the ordinary imported-candidate resolution. The
+        // chain's LOCAL levels contribute `qualifiedBaseConfigProperties`; the imported
+        // tail comes from `resolve`.
+        const qualifiedExit = qualifiedConstructionChainExit(
+            tsInstance, sourceFile, classFacts.extendsType!, resolvedOptions, facts
+        )
+
+        return { baseName: qualifiedExit?.unresolvedName, qualifiedExit }
+    }
+
+    const collectFileCandidates = (sourceFile: ts.SourceFile): void => {
         const facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
         let importMap: Map<string, ImportedNameBinding> | undefined
 
@@ -287,25 +336,13 @@ export function buildConstructionBaseRegistry(
             // eslint-disable-next-line align-assignments/align-assignments
             importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
 
-            const baseExpression = classFacts.extendsType.expression
-            // A QUALIFIED base (`extends data.Model`) is resolved right here at
-            // collection time (a nested class is never a candidate itself): the local
-            // walk (`qualifiedConstructionChainExit`) follows the chain to where it
-            // leaves the file — the package `Base` import, or an unresolved reference
-            // (an imported identifier, or the dotted namespace-import member itself)
-            // that becomes the candidate's `baseName` for the ordinary
-            // imported-candidate resolution. The chain's LOCAL levels contribute
-            // `qualifiedBaseConfigProperties`; the imported tail comes from `resolve`.
-            const qualifiedExit = tsInstance.isIdentifier(baseExpression)
-                ? undefined
-                : qualifiedConstructionChainExit(tsInstance, sourceFile, classFacts.extendsType, resolvedOptions, facts)
+            const { baseName, qualifiedExit } = classBaseResolution(sourceFile, classFacts, facts)
+            const baseExpression              = classFacts.extendsType.expression
 
             const candidate: ConstructionBaseCandidate = {
-                fileName : sourceFile.fileName,
-                name     : classFacts.name,
-                baseName : tsInstance.isIdentifier(baseExpression)
-                    ? baseExpression.text
-                    : qualifiedExit?.unresolvedName,
+                fileName           : sourceFile.fileName,
+                name               : classFacts.name,
+                baseName,
                 extendsPackageBase : isPackageBaseExpression(tsInstance, baseExpression, resolvedOptions, facts) ||
                     qualifiedExit?.isPackageBase === true,
                 qualifiedBaseConfigProperties : qualifiedExit?.configProperties ?? [],
@@ -320,6 +357,88 @@ export function buildConstructionBaseRegistry(
             candidates.push(candidate)
             candidatesByKey.set(registryKey(sourceFile.fileName, classFacts.name), candidate)
         }
+    }
+
+    // Phase 1: files that mention the package — the cheap text prefilter admits every
+    // file that can possibly anchor a chain (the package `Base` import lives in one).
+    const packageFreeSourceFiles: ts.SourceFile[] = []
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (shouldSkipRegistrySourceFile(sourceFile) || sourceFile.isDeclarationFile) {
+            continue
+        }
+
+        if (sourceFile.text.includes(resolvedOptions.packageName)) {
+            collectFileCandidates(sourceFile)
+        } else {
+            packageFreeSourceFiles.push(sourceFile)
+        }
+    }
+
+    // Phase 2: a construction chain may pass through a PACKAGE-FREE file (one that only
+    // imports its base from a sibling module) — its consumers must still be registered
+    // or subclassing them from yet another file silently loses construction. Admit, to a
+    // fixpoint, every remaining file with a top-level class whose base reference
+    // resolves through its imports into an already-collected candidate (files admitted
+    // in one round can anchor chains for the next). The raw statement scan keeps the
+    // common case cheap: a file with no import or no extending top-level class is
+    // dismissed without building facts.
+    const chainCandidateFiles = packageFreeSourceFiles.filter((sourceFile) =>
+        sourceFile.statements.some((statement) => tsInstance.isImportDeclaration(statement)) &&
+        sourceFile.statements.some((statement) =>
+            tsInstance.isClassDeclaration(statement) && statement.heritageClauses !== undefined))
+
+    const fileChainsIntoCandidates = (sourceFile: ts.SourceFile): boolean => {
+        const facts = getSourceFileFacts(tsInstance, sourceFile, resolvedOptions)
+        let importMap: Map<string, ImportedNameBinding> | undefined
+
+        for (const classFacts of facts.classes) {
+            if (classFacts.name === undefined ||
+                classFacts.hasMixinDecorator ||
+                classFacts.extendsType === undefined
+            ) {
+                continue
+            }
+
+            const { baseName } = classBaseResolution(sourceFile, classFacts, facts)
+
+            if (baseName === undefined) {
+                continue
+            }
+
+            // eslint-disable-next-line align-assignments/align-assignments
+            importMap ??= buildImportedNameMap(tsInstance, sourceFile, resolveModuleFileName, facts)
+
+            const key = importedCandidateKey(baseName, importMap)
+
+            if (key !== undefined && candidatesByKey.has(key)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    let pendingChainFiles = chainCandidateFiles
+
+    for (;;) {
+        const keptChainFiles: ts.SourceFile[] = []
+        let admittedAnything                  = false
+
+        for (const sourceFile of pendingChainFiles) {
+            if (fileChainsIntoCandidates(sourceFile)) {
+                collectFileCandidates(sourceFile)
+                admittedAnything = true
+            } else {
+                keptChainFiles.push(sourceFile)
+            }
+        }
+
+        if (!admittedAnything || keptChainFiles.length === 0) {
+            break
+        }
+
+        pendingChainFiles = keptChainFiles
     }
 
     const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[] }>()
@@ -435,25 +554,9 @@ export function buildConstructionBaseRegistry(
             return undefined
         }
 
-        // A DOTTED baseName (`lib.Model`) resolves through its namespace-import
-        // binding — exactly one dot: candidates are top-level classes of their module.
-        const separator = candidate.baseName.indexOf(".")
+        const key = importedCandidateKey(candidate.baseName, candidate.importMap)
 
-        if (separator >= 0) {
-            const binding = candidate.baseName.indexOf(".", separator + 1) < 0
-                ? candidate.importMap.get(candidate.baseName.slice(0, separator))
-                : undefined
-
-            return binding?.namespace === true
-                ? byKey.get(registryKey(binding.resolvedFileName, candidate.baseName.slice(separator + 1)))
-                : undefined
-        }
-
-        const imported = candidate.importMap.get(candidate.baseName)
-
-        return imported === undefined
-            ? undefined
-            : byKey.get(registryKey(imported.resolvedFileName, imported.importedName))
+        return key === undefined ? undefined : byKey.get(key)
     }
 
     const registry: ConstructionBaseRegistry = new Map()

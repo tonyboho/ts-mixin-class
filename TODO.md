@@ -102,17 +102,6 @@ type arguments (see AGENTS.md "Heritage-clause navigation"). Still resolving to 
 diagnostic validations (broken code — `$base` positions those diagnostics), and a `@mixin`
 class's own heritage. For those, navigate from the base class's own declaration instead.
 
-### 4a. Cross-file subclassing of a construction consumer whose file never mentions the package
-
-The construction-base registry prefilters candidate files by text
-(`sourceFile.text.includes(packageName)`), so a file that imports nothing from the package —
-e.g. one that only imports a construction base from a sibling module (`import { Widget }` /
-`import * as lib`) — is never scanned: its consumers get their own in-file `static new`, but
-are not REGISTERED, so subclassing them from yet another file silently loses construction.
-Not qualified-specific (a plain identifier chain through such a file hits it too). Fix would
-widen the prefilter (e.g. also admit files whose extends names resolve into the registry),
-trading registry-build cost; see AGENTS.md construction invariant 7.
-
 ### 5. A mixin that violates its `implements` contract is flagged twice in the editor
 
 When a mixin does not satisfy its `implements` contract, the editor (and `tsc --noEmit`)

@@ -11,7 +11,7 @@ import * as lib from "./construction-qualified-base.t.js"
 // accumulated config (the chain's required `modelId` included). Note this file imports
 // nothing from the package itself — recognition rides entirely on the registry.
 
-class Panel extends lib.Widget {
+export class Panel extends lib.Widget {
     public panelValue?: string = ""
 }
 

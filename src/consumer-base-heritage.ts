@@ -206,57 +206,6 @@ export function consumerBaseClassHeritage(
     ])
 }
 
-// Heritage for a mixin-LESS construction base class (`class Model extends Base`,
-// `expandConstructionBaseClass`). These keep a literal `extends` in stock output, but
-// to make `new Model(...)` a type error we re-extend the base under a single-source
-// branded cast (`extends (Base as unknown as <branded construct + base statics>)`).
-// Emit erases the `as` so the runtime stays `extends Base`; the cast only poisons the
-// construct signature seen by the checker and downstream `.d.ts`.
-//
-// In source view the real base identifier is pinned over the source `extends Base`
-// span (navigation + invariant #5) exactly like the navigable consumer fast path, so
-// it is gated to a simple identifier base by the caller. In emit, positions do not
-// matter, so the whole cast is left synthetic.
-export function brandedConstructionBaseHeritage(
-    tsInstance: TypeScript,
-    extendsType: ts.ExpressionWithTypeArguments,
-    consumerName: string,
-    options: TransformOptions
-): ts.HeritageClause {
-    const factory = tsInstance.factory
-
-    const baseExpression = cloneNode(tsInstance, extendsType.expression)
-    const castType       = constructionHeadType(
-        tsInstance,
-        expressionToEntityName(tsInstance, extendsType.expression),
-        { consumerName, branded: true },
-        heritageTypeToTypeReference(tsInstance, extendsType)
-    )
-    const innerAs        = factory.createAsExpression(
-        baseExpression,
-        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
-    )
-    const outerAs        = factory.createAsExpression(innerAs, castType)
-    const extendsExpr    = factory.createExpressionWithTypeArguments(outerAs, undefined)
-
-    if (!options.sourceView) {
-        return factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [ extendsExpr ])
-    }
-
-    const fullRange = extendsType
-
-    preserveTextRange(tsInstance, baseExpression, fullRange)
-    preserveTextRange(tsInstance, innerAs, fullRange)
-    preserveTextRange(tsInstance, outerAs, fullRange)
-    preserveTextRange(tsInstance, extendsExpr, fullRange)
-
-    const heritageClause = factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [ extendsExpr ])
-
-    preserveTextRange(tsInstance, heritageClause.types, fullRange)
-
-    return preserveTextRange(tsInstance, heritageClause, fullRange)
-}
-
 // `Omit<typeof <entity>, "prototype" | "new" | "mix">`: an entity's static side as a plain
 // property bag, with no construct signature (see createNavigableConsumerBaseCastType).
 // `mix` is excluded like `new`: it is installed on mixin VALUES only (`defineMixinClass`),

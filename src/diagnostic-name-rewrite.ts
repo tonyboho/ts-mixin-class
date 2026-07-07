@@ -1,6 +1,6 @@
 import type * as ts from "typescript"
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
-import { buildImportedNameMap } from "./context.js"
+import { buildImportedNameMap } from "./import-map.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import {
     implementsTypes,

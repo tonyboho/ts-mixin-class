@@ -4,7 +4,7 @@ import {
     qualifiedConstructionChainExit,
     type QualifiedBaseChainExit
 } from "./construction-chain.js"
-import { buildImportedNameMap } from "./context.js"
+import { buildImportedNameMap } from "./import-map.js"
 import {
     type ImportMap,
     importedBindingRegistryKey,

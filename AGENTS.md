@@ -567,7 +567,7 @@ instance type) has its own rules:
    `protected` constructor.** A construction class's heritage cast head replaces the public construct
    signature with `new (use_the_static_new_factory: { readonly "<guidance>": never }) => <base
    instance>` plus inline `Omit<typeof Base, "prototype">` statics (`constructionHeadType` /
-   `ConstructionBrand` in `expand-util.ts`). `new X()` → TS2554 (param name guides), `new X({...})`
+   `ConstructionBrand` in `construction-brand.ts`). `new X()` → TS2554 (param name guides), `new X({...})`
    → TS2353 (the descriptive key surfaces). A `protected` constructor is **wrong** here: it makes the
    class value unassignable to any public `new(...)=>T` slot (breaks `.mix(...)`, `isInstanceOf`,
    generic `AnyConstructor` consumers) and is structurally unfixable (`abstract new` also rejects it).
@@ -586,7 +586,7 @@ instance type) has its own rules:
          construct.
        - **Own constructor →** keep `$base` permissive (`new (...args: any[]) => instance`,
          `ConstructionBrand.branded = false`, so `super()` resolves) and instead poison the
-         constructor's OWN first parameter (`brandConstructorParameter` in `expand-util.ts`). The
+         constructor's OWN first parameter (`brandConstructorParameter` in `construction-brand.ts`). The
          construct stays public, so `AnyConstructor` assignability holds. This inserts a parameter,
          which shifts the constructor body — so it is **EMIT ONLY** (the emit diagnostic remap
          absorbs the shift; position-preserving source view cannot, so the IDE leaves a

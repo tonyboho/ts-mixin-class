@@ -40,7 +40,7 @@ import {
     positionConstructionConfigAlias
 } from "./construction-config.js"
 import { isConstructionBaseOptIn } from "./construction-chain.js"
-import { buildImportedNameMap } from "./context.js"
+import { buildImportedNameMap } from "./import-map.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import { userClassDecorators } from "./decorators.js"
 import { cloneNode, deepCloneNode } from "./util.js"

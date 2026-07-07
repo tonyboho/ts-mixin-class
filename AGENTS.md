@@ -65,7 +65,7 @@ the dependencies' already-materialized linearizations, with **no** good-head sea
   environment (the transformer runs under `tsc` in Node). **The shipped runtime never reads any
   environment — it stays cross-platform.** `"verify"` replays then cross-checks against C3 and
   throws on mismatch; because it's the default, the whole suite + corpus exercise replay==C3 for
-  free. Helper: `linearizationMode(options)` in `expand-util.ts`. Both options are in the
+  free. Helper: `linearizationMode(options)` in `linearization.ts`. Both options are in the
   transform cache key.
 - Bench: `bench/c3/` (`pnpm bench:c3`) — ~26× at 1024 nodes; theory in `bench/c3/README.md`.
 
@@ -313,7 +313,7 @@ Violating any of these produces confusing tsserver errors or crashes.
       resolve by their DOTTED text in `byLocalName` (two-level `ns.Member` only, no lexical
       walk — a dotted name has no same-file class declaration to shadow it). The ref's
       `localValueName` is the dotted text; `dottedNameToExpression` / `dottedNameToEntityName`
-      (expand-util) build the value / type-query forms everywhere a ref value is referenced,
+      (entity-name.ts) build the value / type-query forms everywhere a ref value is referenced,
       so never `createIdentifier(localValueName)` directly. Registration: namespace-import
       members in `addQualifiedMixinRefs` (only names some class actually references — the
       namespace exposes the whole module); local-namespace members as DERIVED refs that also

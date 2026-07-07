@@ -7,12 +7,12 @@ import {
     type TransformOptions
 } from "./model.js"
 import {
-    anyConstructorName,
-    classStaticsName,
-    constructionMixinClassValueName,
-    mixinClassValueName,
-    mixinFactoryName,
-    runtimeMixinClassName
+    anyConstructorLocalName,
+    classStaticsLocalName,
+    constructionMixinClassValueLocalName,
+    mixinClassValueLocalName,
+    mixinFactoryLocalName,
+    runtimeMixinClassLocalName
 } from "./naming.js"
 import { implementsTypes, requiredBaseType } from "./heritage.js"
 import { isNamedClassElement } from "./util.js"
@@ -150,7 +150,7 @@ function createFactoryReturnType(
         (member): member is ts.ConstructorDeclaration => tsInstance.isConstructorDeclaration(member)
     )
     const head           = ownConstructor === undefined
-        ? factory.createTypeReferenceNode(anyConstructorName, [ instanceType ])
+        ? factory.createTypeReferenceNode(anyConstructorLocalName, [ instanceType ])
         : factory.createParenthesizedType(factory.createConstructorTypeNode(
             undefined,
             undefined,
@@ -364,7 +364,7 @@ export function asMixinFactory(tsInstance: TypeScript, expression: ts.Expression
             expression,
             tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
         ),
-        tsInstance.factory.createTypeReferenceNode(mixinFactoryName, undefined)
+        tsInstance.factory.createTypeReferenceNode(mixinFactoryLocalName, undefined)
     )
 }
 
@@ -420,7 +420,7 @@ export function createMixinValueCastType(
         // (the base parameter carries the required base's static side, so `ReturnType<factory>`
         // inherits the permissive `Base.new` — it would win overload fallback next to the
         // generated `"new"<T>`), mirroring the non-generic `ConstructionMixinClassValue` omit.
-        const factoryStatics = factory.createTypeReferenceNode(classStaticsName, [ factoryReturnType ])
+        const factoryStatics = factory.createTypeReferenceNode(classStaticsLocalName, [ factoryReturnType ])
 
         return factory.createIntersectionTypeNode([
             ...(constructionNewType !== undefined ? [ constructionNewType ] : []),
@@ -452,7 +452,7 @@ export function createMixinValueCastType(
             // through the value, and the branded construct poisons `new Mixin(...)`.
             constructionNewType,
             brandedConstructSignatureType(tsInstance, ref.className, instanceType),
-            factory.createTypeReferenceNode(constructionMixinClassValueName, [
+            factory.createTypeReferenceNode(constructionMixinClassValueLocalName, [
                 instanceType,
                 factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),
                 ...requiredBaseArgs
@@ -462,7 +462,7 @@ export function createMixinValueCastType(
     }
 
     return factory.createIntersectionTypeNode([
-        factory.createTypeReferenceNode(mixinClassValueName, [
+        factory.createTypeReferenceNode(mixinClassValueLocalName, [
             instanceType,
             factory.createTypeQueryNode(factory.createIdentifier(ref.localFactoryName)),
             ...requiredBaseArgs
@@ -478,7 +478,7 @@ export function createRuntimeMixinClassType(
     const requiredBase = requiredBaseType(tsInstance, declaration)
 
     return tsInstance.factory.createTypeReferenceNode(
-        runtimeMixinClassName,
+        runtimeMixinClassLocalName,
         requiredBase === undefined
             ? undefined
             // The required-base argument is only the `[base]` marker of
@@ -582,7 +582,7 @@ function createBaseParameter(
             factory.createIntersectionTypeNode(dependencyTypes)
 
     const constructorType = factory.createTypeReferenceNode(
-        anyConstructorName,
+        anyConstructorLocalName,
         baseInstanceType === undefined ? undefined : [ baseInstanceType ]
     )
 
@@ -625,7 +625,7 @@ function baseStaticsTypes(
             ? []
             : [ wrapInOmit(
                 tsInstance,
-                factory.createTypeReferenceNode(classStaticsName, [
+                factory.createTypeReferenceNode(classStaticsLocalName, [
                     factory.createTypeQueryNode(expressionToEntityName(tsInstance, requiredBase.expression))
                 ]),
                 shadowedLiterals()
@@ -638,14 +638,14 @@ function baseStaticsTypes(
         ...localMixinRefs(tsInstance, context, dependencyHeritage)
             .filter((ref) => ref.localValueName !== undefined)
             .map((ref) => factory.createTypeReferenceNode("Omit", [
-                factory.createTypeReferenceNode(classStaticsName, [
+                factory.createTypeReferenceNode(classStaticsLocalName, [
                     factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, ref.localValueName as string))
                 ]),
                 factory.createUnionTypeNode([
                     factory.createLiteralTypeNode(factory.createStringLiteral("mix")),
                     factory.createTypeOperatorNode(
                         tsInstance.SyntaxKind.KeyOfKeyword,
-                        factory.createTypeReferenceNode(runtimeMixinClassName, undefined)
+                        factory.createTypeReferenceNode(runtimeMixinClassLocalName, undefined)
                     ),
                     ...shadowedLiterals()
                 ])

@@ -2,23 +2,31 @@ import type * as ts from "typescript"
 import { type FileMixinContext, type TransformOptions } from "./model.js"
 import {
     anyConstructorName,
+    anyConstructorLocalName,
     applyLegacyClassDecoratorsName,
     applyLegacyClassDecoratorsLocalName,
     classStaticsName,
+    classStaticsLocalName,
     defineMixinClassName,
     defineMixinClassLocalName,
     metadataBaseImportName,
     metadataBaseLocalName,
     mixinApplicationName,
+    mixinApplicationLocalName,
     mixinChainName,
     mixinChainLocalName,
     mixinChainLinearizedName,
     mixinChainLinearizedLocalName,
     constructionMixinClassValueName,
+    constructionMixinClassValueLocalName,
     mixinClassValueName,
+    mixinClassValueLocalName,
     mixinFactoryName,
+    mixinFactoryLocalName,
     runtimeMixinClassName,
-    staticConflictKeysName
+    runtimeMixinClassLocalName,
+    staticConflictKeysName,
+    staticConflictKeysLocalName
 } from "./naming.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
@@ -212,21 +220,21 @@ function createHelperTypeImport(
         { typeOnly: false, importedName: applyLegacyClassDecoratorsName, localName: applyLegacyClassDecoratorsLocalName },
         { typeOnly: false, importedName: mixinChainName,           localName: mixinChainLocalName },
         { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedLocalName },
-        { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorName },
-        { typeOnly: true,  importedName: classStaticsName,     localName: classStaticsName },
-        { typeOnly: true,  importedName: mixinApplicationName, localName: mixinApplicationName },
-        { typeOnly: true,  importedName: mixinFactoryName,     localName: mixinFactoryName },
+        { typeOnly: true,  importedName: anyConstructorName,   localName: anyConstructorLocalName },
+        { typeOnly: true,  importedName: classStaticsName,     localName: classStaticsLocalName },
+        { typeOnly: true,  importedName: mixinApplicationName, localName: mixinApplicationLocalName },
+        { typeOnly: true,  importedName: mixinFactoryName,     localName: mixinFactoryLocalName },
         ...(options.staticCollisionCheck === false
             ? []
             : [ {
                 typeOnly     : true,
                 importedName : staticConflictKeysName(options.staticCollisionCheck),
-                localName    : staticConflictKeysName(options.staticCollisionCheck)
+                localName    : staticConflictKeysLocalName(options.staticCollisionCheck)
             } ]),
         { typeOnly: true, importedName: metadataBaseImportName,        localName: metadataBaseLocalName },
-        { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassName },
-        { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueName },
-        { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueName }
+        { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassLocalName },
+        { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueLocalName },
+        { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueLocalName }
     ]
 
     const used = candidates.filter((candidate) => referenced.has(candidate.localName))

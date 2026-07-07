@@ -25,6 +25,20 @@ export const mixinClassValueName = "MixinClassValue"
 export const constructionMixinClassValueName = "ConstructionMixinClassValue"
 export const staticNeverConflictKeysName = "StaticNeverConflictKeys"
 export const staticStrictConflictKeysName = "StaticStrictConflictKeys"
+// The TYPE helpers ride the same reserved aliases: injected under their public names they
+// would collide with a user's same-named declaration — or the user's own import of the
+// helper — in the transformed file (TS2440 / TS2300), and silently re-bind the generated
+// references to the user's type. Generated code references the LOCAL names only; the
+// public names stay free for the user.
+export const anyConstructorLocalName = "__AnyConstructor__"
+export const classStaticsLocalName = "__ClassStatics__"
+export const mixinApplicationLocalName = "__MixinApplication__"
+export const mixinFactoryLocalName = "__MixinFactory__"
+export const runtimeMixinClassLocalName = "__RuntimeMixinClass__"
+export const mixinClassValueLocalName = "__MixinClassValue__"
+export const constructionMixinClassValueLocalName = "__ConstructionMixinClassValue__"
+export const staticNeverConflictKeysLocalName = "__StaticNeverConflictKeys__"
+export const staticStrictConflictKeysLocalName = "__StaticStrictConflictKeys__"
 export const metadataBaseImportName = "base"
 export const metadataBaseLocalName = "__mixinBase"
 export const mixinFactorySuffix = "$mixin"
@@ -35,6 +49,10 @@ export const mixinValueSuffix = "$mixinValue"
 
 export function staticConflictKeysName(mode: Exclude<StaticCollisionCheckMode, false>): string {
     return mode === "strict" ? staticStrictConflictKeysName : staticNeverConflictKeysName
+}
+
+export function staticConflictKeysLocalName(mode: Exclude<StaticCollisionCheckMode, false>): string {
+    return mode === "strict" ? staticStrictConflictKeysLocalName : staticNeverConflictKeysLocalName
 }
 
 export function generatedName(name: string, suffix: string): string {

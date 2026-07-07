@@ -13,8 +13,8 @@ import {
 } from "./entity-name.js"
 import { type ResolvedMixinRef, type TransformOptions } from "./model.js"
 import {
-    anyConstructorName,
-    classStaticsName,
+    anyConstructorLocalName,
+    classStaticsLocalName,
     mixinChainLocalName,
     mixinChainLinearizedLocalName
 } from "./naming.js"
@@ -298,7 +298,7 @@ function createUnsupportedBaseConsumerCastType(
     mixinRefs: ResolvedMixinRef[]
 ): ts.TypeNode {
     const types = [
-        tsInstance.factory.createTypeReferenceNode(anyConstructorName, undefined),
+        tsInstance.factory.createTypeReferenceNode(anyConstructorLocalName, undefined),
         ...mixinStaticsTypes(tsInstance, mixinRefs)
     ]
 
@@ -342,8 +342,8 @@ export function createSourceViewConsumerBaseHeadType(
     }
 
     return factory.createIntersectionTypeNode([
-        factory.createTypeReferenceNode(anyConstructorName, undefined),
-        factory.createTypeReferenceNode(classStaticsName, [
+        factory.createTypeReferenceNode(anyConstructorLocalName, undefined),
+        factory.createTypeReferenceNode(classStaticsLocalName, [
             factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
         ])
     ])
@@ -386,8 +386,8 @@ function createConsumerBaseHeadType(
     }
 
     return factory.createIntersectionTypeNode([
-        factory.createTypeReferenceNode(anyConstructorName, undefined),
-        factory.createTypeReferenceNode(classStaticsName, [
+        factory.createTypeReferenceNode(anyConstructorLocalName, undefined),
+        factory.createTypeReferenceNode(classStaticsLocalName, [
             factory.createTypeQueryNode(expressionToEntityName(tsInstance, baseType.expression))
         ])
     ])

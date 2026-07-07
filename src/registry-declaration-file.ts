@@ -8,7 +8,7 @@ import {
     type ConfigProperty,
     type TransformOptions
 } from "./model.js"
-import { runtimeMixinClassName } from "./naming.js"
+import { runtimeMixinClassLocalName } from "./naming.js"
 import { propertyNameText } from "./util.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import type { Candidate } from "./registry.js"
@@ -138,7 +138,7 @@ export function collectDeclarationFileMixinCandidates(
     sourceFile: ts.SourceFile,
     options: TransformOptions
 ): Candidate[] {
-    if (!sourceFile.text.includes(runtimeMixinClassName)) {
+    if (!sourceFile.text.includes(runtimeMixinClassLocalName)) {
         return []
     }
 
@@ -218,7 +218,7 @@ function findRuntimeMixinClassReference(
 ): ts.TypeReferenceNode | undefined {
     if (tsInstance.isTypeReferenceNode(typeNode) &&
         tsInstance.isIdentifier(typeNode.typeName) &&
-        typeNode.typeName.text === runtimeMixinClassName
+        typeNode.typeName.text === runtimeMixinClassLocalName
     ) {
         return typeNode
     }

@@ -1,5 +1,5 @@
 import type * as ts from "typescript"
-import { anyConstructorName, mixinApplicationName } from "./naming.js"
+import { anyConstructorLocalName, mixinApplicationLocalName } from "./naming.js"
 import { requiredBaseType } from "./heritage.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
 import { deepCloneNode, stripVarianceAnnotations } from "./util.js"
@@ -17,7 +17,7 @@ export function createMixinApplyType(
     const requiredBase          = requiredBaseType(tsInstance, declaration)
     // `AnyConstructor<requiredBase>` (or `<any>`). Built fresh per use so the same node is
     // never shared between the constraint and the default position.
-    const baseConstraint = (): ts.TypeReferenceNode => factory.createTypeReferenceNode(anyConstructorName, [
+    const baseConstraint = (): ts.TypeReferenceNode => factory.createTypeReferenceNode(anyConstructorLocalName, [
         requiredBase === undefined
             ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
             : heritageTypeToTypeReference(tsInstance, requiredBase)
@@ -60,7 +60,7 @@ export function createMixinApplyType(
                         factory.createTypeReferenceNode(baseTypeParameterName, undefined)
                     )
                 ],
-                factory.createTypeReferenceNode(mixinApplicationName, [
+                factory.createTypeReferenceNode(mixinApplicationLocalName, [
                     factory.createTypeReferenceNode(baseTypeParameterName, undefined),
                     instanceType,
                     staticsType

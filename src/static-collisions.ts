@@ -7,7 +7,7 @@ import {
     type StaticCollisionCheckMode,
     type StaticSource
 } from "./model.js"
-import { staticConflictKeysName, uniqueTypeParameterName } from "./naming.js"
+import { staticConflictKeysLocalName, uniqueTypeParameterName } from "./naming.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
 import { cloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
@@ -176,7 +176,7 @@ function createStaticCollisionDiagnosticType(
 
     return factory.createConditionalTypeNode(
         factory.createTupleTypeNode([
-            factory.createTypeReferenceNode(staticConflictKeysName(mode), [
+            factory.createTypeReferenceNode(staticConflictKeysLocalName(mode), [
                 cloneNode(tsInstance, left.typeNode),
                 cloneNode(tsInstance, right.typeNode)
             ])

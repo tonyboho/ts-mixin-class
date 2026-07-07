@@ -122,13 +122,13 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     t.notMatch(printed, "@mixin", "Marker decorator is removed")
     t.match(
         printed,
-        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor, type ClassStatics, " +
-            "type MixinApplication, type MixinFactory, type RuntimeMixinClass } from \"ts-mixin-class\"",
+        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor as __AnyConstructor__, type ClassStatics as __ClassStatics__, " +
+            "type MixinApplication as __MixinApplication__, type MixinFactory as __MixinFactory__, type RuntimeMixinClass as __RuntimeMixinClass__ } from \"ts-mixin-class\"",
         "Helper import is added (pruned to the helpers this file references)"
     )
     t.match(
         printed,
-        "function <T>(base: AnyConstructor)",
+        "function <T>(base: __AnyConstructor__)",
         "Factory takes a typed base"
     )
     t.match(
@@ -145,12 +145,12 @@ it("expands an imported class-level @mixin() class into interface + factory + co
     t.notMatch(printedInterface(printed), "staticHelper", "Static members are not in the interface")
     t.match(
         printed,
-        "__defineMixinClass__(\"SourceClass\", __SourceClass$mixin as unknown as MixinFactory, []) as unknown as " +
+        "__defineMixinClass__(\"SourceClass\", __SourceClass$mixin as unknown as __MixinFactory__, []) as unknown as " +
             "(new <T>(...args: any[]) => SourceClass<T>) & " +
-            "ClassStatics<ReturnType<typeof __SourceClass$mixin>> & {\n" +
-            "    readonly mix: <T, __MixinBase extends AnyConstructor<any>>(base: __MixinBase) => " +
-            "MixinApplication<__MixinBase, SourceClass<T>, ReturnType<typeof __SourceClass$mixin>>;\n" +
-            "} & RuntimeMixinClass",
+            "__ClassStatics__<ReturnType<typeof __SourceClass$mixin>> & {\n" +
+            "    readonly mix: <T, __MixinBase extends __AnyConstructor__<any>>(base: __MixinBase) => " +
+            "__MixinApplication__<__MixinBase, SourceClass<T>, ReturnType<typeof __SourceClass$mixin>>;\n" +
+            "} & __RuntimeMixinClass__",
         "Value const registers the factory with the runtime helper and keeps the declarative cast"
     )
 })
@@ -222,8 +222,8 @@ it("supports custom package and decorator options", async (t: Test) => {
     t.not.isStrict(findInterface(transformedFile, "SourceClass"), undefined, "Custom marker expands the class")
     t.match(
         printSourceFile(ts, transformedFile),
-        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor, type MixinFactory, " +
-            "type RuntimeMixinClass, type MixinClassValue } from \"custom-mixin-package\"",
+        "import { defineMixinClass as __defineMixinClass__, type AnyConstructor as __AnyConstructor__, type MixinFactory as __MixinFactory__, " +
+            "type RuntimeMixinClass as __RuntimeMixinClass__, type MixinClassValue as __MixinClassValue__ } from \"custom-mixin-package\"",
         "Helper import uses the custom package name (pruned to referenced helpers)"
     )
 })
@@ -246,7 +246,7 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
 
     t.match(
         printed,
-        "function <T>(base: AnyConstructor<SourceClass1<T>> & Omit<ClassStatics<typeof SourceClass1>, \"mix\" | keyof RuntimeMixinClass>)",
+        "function <T>(base: __AnyConstructor__<SourceClass1<T>> & Omit<__ClassStatics__<typeof SourceClass1>, \"mix\" | keyof __RuntimeMixinClass__>)",
         "Dependent mixin base parameter is typed with the dependency's instance AND static sides"
     )
     t.match(
@@ -261,7 +261,7 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as MixinFactory, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
+        "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as __MixinFactory__, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
         "Value const registers the direct dependency with the runtime helper"
     )
     t.match(
@@ -305,7 +305,7 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as MixinFactory, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
+        "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as __MixinFactory__, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
         "Runtime dependency metadata keeps the direct dependency list"
     )
     t.expect(typecheckText(printed)).toEqual([])
@@ -335,7 +335,7 @@ it("keeps non-mixin implements entries on a mixin as type-only contracts", async
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"SourceMixin\", __SourceMixin$mixin as unknown as MixinFactory, [])",
+        "__defineMixinClass__(\"SourceMixin\", __SourceMixin$mixin as unknown as __MixinFactory__, [])",
         "Plain contract is not registered as a runtime mixin dependency"
     )
     t.notMatch(
@@ -375,12 +375,12 @@ it("expands a mixin required base declared with extends", async (t: Test) => {
     )
     t.match(
         printed,
-        "function (base: AnyConstructor<RequiredBase> & ClassStatics<typeof RequiredBase>)",
+        "function (base: __AnyConstructor__<RequiredBase> & __ClassStatics__<typeof RequiredBase>)",
         "Mixin factory parameter is constrained to the required base, instance AND static sides"
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as MixinFactory, [], RequiredBase)",
+        "__defineMixinClass__(\"RequiredMixin\", __RequiredMixin$mixin as unknown as __MixinFactory__, [], RequiredBase)",
         "Value const registers the required runtime base"
     )
     t.match(

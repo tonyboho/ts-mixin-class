@@ -10,9 +10,9 @@ import {
     type TransformOptions
 } from "./model.js"
 import {
-    anyConstructorName,
+    anyConstructorLocalName,
     applyLegacyClassDecoratorsLocalName,
-    classStaticsName,
+    classStaticsLocalName,
     consumerBaseSuffix,
     generatedName
 } from "./naming.js"
@@ -340,7 +340,7 @@ function createSourceViewMixinMetadataBase(
         ? { consumerName: declaration.name.text, branded: true }
         : undefined
     const headType     = requiredBase === undefined
-        ? factory.createTypeReferenceNode(anyConstructorName, undefined)
+        ? factory.createTypeReferenceNode(anyConstructorLocalName, undefined)
         : createSourceViewConsumerBaseHeadType(tsInstance, requiredBase, undefined, undefined, construction)
     const castType     = factory.createIntersectionTypeNode([
         headType,
@@ -354,7 +354,7 @@ function createSourceViewMixinMetadataBase(
                 // both a type lie and a hole in the ban. The dependency's *user* statics
                 // are still inherited.
                 return factory.createTypeReferenceNode("Omit", [
-                    factory.createTypeReferenceNode(classStaticsName, [
+                    factory.createTypeReferenceNode(classStaticsLocalName, [
                         factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, ref.localValueName as string))
                     ]),
                     factory.createLiteralTypeNode(factory.createStringLiteral("mix"))
@@ -467,7 +467,7 @@ export function createMixinDecorateCallback(
                             factory.createIdentifier(decorateValueParameterName),
                             factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                         ),
-                        factory.createTypeReferenceNode(anyConstructorName, undefined)
+                        factory.createTypeReferenceNode(anyConstructorLocalName, undefined)
                     )
                 ),
                 undefined

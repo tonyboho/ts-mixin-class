@@ -3,7 +3,7 @@ import { constructionHeadType, type ConstructionBrand } from "./construction-bra
 import { createStaticsBag, mixinStaticsTypes } from "./consumer-base-heritage.js"
 import { expressionToEntityName } from "./entity-name.js"
 import { type ResolvedMixinRef } from "./model.js"
-import { anyConstructorName } from "./naming.js"
+import { anyConstructorLocalName } from "./naming.js"
 import { collapseSubtreeTextRange, preserveSubtreeTextRange, preserveTextRange, zeroWidthRange } from "./text-range.js"
 import { cloneNode, deepCloneNode, stripVarianceAnnotations } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -305,7 +305,7 @@ function createNavigableConsumerBaseCastType(
     }
 
     const instanceConstructor = signatureTypeParameters === undefined
-        ? factory.createTypeReferenceNode(anyConstructorName, [ instanceType ])
+        ? factory.createTypeReferenceNode(anyConstructorLocalName, [ instanceType ])
         : factory.createConstructorTypeNode(
             undefined,
             signatureTypeParameters,

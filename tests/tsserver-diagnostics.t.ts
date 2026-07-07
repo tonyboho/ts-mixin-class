@@ -206,13 +206,13 @@ const unsupportedBaseDiagnosticText = trimIndent(`
 `)
 
 const brokenMixinDeclarationText = trimIndent(`
-    import type { RuntimeMixinClass } from "ts-mixin-class"
+    import type { RuntimeMixinClass as __RuntimeMixinClass__ } from "ts-mixin-class"
 
     export interface BrokenMixin {
         brokenMethod(): string
     }
 
-    export declare const BrokenMixin: RuntimeMixinClass & {
+    export declare const BrokenMixin: __RuntimeMixinClass__ & {
         new (...args: any[]): BrokenMixin
     }
 `)

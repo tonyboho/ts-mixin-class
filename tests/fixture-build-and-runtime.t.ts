@@ -80,13 +80,13 @@ it("reports imported declaration mixins without runtime values", async (t: Test)
             {
                 fileName : "node_modules/broken-mixin-package/index.d.ts",
                 text     : `
-                    import type { RuntimeMixinClass } from "ts-mixin-class"
+                    import type { RuntimeMixinClass as __RuntimeMixinClass__ } from "ts-mixin-class"
 
                     export interface BrokenMixin {
                         brokenMethod(): string
                     }
 
-                    export declare const BrokenMixin: RuntimeMixinClass & {
+                    export declare const BrokenMixin: __RuntimeMixinClass__ & {
                         new (...args: any[]): BrokenMixin
                     }
                 `
@@ -154,12 +154,12 @@ it("builds and runs the declaration fixture suite", async (t: Test) => {
     // argument when present); generic mixins keep the inline constructor cast.
     t.match(
         mixinsDeclaration,
-        "export declare const ContractMixin: MixinClassValue<ContractMixin, typeof __ContractMixin$mixin> & RuntimeMixinClass;",
+        "export declare const ContractMixin: __MixinClassValue__<ContractMixin, typeof __ContractMixin$mixin> & __RuntimeMixinClass__;",
         "Non-generic mixin value uses the factored MixinClassValue alias"
     )
     t.match(
         mixinsDeclaration,
-        "export declare const RequiredMixin: MixinClassValue<RequiredMixin, typeof __RequiredMixin$mixin, RequiredBase> & RuntimeMixinClass<RequiredBase>;",
+        "export declare const RequiredMixin: __MixinClassValue__<RequiredMixin, typeof __RequiredMixin$mixin, RequiredBase> & __RuntimeMixinClass__<RequiredBase>;",
         "Non-generic required-base mixin keeps the required base in MixinClassValue and RuntimeMixinClass"
     )
     t.match(
@@ -169,7 +169,7 @@ it("builds and runs the declaration fixture suite", async (t: Test) => {
     )
     t.notMatch(
         mixinsDeclaration,
-        "SourceClass1: MixinClassValue",
+        "SourceClass1: __MixinClassValue__",
         "Generic mixin is not collapsed into the MixinClassValue alias"
     )
     t.match(defaultMixinDeclaration, "export declare const __DefaultMixin$mixin", "Default mixin factory is exported for downstream generated imports")

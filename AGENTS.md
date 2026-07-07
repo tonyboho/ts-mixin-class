@@ -463,9 +463,16 @@ Violating any of these produces confusing tsserver errors or crashes.
       permissive construct for the BRANDED generic one (`new <T>(brand) => M<T>`); the
       source-view path reuses `createConstructionMembers`, which already clones type parameters
       onto the generated `static new` (the §7.10 construction-class machinery).
-    - **Runtime value helpers are imported under reserved local aliases**
-      (`defineMixinClass as __defineMixinClass__`, `__mixinChain__`, `__mixinChainLinearized__`)
-      so the injected import can never collide with a user binding (TS2440); the
+    - **ALL injected helpers are imported under reserved local aliases** — the runtime
+      values (`defineMixinClass as __defineMixinClass__`, `__mixinChain__`,
+      `__mixinChainLinearized__`) and the type helpers (`type AnyConstructor as
+      __AnyConstructor__`, `__ClassStatics__`, `__RuntimeMixinClass__`, ...; the full pair
+      table lives in `naming.ts`) — so the injected import can never collide with a
+      user's same-named binding OR the user's own import of a helper (TS2440 / TS2300);
+      generated code references the local names only. Checker messages still render the
+      helpers by their PUBLIC names (`typeToString` prints the type's own symbol, not the
+      binding — guarded in `transform-helper-import-collisions.t.ts`). The `.d.ts` mixin
+      marker readers (`registry-declaration-file.ts`) match the ALIAS spelling. The
       `language-service-plugin` filters the aliases from completions.
     - **An INSTANTIATED namespace merged with a `@mixin` class** gets a native diagnostic
       (`TS990009`, on the namespace name): the class is rewritten into a `const`, which a

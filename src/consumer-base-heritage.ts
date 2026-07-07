@@ -2,14 +2,15 @@ import type * as ts from "typescript"
 import { constructionHeadType, type ConstructionBrand } from "./construction-brand.js"
 import {
     cloneExpressionWithTypeArguments,
-    createLinearizationPlanLiteral,
+    heritageTypeToTypeReference,
+    intersectionOrSingle
+} from "./expand-util.js"
+import { createLinearizationPlanLiteral, linearizationMode } from "./linearization.js"
+import {
     dottedNameToEntityName,
     expressionToEntityName,
-    heritageTypeToTypeReference,
-    intersectionOrSingle,
-    linearizationMode,
     mixinValueIdentifier
-} from "./expand-util.js"
+} from "./entity-name.js"
 import { type ResolvedMixinRef, type TransformOptions } from "./model.js"
 import {
     anyConstructorName,

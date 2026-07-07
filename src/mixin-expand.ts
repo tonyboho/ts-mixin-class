@@ -21,11 +21,8 @@ import {
     mixinRuntimeClassSuffix
 } from "./naming.js"
 import { requiredBaseType } from "./heritage.js"
-import {
-    createLinearizationPlanLiteral,
-    linearizationMode,
-    mixinValueIdentifier
-} from "./expand-util.js"
+import { createLinearizationPlanLiteral, linearizationMode } from "./linearization.js"
+import { mixinValueIdentifier } from "./entity-name.js"
 import {
     linearizationDiagnosticMessage,
     pushLinearizationConflictDiagnostic

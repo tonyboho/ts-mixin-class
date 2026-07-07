@@ -1,10 +1,6 @@
 import type * as ts from "typescript"
-import {
-    createDiagnosticLiteralType,
-    dottedNameToEntityName,
-    expressionToEntityName,
-    heritageTypeText
-} from "./expand-util.js"
+import { createDiagnosticLiteralType, heritageTypeText } from "./expand-util.js"
+import { dottedNameToEntityName, expressionToEntityName } from "./entity-name.js"
 import {
     type RequiredBaseValidation,
     type ResolvedMixinRef,

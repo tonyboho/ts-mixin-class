@@ -1,11 +1,10 @@
 import type * as ts from "typescript"
 import {
-    entityNameText,
     createDiagnosticLiteralType,
-    dottedNameToEntityName,
     heritageTypeText,
     heritageTypeToTypeReference
 } from "./expand-util.js"
+import { entityNameText, dottedNameToEntityName } from "./entity-name.js"
 import {
     nativeDiagnosticOn,
     DependencyLinearizationError,

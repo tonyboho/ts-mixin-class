@@ -17,11 +17,8 @@ import {
     generatedName
 } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
-import {
-    cloneExpressionWithTypeArguments,
-    dottedNameToEntityName,
-    MixinTransformError
-} from "./expand-util.js"
+import { cloneExpressionWithTypeArguments, MixinTransformError } from "./expand-util.js"
+import { dottedNameToEntityName } from "./entity-name.js"
 import {
     appendSourceViewValidationTypeParameters
 } from "./consumer-diagnostics.js"

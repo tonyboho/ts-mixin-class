@@ -19,11 +19,10 @@ import { isNamedClassElement } from "./util.js"
 import { brandedConstructSignatureType } from "./construction-brand.js"
 import {
     cloneExpressionWithTypeArguments,
-    dottedNameToEntityName,
-    expressionToEntityName,
     heritageTypeToTypeReference,
     rewriteTypeReferences
 } from "./expand-util.js"
+import { dottedNameToEntityName, expressionToEntityName } from "./entity-name.js"
 import { createMixinApplyType } from "./mixin-apply-type.js"
 import {
     isSupportedMixinClassMember

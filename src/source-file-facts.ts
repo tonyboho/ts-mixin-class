@@ -1,6 +1,6 @@
 import type * as ts from "typescript"
 import { collectMixinDecoratorImports, hasMixinDecorator } from "./decorators.js"
-import { dottedExpressionText } from "./expand-util.js"
+import { dottedExpressionText } from "./entity-name.js"
 import {
     uniqueConfigProperties,
     type ClassScopeEntry,

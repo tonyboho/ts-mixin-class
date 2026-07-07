@@ -1,6 +1,6 @@
 import type * as ts from "typescript"
 
-import { dottedExpressionText } from "./expand-util.js"
+import { dottedExpressionText } from "./entity-name.js"
 import { linearizeDependencies } from "./linearization.js"
 import { localMixinHeritageTypesFromFacts, resolveLocalMixinHeritageRef } from "./mixin-refs.js"
 import {

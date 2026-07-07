@@ -11,17 +11,16 @@ import { appendGeneratedConfigAliasesAsRealText } from "./source-view-config-ali
 import { preserveTopLevelStatementRanges } from "./text-range.js"
 import { effectiveUseDefineForClassFields, resolveTransformOptions, resolveUsePrintedSourceFile } from "./transform-options.js"
 import { transformAppliesToSourceFile, transformSourceFile } from "./transform-source-file.js"
+import { printSourceFileWithMappings, scriptKindFromFileName } from "./util.js"
 import {
     alignGeneratedNavigableNodesWithParseTree,
     cloneLayeredSourceFileForTransform,
     cloneSourceFileForTransform,
     hasDifferentAstShape,
     preserveSourceFileVersion,
-    printSourceFileWithMappings,
-    scriptKindFromFileName,
     setParentRecursivePreservingVersion,
     sourceFileOptionsPreservingFormat
-} from "./util.js"
+} from "./source-file-clone.js"
 import type { TypeScript } from "./util.js"
 
 // The compiler host wrapping `getSourceFile`: decides per file whether the transform

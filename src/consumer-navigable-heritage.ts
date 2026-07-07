@@ -1,7 +1,7 @@
 import type * as ts from "typescript"
 import { constructionHeadType, type ConstructionBrand } from "./construction-brand.js"
 import { createStaticsBag, mixinStaticsTypes } from "./consumer-base-heritage.js"
-import { expressionToEntityName } from "./expand-util.js"
+import { expressionToEntityName } from "./entity-name.js"
 import { type ResolvedMixinRef } from "./model.js"
 import { anyConstructorName } from "./naming.js"
 import { collapseSubtreeTextRange, preserveSubtreeTextRange, preserveTextRange, zeroWidthRange } from "./text-range.js"

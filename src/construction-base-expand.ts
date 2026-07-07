@@ -5,7 +5,8 @@ import {
     createConstructionMembers,
     positionConstructionConfigAlias
 } from "./construction-config.js"
-import { expressionToEntityName, heritageTypeToTypeReference } from "./expand-util.js"
+import { heritageTypeToTypeReference } from "./expand-util.js"
+import { expressionToEntityName } from "./entity-name.js"
 import type { CrossFileContext, ImportMap, TransformOptions } from "./model.js"
 import { generatedTextRange, preserveTextRange } from "./text-range.js"
 import { cloneNode } from "./util.js"

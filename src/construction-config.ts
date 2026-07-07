@@ -1,5 +1,10 @@
 import type * as ts from "typescript"
-import { dottedExpressionText, intersectionOrSingle, MixinTransformError, rewriteTypeReferences } from "./expand-util.js"
+import {
+    intersectionOrSingle,
+    MixinTransformError,
+    rewriteTypeReferences
+} from "./expand-util.js"
+import { dottedExpressionText } from "./entity-name.js"
 import {
     type ImportMap,
     uniqueConfigProperties,

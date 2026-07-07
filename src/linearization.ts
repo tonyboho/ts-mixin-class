@@ -1,10 +1,13 @@
+import type * as ts from "typescript"
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
 import type { LinearizationSlice } from "./runtime.js"
 import {
     DependencyLinearizationError,
     type FileMixinContext,
-    type ResolvedMixinRef
+    type ResolvedMixinRef,
+    type TransformOptions
 } from "./model.js"
+import type { TypeScript } from "./util.js"
 
 export function linearizeDependencies(
     dependencyKeys: string[],
@@ -121,4 +124,33 @@ function mergeDependencyLinearizations(sequences: string[][]): string[] {
 
         throw error
     }
+}
+
+// The runtime `LinearizationMode` (a magic string) the compiler bakes into the emit, derived
+// from the build environment (read in resolveTransformOptions). The plan is ALWAYS emitted;
+// the mode only changes what the runtime does with it. Always one of the three explicit
+// modes — "verify" (default), "replay" (production), "c3" (escape hatch) — kept here so the
+// mixin and consumer emit paths agree.
+export function linearizationMode(options: TransformOptions): "verify" | "replay" | "c3" {
+    return options.disableLinearizationPlan
+        ? "c3"
+        : options.verifyLinearization
+            ? "verify"
+            : "replay"
+}
+
+// Emit a precomputed merge plan as an array-of-triples literal `[[s, o, l], ...]`, the
+// runtime `LinearizationPlan` (approach B). The integers ride alone -- the mixin VALUES
+// they slice are reached through the dependency arrays already passed alongside the plan.
+export function createLinearizationPlanLiteral(
+    tsInstance: TypeScript,
+    plan: LinearizationPlanSlice[]
+): ts.ArrayLiteralExpression {
+    const factory = tsInstance.factory
+
+    return factory.createArrayLiteralExpression(
+        plan.map((slice) => factory.createArrayLiteralExpression(
+            slice.map((value) => factory.createNumericLiteral(value))
+        ))
+    )
 }

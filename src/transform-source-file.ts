@@ -8,7 +8,7 @@ import {
 } from "./construction-chain.js"
 import { buildFileMixinContext } from "./context.js"
 import { hasMixinDecorator } from "./decorators.js"
-import { dottedExpressionText } from "./expand-util.js"
+import { dottedExpressionText } from "./entity-name.js"
 import {
     collectReferencedIdentifierNames,
     insertGeneratedImports,
@@ -37,7 +37,7 @@ import {
 } from "./model.js"
 import { implementsTypes } from "./heritage.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
-import { cloneSourceFileForTransform } from "./util.js"
+import { cloneSourceFileForTransform } from "./source-file-clone.js"
 import type { TypeScript } from "./util.js"
 
 // The per-file transform: expands every mixin / consumer / construction-base class in a

@@ -5,7 +5,7 @@ export class C3LinearizationError<T> extends Error {
 }
 
 type PendingSequence<T> = {
-    sequence : T[],
+    sequence : readonly T[],
     offset   : number
 }
 
@@ -16,7 +16,7 @@ type Candidate<T> =
 export function mergeC3Linearizations<T>(sequences: readonly (readonly T[])[]): T[] {
     const result: T[] = []
     const pending     = sequences
-        .map((sequence) => [ ...new Set(sequence) ])
+        .map((sequence) => dedupedSequence(sequence))
         .filter((sequence) => sequence.length > 0)
         .map((sequence): PendingSequence<T> => {
             return {
@@ -38,6 +38,16 @@ export function mergeC3Linearizations<T>(sequences: readonly (readonly T[])[]): 
     }
 
     return result
+}
+
+// The algorithm reads sequences by offset and never mutates them, so an already-unique
+// input rides in as-is — the compile-time inputs are mostly CACHED linearizations (unique
+// by construction, being C3 outputs themselves), and copying them per merge was the single
+// largest allocation of the merge.
+function dedupedSequence<T>(sequence: readonly T[]): readonly T[] {
+    const unique = new Set(sequence)
+
+    return unique.size === sequence.length ? sequence : [ ...unique ]
 }
 
 function buildTailCounts<T>(pending: readonly PendingSequence<T>[]): Map<T, number> {

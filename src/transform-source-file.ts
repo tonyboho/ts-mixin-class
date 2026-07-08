@@ -12,7 +12,8 @@ import { dottedExpressionText } from "./entity-name.js"
 import {
     collectReferencedIdentifierNames,
     insertGeneratedImports,
-    pruneConsumedDecoratorImports
+    pruneConsumedDecoratorImports,
+    referencedNameQueries
 } from "./generated-imports.js"
 import { buildImportedNameMap } from "./import-map.js"
 import { pushManualMixinApplicationDiagnostics } from "./mixin-diagnostics.js"
@@ -330,10 +331,15 @@ export function transformSourceFile(
         return sourceFile
     }
 
-    // Names actually referenced in the generated output (excluding import declarations
-    // themselves). Used to prune imports down to what is really used, so the transformed
-    // file never carries an unused import (a `noUnusedLocals` / TS6133 error otherwise).
-    const referencedNames = collectReferencedIdentifierNames(tsInstance, expandedStatements)
+    // Which import-relevant names (helper candidates + decorator bindings) the output
+    // actually references (excluding import declarations themselves). Used to prune imports
+    // down to what is really used, so the transformed file never carries an unused import
+    // (a `noUnusedLocals` / TS6133 error otherwise).
+    const referencedNames = collectReferencedIdentifierNames(
+        tsInstance,
+        expandedStatements,
+        referencedNameQueries(resolvedOptions, facts)
+    )
 
     const withGeneratedImports = needsGeneratedImports
         ? insertGeneratedImports(tsInstance, expandedStatements, context, resolvedOptions, referencedNames)

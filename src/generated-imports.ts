@@ -36,29 +36,49 @@ import type { TypeScript } from "./util.js"
 // the names the generated output actually references, and the consumed `@mixin` decorator
 // imports are dropped — so the result never trips `noUnusedLocals` (TS6133).
 
-// Every identifier referenced in `statements`, skipping import declarations (an imported
-// name is a binding, not a use). A superset is harmless: it only ever keeps an import we
-// could have pruned, never drops one that is needed.
+// The names whose referenced-ness the import management actually asks about: the helper
+// import candidates' local names (`createHelperTypeImport`) and the consumed decorator
+// bindings (`pruneConsumedDecoratorImports`). The reference walk collects ONLY these — the
+// full every-identifier set was pure overhead (thousands of entries, two membership tests).
+export function referencedNameQueries(
+    options: TransformOptions,
+    facts: SourceFileFacts
+): Set<string> {
+    return new Set([
+        ...helperImportCandidates(options).map((candidate) => candidate.localName),
+        ...facts.mixinDecoratorImports.identifiers,
+        ...facts.mixinDecoratorImports.namespaces
+    ])
+}
+
+// Which of `queries` are referenced as an identifier anywhere in `statements`, skipping
+// import declarations (an imported name is a binding, not a use; imports only exist at the
+// top level, so the check stays out of the recursion). The walk must always complete — the
+// consumers need ABSENCE proofs to prune.
 export function collectReferencedIdentifierNames(
     tsInstance: TypeScript,
-    statements: readonly ts.Statement[]
+    statements: readonly ts.Statement[],
+    queries: ReadonlySet<string>
 ): Set<string> {
-    const names = new Set<string>()
+    const identifierKind = tsInstance.SyntaxKind.Identifier
+    const names          = new Set<string>()
 
     const visit = (node: ts.Node): void => {
-        if (tsInstance.isImportDeclaration(node)) {
-            return
-        }
+        if (node.kind === identifierKind) {
+            if (queries.has((node as ts.Identifier).text)) {
+                names.add((node as ts.Identifier).text)
+            }
 
-        if (tsInstance.isIdentifier(node)) {
-            names.add(node.text)
+            return
         }
 
         tsInstance.forEachChild(node, visit)
     }
 
     for (const statement of statements) {
-        visit(statement)
+        if (!tsInstance.isImportDeclaration(statement)) {
+            visit(statement)
+        }
     }
 
     return names
@@ -206,16 +226,11 @@ function createNamedImportDeclaration(
     )
 }
 
-function createHelperTypeImport(
-    tsInstance: TypeScript,
-    options: TransformOptions,
-    referenced: Set<string>
-): ts.ImportDeclaration | undefined {
-    // Every helper the transform CAN generate, with its local name. The fixed superset is
-    // pruned to only the helpers actually referenced in this file's generated output, so a
-    // file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error). When
-    // nothing is referenced (no helper import needed), the whole declaration is dropped.
-    const candidates: NamedImportElement[] = [
+// Every helper the transform CAN generate, with its local name. The fixed superset is
+// pruned to only the helpers actually referenced in this file's generated output, so a
+// file never imports a helper it does not use (a `noUnusedLocals` / TS6133 error).
+function helperImportCandidates(options: TransformOptions): NamedImportElement[] {
+    return [
         { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassLocalName },
         { typeOnly: false, importedName: applyLegacyClassDecoratorsName, localName: applyLegacyClassDecoratorsLocalName },
         { typeOnly: false, importedName: mixinChainName,           localName: mixinChainLocalName },
@@ -236,8 +251,16 @@ function createHelperTypeImport(
         { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueLocalName },
         { typeOnly: true, importedName: constructionMixinClassValueName, localName: constructionMixinClassValueLocalName }
     ]
+}
 
-    const used = candidates.filter((candidate) => referenced.has(candidate.localName))
+// The candidate superset pruned to the helpers actually referenced; when nothing is
+// referenced (no helper import needed), the whole declaration is dropped.
+function createHelperTypeImport(
+    tsInstance: TypeScript,
+    options: TransformOptions,
+    referenced: Set<string>
+): ts.ImportDeclaration | undefined {
+    const used = helperImportCandidates(options).filter((candidate) => referenced.has(candidate.localName))
 
     if (used.length === 0) {
         return undefined

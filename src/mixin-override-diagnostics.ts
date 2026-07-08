@@ -124,6 +124,23 @@ export function pushMixinNamespaceMergeDiagnostics(
     context: FileMixinContext,
     statements: readonly ts.Statement[]
 ): void {
+    // Named namespaces of THIS statement list, indexed up front so each mixin class does an
+    // O(1) lookup instead of re-scanning every sibling (the scan was O(statements²) per
+    // list). The type-only check stays at match time — matches are rare.
+    let namespacesByName: Map<string, ts.ModuleDeclaration[]> | undefined
+
+    for (const statement of statements) {
+        if (tsInstance.isModuleDeclaration(statement) && tsInstance.isIdentifier(statement.name)) {
+            // eslint-disable-next-line align-assignments/align-assignments
+            namespacesByName ??= new Map()
+
+            const siblings = namespacesByName.get(statement.name.text) ?? []
+
+            siblings.push(statement)
+            namespacesByName.set(statement.name.text, siblings)
+        }
+    }
+
     for (const statement of statements) {
         if (tsInstance.isModuleDeclaration(statement) &&
             statement.body !== undefined && tsInstance.isModuleBlock(statement.body)
@@ -131,7 +148,7 @@ export function pushMixinNamespaceMergeDiagnostics(
             pushMixinNamespaceMergeDiagnostics(tsInstance, sourceFile, facts, context, statement.body.statements)
         }
 
-        if (!tsInstance.isClassDeclaration(statement)) {
+        if (namespacesByName === undefined || !tsInstance.isClassDeclaration(statement)) {
             continue
         }
 
@@ -141,19 +158,15 @@ export function pushMixinNamespaceMergeDiagnostics(
             continue
         }
 
-        for (const sibling of statements) {
-            if (!tsInstance.isModuleDeclaration(sibling) ||
-                !tsInstance.isIdentifier(sibling.name) ||
-                sibling.name.text !== classFacts.name ||
-                isTypeOnlyModuleBody(tsInstance, sibling.body)
-            ) {
+        for (const sibling of namespacesByName.get(classFacts.name) ?? []) {
+            if (isTypeOnlyModuleBody(tsInstance, sibling.body)) {
                 continue
             }
 
             context.nativeDiagnostics.push(nativeDiagnosticOn(
                 tsInstance,
                 sourceFile,
-                sibling.name,
+                sibling.name as ts.Identifier,
                 mixinDiagnosticCode.MixinNamespaceMerge,
                 `Namespace ${classFacts.name} merges with mixin class ${classFacts.name}, ` +
                     "which is not supported: the transformer rewrites the mixin class into a const, and a " +

@@ -1,15 +1,5 @@
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
 import { Empty, base, factory, requirements, type AnyConstructor, type ClassStatics, type MixinApplication, type MixinFactory } from "./base.js"
-export {
-    Empty,
-    base,
-    factory,
-    requirements,
-    type AnyConstructor,
-    type ClassStatics,
-    type MixinApplication,
-    type MixinFactory
-} from "./base.js"
 
 export type StaticNeverConflictKeys<Left, Right> = {
     [Key in Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]:

@@ -56,6 +56,10 @@ export type SourceFileFacts = {
     // (`resolveLexicalMixinRef`) answers from in O(same-named entries), no tree walk.
     // Collected here because this pass already visits every class exactly once.
     classScopesByName      : Map<string, ClassScopeEntry[]>,
+    // Every class EXPRESSION in the file, in document order — collected by the same nested
+    // walk (a class expression lives in expression position, never a statement list), so the
+    // anonymous-class diagnostics never need their own whole-file pass.
+    classExpressions       : ts.ClassExpression[],
     // True when at least one class is declared below the top level (inside a function body,
     // block, or namespace). The driver only walks into nested statement lists when this is set,
     // so a file with only top-level classes keeps the original flat, top-level-only pass.
@@ -143,6 +147,8 @@ function collectSourceFileFacts(
     // enclosing-scope range down, feeding `classScopesByName`.
     let hasNestedClasses = false
 
+    const classExpressions: ts.ClassExpression[] = []
+
     const indexNestedClasses = (node: ts.Node, scope: ScopeRange, namespacePath: string[] | undefined): void => {
         tsInstance.forEachChild(node, (child) => {
             const childScope = isScopeContainer(tsInstance, child)
@@ -170,13 +176,40 @@ function collectSourceFileFacts(
                 }
             }
 
+            if (tsInstance.isClassExpression(child)) {
+                classExpressions.push(child)
+            }
+
             indexNestedClasses(child, childScope, childPath)
         })
     }
 
     // Walk from the FILE so a top-level namespace statement is itself visited as a
     // child and contributes its name to the dotted path of everything inside it.
-    indexNestedClasses(sourceFile, topLevelScope, [])
+    //
+    // The walk is the expensive part of this collection (it touches every node), while its
+    // only findings — nested class declarations and class expressions — each necessarily
+    // put a `class` keyword in the text. So it runs only when the text holds MORE
+    // keyword-shaped `class` occurrences than the constructs already accounted for: the
+    // top-level declarations, plus occurrences inside import specifiers — string literals,
+    // never keywords — which matter because the package name itself embeds one
+    // (`"ts-mixin-class"`), in every candidate file's import. The specifier is counted from
+    // its RAW source range (not the cooked `.text`): an escape-spelled occurrence
+    // (`"./cl\\u0061ss.js"`) puts no `class` in the file text, and charging it would
+    // under-count and skip a walk with real findings. Over-counting elsewhere (a comment,
+    // another string, `obj.class`) merely re-admits the walk; it can never skip a file that
+    // has something to find.
+    let accountedKeywords = classes.length
+
+    for (const importFacts of imports) {
+        const specifier = importFacts.declaration.moduleSpecifier
+
+        accountedKeywords += countClassKeywordCandidates(sourceFile.text.slice(specifier.pos, specifier.end))
+    }
+
+    if (countClassKeywordCandidates(sourceFile.text) > accountedKeywords) {
+        indexNestedClasses(sourceFile, topLevelScope, [])
+    }
 
     return {
         mixinDecoratorImports,
@@ -186,8 +219,30 @@ function collectSourceFileFacts(
         classesByQualifiedName,
         classesByDeclaration,
         classScopesByName,
+        classExpressions,
         hasNestedClasses
     }
+}
+
+// The number of `class` substrings that could tokenize as the keyword: not embedded in an
+// identifier on either side (`declassify`, `className` do not count). ASCII-only boundary
+// check — a non-ASCII neighbour counts the occurrence, erring toward admitting the walk.
+function countClassKeywordCandidates(text: string): number {
+    let count = 0
+
+    for (let index = text.indexOf("class"); index !== -1; index = text.indexOf("class", index + 5)) {
+        if (!isAsciiIdentifierPart(text.charCodeAt(index - 1)) && !isAsciiIdentifierPart(text.charCodeAt(index + 5))) {
+            count++
+        }
+    }
+
+    return count
+}
+
+// NaN (out of bounds) is not an identifier part: every comparison below is false.
+function isAsciiIdentifierPart(code: number): boolean {
+    return (code >= 97 && code <= 122) || (code >= 65 && code <= 90) ||
+        (code >= 48 && code <= 57) || code === 95 || code === 36
 }
 
 type ScopeRange = { start: number, end: number, depth: number }

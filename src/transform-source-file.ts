@@ -87,7 +87,7 @@ export function transformSourceFile(
         nativeDiagnostics
     )
 
-    pushAnonymousClassExpressionDiagnostics(tsInstance, sourceFile, context, mixinDecoratorImports, resolvedOptions)
+    pushAnonymousClassExpressionDiagnostics(tsInstance, sourceFile, facts, context, mixinDecoratorImports, resolvedOptions)
     pushManualMixinApplicationDiagnostics(tsInstance, sourceFile, context)
 
     // Resolves local base identifiers to cross-file construction-base entries.
@@ -350,47 +350,46 @@ export function transformSourceFile(
 // A `@mixin` or a mixin consumer written as a class EXPRESSION (`const C = class implements M {}`)
 // has no stable top-level (or block) statement slot for the generated siblings, so it is not
 // expanded — and would otherwise fail with only a bare TS2420. Flag it with a clean native
-// diagnostic instead. Walks the whole file (cheap; only the few class expressions are inspected),
-// since a class expression lives in expression position, never a statement list.
+// diagnostic instead. The class expressions come pre-collected (in document order) by the
+// facts pass, so this never walks the file itself.
 function pushAnonymousClassExpressionDiagnostics(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
+    facts: SourceFileFacts,
     context: FileMixinContext,
     imports: MixinDecoratorImports,
     options: TransformOptions
 ): void {
-    const visit = (node: ts.Node): void => {
-        if (tsInstance.isClassExpression(node) && node.pos >= 0 && node.end >= 0) {
-            if (hasMixinDecorator(tsInstance, node, imports, options)) {
-                context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
-                    tsInstance,
-                    sourceFile,
-                    node,
-                    mixinDiagnosticCode.AnonymousDefaultMixin,
-                    "Invalid mixin class declaration. A `@mixin` must be a named class declaration, not a class " +
-                        "expression. Write `class MyMixin { … }` so the transformer can generate stable interface, " +
-                        "factory, registry, and declaration names."
-                ))
-            } else if (implementsTypes(tsInstance, node as unknown as ts.ClassDeclaration).some(
-                (heritageType) =>
-                    resolveLocalMixinHeritageRef(tsInstance, heritageType, context) !== undefined
-            )) {
-                context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
-                    tsInstance,
-                    sourceFile,
-                    node,
-                    mixinDiagnosticCode.AnonymousMixinConsumer,
-                    "Invalid mixin consumer declaration. A mixin consumer must be a named class declaration, not a " +
-                        "class expression. Write `class Consumer implements Mixin { … }` so the transformer can " +
-                        "generate stable intermediate base, diagnostic, and declaration names."
-                ))
-            }
+    for (const node of facts.classExpressions) {
+        if (node.pos < 0 || node.end < 0) {
+            continue
         }
 
-        tsInstance.forEachChild(node, visit)
+        if (hasMixinDecorator(tsInstance, node, imports, options)) {
+            context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
+                tsInstance,
+                sourceFile,
+                node,
+                mixinDiagnosticCode.AnonymousDefaultMixin,
+                "Invalid mixin class declaration. A `@mixin` must be a named class declaration, not a class " +
+                    "expression. Write `class MyMixin { … }` so the transformer can generate stable interface, " +
+                    "factory, registry, and declaration names."
+            ))
+        } else if (implementsTypes(tsInstance, node as unknown as ts.ClassDeclaration).some(
+            (heritageType) =>
+                resolveLocalMixinHeritageRef(tsInstance, heritageType, context) !== undefined
+        )) {
+            context.nativeDiagnostics.push(anonymousClassNativeDiagnostic(
+                tsInstance,
+                sourceFile,
+                node,
+                mixinDiagnosticCode.AnonymousMixinConsumer,
+                "Invalid mixin consumer declaration. A mixin consumer must be a named class declaration, not a " +
+                    "class expression. Write `class Consumer implements Mixin { … }` so the transformer can " +
+                    "generate stable intermediate base, diagnostic, and declaration names."
+            ))
+        }
     }
-
-    tsInstance.forEachChild(sourceFile, visit)
 }
 
 function anonymousClassNativeDiagnostic(

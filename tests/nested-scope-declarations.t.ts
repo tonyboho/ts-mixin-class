@@ -539,3 +539,45 @@ it("expands nested declarations in method / arrow / getter bodies and namespaces
     t.equal(imported.arrow, "arrow", "a mixin + consumer in an arrow function body expanded")
     t.equal(imported.namespaced, "namespace", "a mixin + consumer in a namespace (ModuleBlock) expanded")
 })
+
+// M14 — the facts pass gates its whole-tree nested-class walk on counting `class` keyword
+// candidates in the text, with occurrences inside import SPECIFIERS accounted as strings.
+// That accounting must read the specifier's RAW source text: a cooked-only occurrence
+// (`"./class-utils.js"` cooks to `./class-utils.js` but puts no `class` in the file
+// text) must not be charged against the count, or the walk is skipped and a live nested
+// consumer silently stays unexpanded.
+it("expands a nested consumer next to an import specifier whose cooked text embeds 'class'", async (t: Test) => {
+    const transformed = transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+        import { helper } from "./cl\\u0061ss-utils.js"
+
+        void helper
+
+        @mixin()
+        class Tagger {
+            tag (value: string): string { return value }
+        }
+
+        function build () {
+            class LocalConsumer implements Tagger {}
+
+            return new LocalConsumer()
+        }
+        void build
+    `))
+
+    const build = transformed.statements.find(
+        (statement): statement is ts.FunctionDeclaration =>
+            ts.isFunctionDeclaration(statement) && statement.name?.text === "build"
+    )
+
+    const blockStatements: readonly ts.Statement[] = build?.body?.statements ?? []
+    const blockClassNames                          = blockStatements
+        .filter(ts.isClassDeclaration)
+        .map((declaration) => declaration.name?.text)
+
+    t.ok(
+        blockClassNames.includes("__LocalConsumer$base"),
+        "the nested consumer expanded (its generated base is inside the function block)"
+    )
+})

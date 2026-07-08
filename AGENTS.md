@@ -68,6 +68,15 @@ the dependencies' already-materialized linearizations, with **no** good-head sea
   free. Helper: `linearizationMode(options)` in `linearization.ts`. Both options are in the
   transform cache key.
 - Bench: `bench/c3/` (`pnpm bench:c3`) — ~26× at 1024 nodes; theory in `bench/c3/README.md`.
+- **Compile-time merges are cached at BOTH levels** in `context.linearizationCache`
+  (program-wide via `CrossFileContext`, file-local otherwise): per-KEY linearizations under
+  the registry key, and the top-level merge of a dependency-key LIST under a NUL-joined key
+  (`mergedDependencyLinearization` in `linearization.ts` — NUL can never collide with a
+  registry key `<path>::<name>`). The same list is merged several times per class (conflict
+  check → plan / source-view chain → override diagnostics), so this halves-to-thirds the
+  transform's C3 cost (~-20% whole-pass on the large bench rows). A conflicting list stays
+  uncached: it must keep throwing on every call. Callers never mutate the cached array —
+  `linearizeDependencies` maps it into fresh refs.
 
 ## Source-view invariants
 
@@ -324,7 +333,21 @@ Violating any of these produces confusing tsserver errors or crashes.
       linearization PLAN from the runtime metadata; the runtime `verify` cross-check caught
       it in the fixture corpus), and the construction config accumulation.
     - **Class EXPRESSIONS stay unsupported** (no stable statement slot) but get a clean native
-      diagnostic (`TS990002`/`TS990003`) via a whole-file class-expression walk, not a bare TS2420.
+      diagnostic (`TS990002`/`TS990003`), not a bare TS2420. The expressions come pre-collected
+      in `facts.classExpressions` (document order) — the diagnostics never walk the file
+      themselves.
+    - **The facts pass gates its whole-tree walk on a `class`-keyword count**
+      (`countClassKeywordCandidates` in `source-file-facts.ts`): the walk's only findings —
+      nested class declarations and class expressions — each necessarily put a keyword-shaped
+      `class` in the text, so when the count does not exceed the accounted occurrences
+      (top-level declarations + occurrences inside import SPECIFIERS, which are strings — the
+      package name itself embeds one: `ts-mixin-class`), the walk is skipped. Two load-bearing
+      details: the boundary check is ASCII-conservative (a non-ASCII neighbour counts, erring
+      toward walking), and specifiers are counted from their RAW source range, not the cooked
+      `.text` — a cooked-only occurrence (escape-spelled specifier) charged against the count
+      would under-count and skip a walk with real findings (pinned as M14 in
+      `nested-scope-declarations.t.ts`). Over-counting (comments, strings, `obj.class`) only
+      re-admits the walk.
     - **A class applying a local mixin declared LATER in the same statement list** gets a native
       diagnostic (`TS990008`, spanned on the heritage reference): the generated VALUE reference
       would hit the const TDZ. Emit-plane TS2448 remaps to the import line and source view reports

@@ -47,7 +47,7 @@ export function deriveLinearizationPlan(
         ...dependencyKeys.map((key) => linearizeDependencyKey(key, context, cache)),
         [ ...dependencyKeys ]
     ]
-    const merged                             = mergeDependencyLinearizations(sources)
+    const merged                             = mergedDependencyLinearization(dependencyKeys, sources, cache)
     const cursors                            = sources.map(() => 0)
     const plan: [ number, number, number ][] = []
 
@@ -80,10 +80,40 @@ function linearizeDependencyKeys(
         return []
     }
 
-    return mergeDependencyLinearizations([
-        ...dependencyKeys.map((key) => linearizeDependencyKey(key, context, cache)),
-        [ ...dependencyKeys ]
-    ])
+    return mergedDependencyLinearization(
+        dependencyKeys,
+        [
+            ...dependencyKeys.map((key) => linearizeDependencyKey(key, context, cache)),
+            [ ...dependencyKeys ]
+        ],
+        cache
+    )
+}
+
+// The top-level merge of one dependency-key LIST, cached alongside the per-key
+// linearizations: the same list is merged several times per class (the conflict check,
+// then the plan / source-view chain, then override diagnostics), and identical lists
+// recur across consumers — while the result depends only on the keys. The cache key is
+// NUL-prefixed/-joined so it can never collide with a registry key (`<path>::<name>`)
+// in the shared map. A conflicting list stays uncached (it throws): conflicts are the
+// rare broken-code path and must keep throwing on every call.
+function mergedDependencyLinearization(
+    dependencyKeys: string[],
+    sources: string[][],
+    cache: Map<string, string[]>
+): string[] {
+    const mergeKey = "\u0000" + dependencyKeys.join("\u0000")
+    const cached   = cache.get(mergeKey)
+
+    if (cached !== undefined) {
+        return cached
+    }
+
+    const merged = mergeDependencyLinearizations(sources)
+
+    cache.set(mergeKey, merged)
+
+    return merged
 }
 
 function linearizeDependencyKey(

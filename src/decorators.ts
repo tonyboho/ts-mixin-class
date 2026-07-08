@@ -12,13 +12,12 @@ export function hasMixinDecorator(
     imports: MixinDecoratorImports,
     options: Partial<TransformOptions> = {}
 ): boolean {
-    const resolvedOptions = {
-        ...defaultTransformOptions,
-        ...options
-    }
+    // Only the decorator name matters here; resolving it alone keeps this per-class call
+    // free of the full-options spread.
+    const decoratorName = options.decoratorName ?? defaultTransformOptions.decoratorName
 
     return tsInstance.getDecorators(node)?.some((decorator) => {
-        return isMixinDecorator(tsInstance, decorator, imports, resolvedOptions)
+        return isMixinDecorator(tsInstance, decorator, imports, decoratorName)
     }) ?? false
 }
 
@@ -32,7 +31,7 @@ export function userClassDecorators(
     options: TransformOptions
 ): ts.Decorator[] {
     return (tsInstance.getDecorators(node) ?? []).filter((decorator) => {
-        return !isMixinDecorator(tsInstance, decorator, imports, options)
+        return !isMixinDecorator(tsInstance, decorator, imports, options.decoratorName)
     })
 }
 
@@ -40,22 +39,22 @@ function isMixinDecorator(
     tsInstance: TypeScript,
     decorator: ts.Decorator,
     imports: MixinDecoratorImports,
-    options: TransformOptions
+    decoratorName: string
 ): boolean {
     const expression = decorator.expression
 
     if (tsInstance.isCallExpression(expression)) {
-        return isMixinDecoratorExpression(tsInstance, expression.expression, imports, options)
+        return isMixinDecoratorExpression(tsInstance, expression.expression, imports, decoratorName)
     }
 
-    return isMixinDecoratorExpression(tsInstance, expression, imports, options)
+    return isMixinDecoratorExpression(tsInstance, expression, imports, decoratorName)
 }
 
 function isMixinDecoratorExpression(
     tsInstance: TypeScript,
     expression: ts.Expression,
     imports: MixinDecoratorImports,
-    options: TransformOptions
+    decoratorName: string
 ): boolean {
     if (tsInstance.isIdentifier(expression)) {
         return imports.identifiers.has(expression.text)
@@ -67,7 +66,7 @@ function isMixinDecoratorExpression(
 
     return tsInstance.isIdentifier(expression.expression) &&
         imports.namespaces.has(expression.expression.text) &&
-        expression.name.text === options.decoratorName
+        expression.name.text === decoratorName
 }
 
 export function collectMixinDecoratorImports(

@@ -18,7 +18,3 @@ remains are the deliberately deferred items below — each degrades SAFELY today
    `pnpm bench`. An isolated measurement showed super-linear growth with constraint count
    (~2.6ms @40 → ~48ms @320 constraints per context build) — fine for realistic projects,
    but a corpus scenario should pin it before required-base-heavy projects appear.
-
-3. **A tsserver-plane test for TS990013/TS990014.** Source view is exercised via
-   `tsc --noEmit` (the same diagnostic code path); the three-planes convention still wants
-   an explicit `tsserver-diagnostics.t.ts` case for the two codes.

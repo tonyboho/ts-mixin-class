@@ -596,6 +596,112 @@ it("a manual .mix of a program-local dependent mixin reports the native TS990012
     }
 })
 
+// The two required-base plan codes must surface in the IDE exactly as under `tsc --noEmit`
+// (see multiple-required-bases.t.ts for the emit/CLI plane) — this is their tsserver-plane
+// pin per the three-planes convention. TS990013: the consumer combines mixins whose required
+// bases share no ancestry, so no most-specific base exists.
+it("tsserver semantic diagnostics report incompatible required bases with the native TS990013", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class LeftBase {
+            left(): string { return "left" }
+        }
+
+        class RightBase {
+            right(): string { return "right" }
+        }
+
+        @mixin()
+        class NeedsLeft extends LeftBase {
+        }
+
+        @mixin()
+        class NeedsRight extends RightBase {
+        }
+
+        class Broken implements NeedsLeft, NeedsRight {
+        }
+
+        void Broken
+    `)
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file: sourceFile })
+        )
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const nativeCode  = diagnostics.map((diagnostic) => diagnostic.code).find((code) => code === 990013)
+
+        assertDiagnosticParts(t, messages, [
+            "Incompatible mixin required bases",
+            "LeftBase",
+            "RightBase",
+            "NeedsLeft",
+            "NeedsRight"
+        ])
+        t.is(nativeCode, 990013, "IDE diagnostic carries the native mixin-diagnostic code 990013")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// TS990014: a MIXIN whose explicit `extends` base is a strict ancestor of the effective
+// most-specific requirement. (A plain consumer gets the checker-authored suppressible
+// mismatch instead — the native code belongs to the declaring mixin only.)
+it("tsserver semantic diagnostics report a mixin's explicit-base mismatch with the native TS990014", async (t: Test) => {
+    const text = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class RootBase {
+        }
+
+        class SpecificBase extends RootBase {
+        }
+
+        @mixin()
+        class NeedsSpecific extends SpecificBase {
+        }
+
+        @mixin()
+        class BadComposite extends RootBase implements NeedsSpecific {
+        }
+
+        void BadComposite
+    `)
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [ { fileName: "source.ts", text } ]
+    })
+
+    try {
+        const sourceFile  = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+        const diagnostics = assertResponseBody<SemanticDiagnostic[]>(
+            t,
+            await runTypeScriptServerRequest(fixture.directory, sourceFile, text, "semanticDiagnosticsSync", { file: sourceFile })
+        )
+        const messages    = diagnostics.map((diagnostic) => diagnostic.text ?? diagnostic.message ?? "").join("\n")
+        const nativeCode  = diagnostics.map((diagnostic) => diagnostic.code).find((code) => code === 990014)
+
+        assertDiagnosticParts(t, messages, [
+            "Mixin required base mismatch",
+            "BadComposite declares base RootBase",
+            "SpecificBase"
+        ])
+        t.is(nativeCode, 990014, "IDE diagnostic carries the native mixin-diagnostic code 990014")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("tsserver semantic diagnostics stay clean for fixture-suite runtime tests", async (t: Test) => {
     const fixtureDirectory = path.join(packageRoot, "tests", "fixture-suite")
     const sourceDirectory  = path.join(fixtureDirectory, "src")

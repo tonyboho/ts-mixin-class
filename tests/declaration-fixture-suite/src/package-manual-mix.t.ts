@@ -1,6 +1,7 @@
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
+import { Base, type AnyConstructor } from "ts-mixin-class"
 import { ContractMixin } from "ts-mixin-class-fixture-suite/mixins"
 
 // Manual application (`.mix(Base)`) of a non-generic mixin imported from another
@@ -24,6 +25,17 @@ class ManualMixed extends ContractMixin.mix(ManualBase) {
 
 const mixed = new ManualMixed()
 
+// Direct pin for §8.7: the branded construction signature must remain assignable to the
+// library's ordinary constructor slot, and that slot must remain usable as a declaration
+// mixin's manual base. This used to be covered only transitively.
+class BrandedConstruction extends Base {
+    id?: string
+}
+
+const constructionSlot: AnyConstructor<BrandedConstruction> = BrandedConstruction
+const Remixed = ContractMixin.mix(constructionSlot)
+const remixed = new Remixed()
+
 const contractValue: string = mixed.contractValue
 const contractResult: string = mixed.contractMethod()
 const baseValue: string = mixed.baseField
@@ -41,6 +53,8 @@ it("manually applies a non-generic declaration mixin through .mix()", async (t: 
     t.equal(combinedResult, "contract/base", "Mixin and manual base combine through super-less composition")
     t.true(mixed instanceof ManualBase, "Manual base stays in the prototype chain")
     t.true(mixed instanceof ContractMixin, "Manually applied mixin is recognized via instanceof")
+    t.true(remixed instanceof BrandedConstruction, "an AnyConstructor slot preserves the construction class prototype")
+    t.true(remixed instanceof ContractMixin, "a declaration .mix accepts the branded constructor slot")
 
     void wrong
 })

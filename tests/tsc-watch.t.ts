@@ -84,3 +84,69 @@ it("reports and clears a cross-file mixin error across tsc --watch rebuilds", as
         await fixture.dispose()
     }
 })
+
+const topologyMixins = (greeterDecorator: boolean, farewellDecorator: boolean): string => `
+    import { mixin } from "ts-mixin-class"
+
+    ${greeterDecorator ? "@mixin()" : ""}
+    export class Greeter {
+        greet(): string { return "hello" }
+    }
+
+    ${farewellDecorator ? "@mixin()" : ""}
+    export class Farewell {
+        bye(): string { return "bye" }
+    }
+`
+
+const topologyConsumer = (specifier: "./mixins.js" | "./barrel.js", mixinName: "Greeter" | "Farewell"): string => `
+    import { ${mixinName} } from "${specifier}"
+
+    class Consumer implements ${mixinName} {
+    }
+
+    const consumer = new Consumer()
+
+    void consumer.${mixinName === "Greeter" ? "greet" : "bye"}()
+`
+
+it("invalidates registry topology when decorators, implements targets and barrels change under watch", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { noEmit: true },
+        sourceFiles            : [
+            { fileName: "mixins.ts", text: topologyMixins(true, true) },
+            { fileName: "barrel.ts", text: `export { Greeter, Farewell } from "./mixins.js"` },
+            { fileName: "consumer.ts", text: topologyConsumer("./mixins.js", "Greeter") }
+        ]
+    })
+
+    const mixinsFile   = requiredFixtureSourceFile(fixture.sourceFiles, "mixins.ts")
+    const consumerFile = requiredFixtureSourceFile(fixture.sourceFiles, "consumer.ts")
+    const watch        = startTscWatch(fixture.directory, fixture.tsconfigFile)
+
+    try {
+        t.is(errorCount(await watch.waitForBuild()), 0, "initial direct-import Greeter topology is clean")
+
+        await writeFile(mixinsFile, topologyMixins(false, true))
+        t.true(errorCount(await watch.waitForBuild()) > 0, "removing @mixin invalidates the registry and breaks its consumer")
+
+        await writeFile(mixinsFile, topologyMixins(true, true))
+        t.is(errorCount(await watch.waitForBuild()), 0, "restoring @mixin restores the transformed consumer")
+
+        await writeFile(consumerFile, topologyConsumer("./mixins.js", "Farewell"))
+        t.is(errorCount(await watch.waitForBuild()), 0, "changing the implements target rebuilds against the other mixin")
+
+        await writeFile(consumerFile, topologyConsumer("./barrel.js", "Farewell"))
+        t.is(errorCount(await watch.waitForBuild()), 0, "switching a direct import to a barrel keeps the mixin resolved")
+
+        await writeFile(mixinsFile, topologyMixins(true, false))
+        t.true(errorCount(await watch.waitForBuild()) > 0, "the barrel route also observes mixin removal")
+
+        await writeFile(mixinsFile, topologyMixins(true, true))
+        t.is(errorCount(await watch.waitForBuild()), 0, "the complete topology recovers without restarting watch")
+    } finally {
+        watch.dispose()
+        await fixture.dispose()
+    }
+})

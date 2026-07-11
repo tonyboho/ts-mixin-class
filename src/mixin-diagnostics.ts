@@ -4,10 +4,12 @@ import { resolveLexicalMixinRef } from "./mixin-refs.js"
 import {
     mixinDiagnosticCode,
     nativeDiagnosticOn,
+    registryKey,
     type FileMixinContext,
     type MixinDeclarationDiagnostic,
     type ResolvedMixinRef
 } from "./model.js"
+import type { SourceFileFacts } from "./source-file-facts.js"
 import { isDeclarationFileName, isNamedClassElement } from "./util.js"
 import { hasModifier } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -240,11 +242,14 @@ function parameterNameForDiagnostic(
 export function pushManualMixinApplicationDiagnostics(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
-    context: FileMixinContext
+    context: FileMixinContext,
+    facts: SourceFileFacts
 ): void {
     // Cheap prefilter: the walk only runs for files that both know some mixin by name
-    // and textually mention `.mix` at all.
-    if (context.byLocalName.size === 0 || !sourceFile.text.includes(".mix")) {
+    // (or can reach one through a namespace import) and textually mention `.mix` at all.
+    if ((context.byLocalName.size === 0 && context.crossFile === undefined) ||
+        !sourceFile.text.includes(".mix")
+    ) {
         return
     }
 
@@ -253,20 +258,31 @@ export function pushManualMixinApplicationDiagnostics(
             node.name.text === "mix" &&
             node.pos >= 0 && node.end >= 0
         ) {
+            // A wrapped value (`(Logger).mix`) is the same application — unwrap before
+            // resolving; the ban must not be dodgeable with a pair of parentheses.
+            const target = unwrapParentheses(tsInstance, node.expression)
             // Lexical resolution: a plain class shadowing a mixin name in a nearer scope
             // makes `X.mix` an ordinary (failing) property access, not a manual application.
             // A QUALIFIED base (`lib.Logger.mix`) resolves by its dotted text.
-            const ref = tsInstance.isIdentifier(node.expression)
-                ? resolveLexicalMixinRef(tsInstance, node.expression, node.expression.text, context)
-                : dottedTextRef(tsInstance, node.expression, context)
+            const ref = tsInstance.isIdentifier(target)
+                ? resolveLexicalMixinRef(tsInstance, target, target.text, context)
+                : dottedTextRef(tsInstance, target, context)
+            // The dotted text is in `byLocalName` only when some class also `implements` it;
+            // a bare `lib.Logger.mix(...)` use resolves through the namespace-import binding
+            // and the registry directly.
+            const className = ref !== undefined && isProgramLocalMixinRef(ref, context)
+                ? ref.className
+                : ref === undefined
+                    ? namespaceQualifiedProgramMixinName(tsInstance, sourceFile, target, context, facts)
+                    : undefined
 
-            if (ref !== undefined && isProgramLocalMixinRef(ref, context)) {
+            if (className !== undefined) {
                 context.nativeDiagnostics.push(nativeDiagnosticOn(
                     tsInstance,
                     sourceFile,
                     node,
                     mixinDiagnosticCode.MixinManualApplication,
-                    manualMixinApplicationMessage(ref)
+                    manualMixinApplicationMessage(className)
                 ))
             }
         }
@@ -275,6 +291,55 @@ export function pushManualMixinApplicationDiagnostics(
     }
 
     tsInstance.forEachChild(sourceFile, visit)
+}
+
+function unwrapParentheses(tsInstance: TypeScript, expression: ts.Expression): ts.Expression {
+    let current = expression
+
+    while (tsInstance.isParenthesizedExpression(current)) {
+        current = current.expression
+    }
+
+    return current
+}
+
+// `ns.Member` where `ns` is a NAMESPACE import of a program source file and `Member` is a
+// registered mixin of that module: the program-local class name, undefined otherwise.
+function namespaceQualifiedProgramMixinName(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    expression: ts.Expression,
+    context: FileMixinContext,
+    facts: SourceFileFacts
+): string | undefined {
+    const crossFile = context.crossFile
+
+    if (crossFile === undefined ||
+        !tsInstance.isPropertyAccessExpression(expression) ||
+        !tsInstance.isIdentifier(expression.expression) ||
+        !tsInstance.isIdentifier(expression.name)
+    ) {
+        return undefined
+    }
+
+    const namespaceName = expression.expression.text
+    const specifier     = facts.imports.find((importFacts) => importFacts.namespaceName === namespaceName)?.specifier
+
+    if (specifier === undefined) {
+        return undefined
+    }
+
+    const resolvedFileName = crossFile.resolveModuleFileName(specifier, sourceFile.fileName)
+
+    if (resolvedFileName === undefined) {
+        return undefined
+    }
+
+    const registered = crossFile.registry.get(registryKey(resolvedFileName, expression.name.text))
+
+    return registered !== undefined && !isDeclarationFileName(registered.fileName)
+        ? registered.name
+        : undefined
 }
 
 // The by-name ref of an all-identifier dotted expression (`lib.Logger`), for the ban scan.
@@ -305,11 +370,11 @@ function isProgramLocalMixinRef(ref: ResolvedMixinRef, context: FileMixinContext
     return registered !== undefined && !isDeclarationFileName(registered.fileName)
 }
 
-function manualMixinApplicationMessage(ref: ResolvedMixinRef): string {
+function manualMixinApplicationMessage(className: string): string {
     return "Manual mixin application inside a transformer program. " +
-        `${ref.className}.mix(...) is reserved for external (non-transformer) consumers of this ` +
+        `${className}.mix(...) is reserved for external (non-transformer) consumers of this ` +
         "package's emitted declarations; in this program the transformer composes mixins from the " +
-        `class heritage. Fix: declare 'class X extends YourBase implements ${ref.className}' ` +
-        `(or just 'implements ${ref.className}' for a base-less class) instead of extending ` +
-        `${ref.className}.mix(...).`
+        `class heritage. Fix: declare 'class X extends YourBase implements ${className}' ` +
+        `(or just 'implements ${className}' for a base-less class) instead of extending ` +
+        `${className}.mix(...).`
 }

@@ -39,7 +39,7 @@ export function expressionToEntityName(tsInstance: TypeScript, expression: ts.Ex
 // then a property access off the namespace object, and the type-query form a qualified
 // name. A plain name stays a bare identifier. Dots never appear in class names, so the
 // split is unambiguous.
-function dottedNameToExpression(tsInstance: TypeScript, name: string): ts.Expression {
+export function dottedNameToExpression(tsInstance: TypeScript, name: string): ts.Expression {
     const factory = tsInstance.factory
 
     return name.split(".").map((part): ts.Expression => factory.createIdentifier(part))

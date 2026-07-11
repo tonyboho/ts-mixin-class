@@ -4,9 +4,10 @@ import {
     MixinTransformError,
     rewriteTypeReferences
 } from "./expand-util.js"
-import { dottedExpressionText } from "./entity-name.js"
+import { dottedExpressionText, dottedNameToEntityName, dottedNameToExpression } from "./entity-name.js"
 import {
     type ImportMap,
+    transplantableConfigProperties,
     uniqueConfigProperties,
     type ConfigProperty,
     type CrossFileContext,
@@ -370,7 +371,7 @@ function createConstructionConfig(
 ): ConstructionConfig {
     const factory = tsInstance.factory
 
-    const properties              = staticConstructionConfigProperties(
+    const properties                  = staticConstructionConfigProperties(
         tsInstance,
         sourceFile,
         declaration,
@@ -381,40 +382,50 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
-    const requiredNames: string[] = []
-    const optionalNames: string[] = []
+    const requiredKeys: ts.TypeNode[] = []
+    const optionalKeys: ts.TypeNode[] = []
     // Settable accessors that carry a setter type are emitted as explicit members (typed by
     // the setter, not the getter a `Pick` would read); everything else goes through `Pick`.
-    const explicitMembers: ts.PropertySignature[] = []
+    // Class index signatures ride the same explicit literal as cloned index members, so a
+    // config object's bag keys stay value-constrained.
+    const explicitMembers: ts.TypeElement[] = []
 
     for (const property of properties) {
         if (property.valueType !== undefined) {
             explicitMembers.push(factory.createPropertySignature(
                 undefined,
-                factory.createIdentifier(property.name),
+                configPropertyName(tsInstance, property),
                 property.optional ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
                 deepCloneNode(tsInstance, property.valueType)
             ))
         } else if (property.optional) {
-            optionalNames.push(property.name)
+            optionalKeys.push(configKeyType(tsInstance, property))
         } else {
-            requiredNames.push(property.name)
+            requiredKeys.push(configKeyType(tsInstance, property))
         }
     }
 
+    for (const indexSignature of facts.classesByDeclaration.get(declaration)?.indexSignatures ?? []) {
+        explicitMembers.push(deepCloneNode(tsInstance, factory.createIndexSignature(
+            undefined,
+            indexSignature.parameters,
+            indexSignature.type
+        )))
+    }
+
     const consumerType = createConsumerInstanceType(tsInstance, declaration)
-    const requiredType = requiredNames.length === 0
+    const requiredType = requiredKeys.length === 0
         ? undefined
         : factory.createTypeReferenceNode("Pick", [
             consumerType,
-            literalKeyUnionType(tsInstance, requiredNames)
+            keyUnionType(tsInstance, requiredKeys)
         ])
-    const optionalType = optionalNames.length === 0
+    const optionalType = optionalKeys.length === 0
         ? undefined
         : factory.createTypeReferenceNode("Partial", [
             factory.createTypeReferenceNode("Pick", [
                 consumerType,
-                literalKeyUnionType(tsInstance, optionalNames)
+                keyUnionType(tsInstance, optionalKeys)
             ])
         ])
     const explicitType = explicitMembers.length === 0
@@ -499,17 +510,47 @@ function staticConstructionConfigProperties(
     ])
 }
 
-function literalKeyUnionType(
+function keyUnionType(
     tsInstance: TypeScript,
-    names: string[]
+    keys: ts.TypeNode[]
+): ts.TypeNode {
+    return keys.length === 1 ? keys[0] : tsInstance.factory.createUnionTypeNode(keys)
+}
+
+// The `Pick` key type of one config property: a NUMERIC literal for a numeric name
+// (`keyof` yields `0`, never `"0"`, for a `public 0` / `public "0"` member), `typeof
+// <entity>` for a computed key (const-string and unique-symbol keys alike), and a
+// string literal otherwise.
+function configKeyType(
+    tsInstance: TypeScript,
+    property: ConfigProperty
 ): ts.TypeNode {
     const factory = tsInstance.factory
 
-    return names.length === 1
-        ? factory.createLiteralTypeNode(factory.createStringLiteral(names[0]))
-        : factory.createUnionTypeNode(names.map((name) => {
-            return factory.createLiteralTypeNode(factory.createStringLiteral(name))
-        }))
+    if (property.computedKeyName !== undefined) {
+        return factory.createTypeQueryNode(dottedNameToEntityName(tsInstance, property.computedKeyName))
+    }
+
+    return /^\d+$/.test(property.name)
+        ? factory.createLiteralTypeNode(factory.createNumericLiteral(property.name))
+        : factory.createLiteralTypeNode(factory.createStringLiteral(property.name))
+}
+
+// An explicit config member's name: computed (`[field]`) for a computed key, a plain
+// identifier/string-literal name otherwise.
+function configPropertyName(
+    tsInstance: TypeScript,
+    property: ConfigProperty
+): ts.PropertyName {
+    const factory = tsInstance.factory
+
+    if (property.computedKeyName !== undefined) {
+        return factory.createComputedPropertyName(dottedNameToExpression(tsInstance, property.computedKeyName))
+    }
+
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(property.name)
+        ? factory.createIdentifier(property.name)
+        : factory.createStringLiteral(property.name)
 }
 
 function createConsumerInstanceType(
@@ -669,11 +710,16 @@ function substituteMixinConfigTypeParameters(
     declaration: ts.ClassDeclaration,
     ref: ResolvedMixinRef
 ): ConfigProperty[] {
-    const typeParameters = ref.declaration?.typeParameters
+    // An IMPORTED mixin's computed keys reference module-scoped consts/symbols of the
+    // declaring file — unspellable here, so they leave the compile-time config.
+    const configProperties = ref.declaration === undefined
+        ? transplantableConfigProperties(ref.configProperties)
+        : ref.configProperties
+    const typeParameters   = ref.declaration?.typeParameters
 
     if (typeParameters === undefined || typeParameters.length === 0 ||
-        ref.configProperties.every((property) => property.valueType === undefined)) {
-        return ref.configProperties
+        configProperties.every((property) => property.valueType === undefined)) {
+        return configProperties
     }
 
     const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
@@ -688,7 +734,7 @@ function substituteMixinConfigTypeParameters(
         )
     })
 
-    return ref.configProperties.map((property) => property.valueType === undefined
+    return configProperties.map((property) => property.valueType === undefined
         ? property
         : { ...property, valueType: substituteTypeReferences(tsInstance, property.valueType, replacements) })
 }

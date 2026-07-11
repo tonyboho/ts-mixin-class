@@ -81,3 +81,86 @@ it("an editor edit under NodeNext does not crash tsserver on the incremental reb
         await fixture.dispose()
     }
 })
+
+const incompleteVariants = [
+    `import { mixin } from "ts-mixin-class"\n@mixin() class M {}\nclass C implements `,
+    `import { mixin } from "ts-mixin-class"\nnamespace NS { @mixin() export class M {} }\nclass C implements NS.`,
+    `import { mixin } from "ts-mixin-class"\n@mixin() class M<T> {}\nclass C implements M<`,
+    `import { mixin } from "ts-mixin-class"\n@mixin() class M {}\nclass Base {}\nclass C extends M.mix(`,
+    `import { mixin } from "ts-mixin-class"\n@mixin(`
+]
+
+it("targeted incomplete mixin syntax never drops transforms from unrelated files", async (t: Test) => {
+    const initial = trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class M {
+        }
+
+        class C implements M {
+        }
+    `)
+    const stable  = trimIndent(`
+        import { Base } from "ts-mixin-class"
+
+        export class Stable extends Base {
+            value!: string
+        }
+
+        export const stable = Stable.new({ value: "ok" })
+    `)
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            { fileName: "editing.ts", text: initial },
+            { fileName: "stable.ts", text: stable }
+        ]
+    })
+    const session = openTsServerSession(fixture.directory)
+
+    try {
+        const editingFile = requiredFixtureSourceFile(fixture.sourceFiles, "editing.ts")
+        const stableFile  = requiredFixtureSourceFile(fixture.sourceFiles, "stable.ts")
+        let current       = initial
+
+        await session.open(editingFile, current)
+        await session.open(stableFile, stable)
+
+        for (const incomplete of incompleteVariants) {
+            const end = positionToLineOffset(current, current.length)
+
+            await session.request("change", {
+                file         : editingFile,
+                line         : 1,
+                offset       : 1,
+                endLine      : end.line,
+                endOffset    : end.offset,
+                insertString : incomplete
+            })
+            current = incomplete
+
+            const editedDiagnostics = await session.request("semanticDiagnosticsSync", { file: editingFile })
+            const stableDiagnostics = await session.request("semanticDiagnosticsSync", { file: stableFile })
+
+            t.is(
+                editedDiagnostics.success,
+                true,
+                `semantic diagnostics survive incomplete suffix ${JSON.stringify(incomplete.slice(-16))}`
+            )
+            t.is(
+                stableDiagnostics.success,
+                true,
+                "an unrelated construction file remains in the transformed Program"
+            )
+            t.eq(
+                (stableDiagnostics.body as unknown[] | undefined) ?? [],
+                [],
+                "the unrelated Stable.new call remains correctly typed after the incomplete edit"
+            )
+        }
+    } finally {
+        await session.close()
+        await fixture.dispose()
+    }
+})

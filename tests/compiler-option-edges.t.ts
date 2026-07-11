@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { it } from "@bryntum/siesta/nodejs.js"
@@ -230,6 +230,63 @@ it("a CommonJS project compiles and RUNS (require() of the ESM package)", async 
 
         t.equal(run.exitCode, 0, `the CJS output runs.\n${commandOutput(run)}`)
         t.equal(run.stdout.trim(), "out=hi", "the mixin chain works from CommonJS")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("legacy emitDecoratorMetadata is emitted from transformed mixin members and parameters", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        compilerOptions        : { emitDecoratorMetadata: true },
+        sourceFiles            : [ {
+            fileName : "source.ts",
+            text     : trimIndent(`
+                import { mixin } from "ts-mixin-class"
+
+                function member(target: object, key: string | symbol): void {
+                    void [ target, key ]
+                }
+
+                function parameter(target: object, key: string | symbol | undefined, index: number): void {
+                    void [ target, key, index ]
+                }
+
+                @mixin()
+                class Reflected {
+                    @member
+                    created!: Date
+
+                    @member
+                    format(@parameter count: number): string {
+                        return String(count)
+                    }
+                }
+
+                class Consumer implements Reflected {
+                }
+
+                void new Consumer().format(1)
+            `)
+        } ]
+    })
+
+    try {
+        const emit = await runCommand(
+            "node",
+            [ path.join(packageRoot, "node_modules", "typescript", "bin", "tsc"), "-p", fixture.tsconfigFile ],
+            fixture.directory
+        )
+
+        t.equal(emit.exitCode, 0, `legacy metadata fixture compiles.\n${commandOutput(emit)}`)
+
+        const js = emit.exitCode === 0
+            ? await readFile(path.join(fixture.directory, "dist", "source.js"), "utf8")
+            : ""
+
+        t.match(js, '"design:type", Date', "the decorated data field retains design:type")
+        t.match(js, '"design:paramtypes", [Number]', "the decorated method retains parameter metadata")
+        t.match(js, '"design:returntype", String', "the decorated method retains return metadata")
     } finally {
         await fixture.dispose()
     }

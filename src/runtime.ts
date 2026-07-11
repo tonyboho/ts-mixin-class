@@ -58,8 +58,12 @@ export type ConstructionMixinClassValue<
 > =
     Omit<ClassStatics<ReturnType<Factory>>, "new">
     & {
+        // The application drops the factory's inherited `new` for the same reason the value
+        // form above does — otherwise it rides the intersection next to the FACTUAL base's
+        // own generated `.new` (`ClassStatics<Base>` in MixinApplication) and wins overload
+        // fallback, silently widening the config to `unknown` and the result to `Base`.
         readonly mix: <Base extends AnyConstructor<RequiredBase>>(base: Base) =>
-            MixinApplication<Base, Instance, ReturnType<Factory>>
+            MixinApplication<Base, Instance, Omit<ClassStatics<ReturnType<Factory>>, "new">>
     }
 
 // Internal per-mixin metadata is stored directly on the mixin constructor under this

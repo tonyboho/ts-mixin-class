@@ -394,6 +394,16 @@ Violating any of these produces confusing tsserver errors or crashes.
     matching text the checker can read. (Emit is immune: it reprints real text and reparses.) The
     construction config alias depends on this — its current realization is Construction invariant #10.
 
+10a. **The PRINTER also reads literal text from source positions — synthesize before printing a
+    collapsed subtree.** `getLiteralTextOfNode` prints a non-synthesized (`pos >= 0`) literal by
+    SLICING the source file at its range; a generated literal whose subtree was collapsed to a real
+    zero-width range prints as NOTHING. A string literal happens to fall back to re-quoting `.text`,
+    which masked this for years — a NUMERIC literal does not (`Pick<Exotic, 0>` printed as
+    `Pick<Exotic, >`, and the appended-alias reparse then swallowed the whole `<Name>Config` alias:
+    TS2304 with a position-garbage name). Anything that `printNode`s a generated subtree must first
+    collapse the CLONE to `{pos: -1, end: -1}` (see `appendGeneratedConfigAliasesAsRealText`) so
+    every node kind prints from its `.text`.
+
 11. **Source view is position-preserving WITHOUT a source map — never insert *visible* text inside a
     position-preserved span.** The source-view plane does not reprint+remap (that is the emit path);
     the printed transformed text must occupy the SAME offsets as the original so the language service

@@ -3,6 +3,7 @@ import type * as ts from "typescript"
 import {
     isPackageBaseExpression
 } from "./construction-chain.js"
+import { collectTypeReferenceNames } from "./expand-util.js"
 import {
     uniqueConfigProperties,
     type ConfigProperty,
@@ -98,6 +99,38 @@ function configPropertiesFromConstructionNewParam(
         return configPropertiesFromConstructionNewParam(tsInstance, typeNode.type, optional, configAliases, seenAliases)
     }
 
+    // A published config's EXPLICIT members (`{ scale?: number | string }` — the emit spells
+    // settable-accessor keys out so the SETTER type survives, see construction-config).
+    // Generated explicit members are always optional; the value type is carried only when
+    // self-contained (no named type references), since the node transplants verbatim into
+    // the consuming file — a referencing type degrades to the name-only `Pick` typing.
+    if (tsInstance.isTypeLiteralNode(typeNode)) {
+        return uniqueConfigProperties(typeNode.members.flatMap((member) => {
+            if (!tsInstance.isPropertySignature(member)) {
+                return []
+            }
+
+            const name = propertyNameText(tsInstance, member.name)
+
+            if (name === undefined) {
+                return []
+            }
+
+            const memberOptional = optional || member.questionToken !== undefined
+            const references     = member.type === undefined
+                ? undefined
+                : collectTypeReferenceNames(tsInstance, member.type)
+
+            return [ {
+                name,
+                optional  : memberOptional,
+                valueType : memberOptional && references !== undefined && references.size === 0
+                    ? member.type
+                    : undefined
+            } ]
+        }))
+    }
+
     if (!tsInstance.isTypeReferenceNode(typeNode) || !tsInstance.isIdentifier(typeNode.typeName)) {
         return []
     }
@@ -146,6 +179,7 @@ export function collectDeclarationFileMixinCandidates(
     const candidates: Candidate[] = []
     const interfaces              = new Map<string, ts.InterfaceDeclaration>()
     const defaultExportNames      = new Set<string>()
+    const configAliases           = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
 
     for (const statement of sourceFile.statements) {
         if (tsInstance.isInterfaceDeclaration(statement)) {
@@ -189,6 +223,14 @@ export function collectDeclarationFileMixinCandidates(
             const requiredBaseIsPackageBase = requiredBaseIdentifier !== undefined &&
                 isPackageBaseExpression(tsInstance, requiredBaseIdentifier, options, facts)
             const extendsNames              = interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text))
+            // A construction mixin's published value carries its EXACT config through the
+            // generated `"new"(props?: <Name>Config)` member — names, optionality AND the
+            // spelled-out setter types. The interface is the fallback only: it erases both
+            // the explicit-`public` convention and initializer-implied optionality (every
+            // bare property signature would read as a required key).
+            const newParamConfig = requiredBaseIsPackageBase
+                ? mixinValueNewConfigProperties(tsInstance, declaration.type, configAliases)
+                : undefined
 
             candidates.push({
                 sourceFile,
@@ -196,9 +238,10 @@ export function collectDeclarationFileMixinCandidates(
                 dependencyNames : requiredBaseIsPackageBase
                     ? extendsNames.filter((name) => name !== requiredBaseIdentifier.text)
                     : extendsNames,
-                requiredBaseName    : requiredBaseIsPackageBase ? requiredBaseIdentifier.text : undefined,
+                requiredBaseName : requiredBaseIsPackageBase ? requiredBaseIdentifier.text : undefined,
                 requiredBaseIsPackageBase,
-                configProperties    : interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
+                configProperties : newParamConfig ??
+                    interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
                 declarationHeritage : true,
                 defaultExport
             })
@@ -206,6 +249,49 @@ export function collectDeclarationFileMixinCandidates(
     }
 
     return candidates
+}
+
+// The exact config of a published construction mixin, read off the generated
+// `"new"(props?: <Name>Config)` member of its declared value type — undefined when no
+// such member exists (a non-construction mixin, or an older emit shape).
+function mixinValueNewConfigProperties(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    configAliases: Map<string, ts.TypeNode>
+): ConfigProperty[] | undefined {
+    const configType = mixinValueNewConfigType(tsInstance, typeNode)
+
+    return configType === undefined
+        ? undefined
+        : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set())
+}
+
+function mixinValueNewConfigType(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.TypeNode | undefined {
+    if (tsInstance.isIntersectionTypeNode(typeNode)) {
+        for (const type of typeNode.types) {
+            const found = mixinValueNewConfigType(tsInstance, type)
+
+            if (found !== undefined) {
+                return found
+            }
+        }
+
+        return undefined
+    }
+
+    if (tsInstance.isParenthesizedTypeNode(typeNode)) {
+        return mixinValueNewConfigType(tsInstance, typeNode.type)
+    }
+
+    if (!tsInstance.isTypeLiteralNode(typeNode)) {
+        return undefined
+    }
+
+    const newMember = typeNode.members.find((member): member is ts.MethodSignature =>
+        tsInstance.isMethodSignature(member) &&
+        propertyNameText(tsInstance, member.name) === "new")
+
+    return newMember?.parameters[0]?.type
 }
 
 // Locates the `RuntimeMixinClass<…>` marker type reference inside a mixin value's
@@ -293,11 +379,8 @@ function interfaceConfigProperties(
     }
 
     return uniqueConfigProperties(
-        declaration.members
-            .filter((member): member is ts.PropertySignature => {
-                return tsInstance.isPropertySignature(member) && member.name !== undefined
-            })
-            .flatMap((member) => {
+        declaration.members.flatMap((member) => {
+            if (tsInstance.isPropertySignature(member)) {
                 const name = propertyNameText(tsInstance, member.name)
 
                 return name === undefined
@@ -306,7 +389,35 @@ function interfaceConfigProperties(
                         name,
                         optional : member.questionToken !== undefined
                     } ]
-            })
+            }
+
+            // A published SET accessor is assignable through `.new`'s Object.assign, so it is
+            // a config key exactly like a program-local one. Its setter type node is carried
+            // only when SELF-CONTAINED (keywords/literals — no named type references): the
+            // node transplants into the consumer's file verbatim, and a name from the
+            // declaration file would dangle there. A referencing setter type falls back to
+            // the `Pick` path (getter-typed) — the documented narrower limitation.
+            if (tsInstance.isSetAccessorDeclaration(member)) {
+                const name = propertyNameText(tsInstance, member.name)
+
+                if (name === undefined) {
+                    return []
+                }
+
+                const parameterType = member.parameters[0]?.type
+                const references    = parameterType === undefined
+                    ? undefined
+                    : collectTypeReferenceNames(tsInstance, parameterType)
+
+                return [ {
+                    name,
+                    optional  : true,
+                    valueType : references !== undefined && references.size === 0 ? parameterType : undefined
+                } ]
+            }
+
+            return []
+        })
     )
 }
 

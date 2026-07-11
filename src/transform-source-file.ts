@@ -89,7 +89,7 @@ export function transformSourceFile(
     )
 
     pushAnonymousClassExpressionDiagnostics(tsInstance, sourceFile, facts, context, mixinDecoratorImports, resolvedOptions)
-    pushManualMixinApplicationDiagnostics(tsInstance, sourceFile, context)
+    pushManualMixinApplicationDiagnostics(tsInstance, sourceFile, context, facts)
 
     // Resolves local base identifiers to cross-file construction-base entries.
     // Built lazily, only when a class actually needs construction-base resolution.

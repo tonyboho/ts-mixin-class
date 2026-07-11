@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 
+import { collapseSubtreeTextRange } from "./text-range.js"
 import { deepCloneNode, scriptKindFromFileName } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -36,13 +37,22 @@ export function appendGeneratedConfigAliasesAsRealText(
         return transformed
     }
 
-    const printer      = tsInstance.createPrinter({ removeComments: true })
-    const aliasText    = aliases
-        .map((alias) => printer.printNode(
-            tsInstance.EmitHint.Unspecified,
-            deepCloneNode(tsInstance, alias),
-            transformed
-        ))
+    const printer   = tsInstance.createPrinter({ removeComments: true })
+    const aliasText = aliases
+        .map((alias) => {
+            const clone = deepCloneNode(tsInstance, alias)
+
+            // Print from node TEXT, never from source slices: the alias subtree was
+            // collapsed to a REAL zero-width range (positionConstructionConfigAlias), and
+            // the printer reads a non-synthesized literal's text from the SOURCE at its
+            // position — an empty slice for zero width. A string literal happens to
+            // re-quote from `.text`, but a NUMERIC literal prints as nothing
+            // (`Pick<Exotic, >`), and the reparsed garbage then swallows the alias.
+            // Fully synthetic positions force text-based printing for every node kind.
+            collapseSubtreeTextRange(tsInstance, clone, { pos: -1, end: -1 })
+
+            return printer.printNode(tsInstance.EmitHint.Unspecified, clone, transformed)
+        })
         .join("\n")
     const combinedText = `${transformed.text}\n${aliasText}\n`
 

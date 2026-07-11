@@ -49,6 +49,9 @@ type SignatureHelpBody = {
 }
 type NavTreeNode = { text?: string, childItems?: NavTreeNode[] }
 type OutliningSpan = { textSpan?: { start: unknown } }
+type ProtocolSpan = { start?: { line?: number, offset?: number }, end?: { line?: number, offset?: number } }
+type FileSpan = { file?: string, start?: { line?: number, offset?: number }, end?: { line?: number, offset?: number } }
+type HighlightGroup = { file?: string, highlightSpans?: Array<{ start?: { line?: number }, end?: { line?: number } }> }
 
 function collectNavTreeTexts(node: NavTreeNode | undefined, out: string[] = []): string[] {
     if (node === undefined) {
@@ -113,6 +116,60 @@ it("signature help, navtree and outlining spans work over the transformed source
         const spans = (outlining.body as OutliningSpan[] | undefined) ?? []
 
         t.true(spans.length > 0, "folding spans are produced for the transformed file")
+    } finally {
+        await session.close()
+        await fixture.dispose()
+    }
+})
+
+it("type definition, implementation and document highlights filter generated declarations", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : true,
+        sourceFiles            : [ { fileName: "source.ts", text } ]
+    })
+    const session = openTsServerSession(fixture.directory)
+
+    try {
+        const file = requiredFixtureSourceFile(fixture.sourceFiles, "source.ts")
+
+        await session.open(file, text)
+
+        const panelUse        = text.indexOf("Panel.new")
+        const panelPos        = positionToLineOffset(text, panelUse)
+        const typeDefinition  = await session.request("typeDefinition", { file, ...panelPos })
+        const typeDefinitions = (typeDefinition.body as FileSpan[] | undefined) ?? []
+
+        t.is(typeDefinition.success, true, `typeDefinition answers: ${(typeDefinition.message ?? "").split("\n")[0]}`)
+        t.true(typeDefinitions.length > 0, "the construction consumer has a type definition")
+        t.true(typeDefinitions.every((entry) => entry.file === file), "type definitions stay in the user's source file")
+
+        const describeUse     = text.indexOf("this.describe") + "this.".length
+        const describePos     = positionToLineOffset(text, describeUse)
+        const implementation  = await session.request("implementation", { file, ...describePos })
+        const implementations = (implementation.body as FileSpan[] | undefined) ?? []
+
+        t.is(implementation.success, true, `implementation answers: ${(implementation.message ?? "").split("\n")[0]}`)
+        t.true(implementations.length > 0, "the inherited mixin method resolves to an implementation")
+        t.true(implementations.every((entry) => entry.file === file), "no generated helper file leaks into implementations")
+
+        const highlights = await session.request("documentHighlights", {
+            file,
+            ...panelPos,
+            filesToSearch : [ file ]
+        })
+        const groups     = (highlights.body as HighlightGroup[] | undefined) ?? []
+
+        t.is(highlights.success, true, `documentHighlights answers: ${(highlights.message ?? "").split("\n")[0]}`)
+        t.true(groups.length > 0, "the consumer name has document highlights")
+        t.true(groups.every((group) => group.file === file), "highlight groups stay on the real file")
+        t.true(
+            groups.flatMap((group) => group.highlightSpans ?? []).every((span) => {
+                const candidate = span as ProtocolSpan
+
+                return (candidate.start?.line ?? 0) > 0 && (candidate.end?.line ?? 0) > 0
+            }),
+            "every highlight is a real positive source span"
+        )
     } finally {
         await session.close()
         await fixture.dispose()

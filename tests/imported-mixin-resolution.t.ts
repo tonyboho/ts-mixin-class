@@ -382,6 +382,86 @@ it("resolves two namespace imports exposing the SAME member name to their own mo
     )
 })
 
+const genericNamespaceMixin = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    @mixin()
+    export class Box<T> {
+        value!: T
+
+        read(): T { return this.value }
+    }
+`)
+
+for (const importKind of [ "value", "type-only" ] as const) {
+    it(`resolves a ${importKind} namespace-qualified GENERIC mixin application`, async (t: Test) => {
+        const namespaceImport        = importKind === "value"
+            ? `import * as lib from "./box"`
+            : `import type * as lib from "./box"`
+        const { result, consumerJs } = await build([
+            { fileName: "box.ts", text: genericNamespaceMixin },
+            {
+                fileName : "consumer.ts",
+                text     : trimIndent(`
+                    ${namespaceImport}
+
+                    export class NumberBox implements lib.Box<number> {
+                    }
+
+                    const box = new NumberBox()
+                    box.value = 3
+
+                    const value: number = box.read()
+
+                    // @ts-expect-error the qualified generic argument is preserved
+                    box.value = "wrong"
+
+                    void value
+                `)
+            }
+        ])
+
+        t.equal(result.exitCode, 0, `${importKind} qualified generic mixin compiles.\n${commandOutput(result)}`)
+        t.match(consumerJs, "Box", `the emitted runtime chain contains the resolved generic mixin value.\n${consumerJs}`)
+
+        if (importKind === "type-only") {
+            t.match(consumerJs, "mixinValue", "the erased namespace receives a generated runtime value import")
+        }
+    })
+}
+
+it("a local namespace generic construction mixin contributes a substituted config", async (t: Test) => {
+    const { result } = await build([
+        {
+            fileName : "consumer.ts",
+            text     : trimIndent(`
+                import { Base, mixin } from "ts-mixin-class"
+
+                namespace NS {
+                    @mixin()
+                    export class Boxed<T> extends Base {
+                        public value!: T
+                    }
+                }
+
+                export class StringBox extends Base implements NS.Boxed<string> {
+                    public own!: number
+                }
+
+                const box = StringBox.new({ value: "ok", own: 1 })
+                const value: string = box.value
+
+                // @ts-expect-error the namespace-qualified T is substituted with string
+                StringBox.new({ value: 1, own: 1 })
+
+                void value
+            `)
+        }
+    ])
+
+    t.equal(result.exitCode, 0, `the qualified generic config is collected and substituted.\n${commandOutput(result)}`)
+})
+
 // A THREE-level qualified name (`Outer.Inner.Deep`) is NOT resolved — only the two-level
 // `ns.Member` form is supported (deeper chains would need nested-namespace modelling). The
 // boundary must DEGRADE GRACEFULLY: the consumer is left untransformed, so plain TypeScript

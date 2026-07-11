@@ -5,6 +5,7 @@ import {
     importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
     registryKey,
+    transplantableConfigProperties,
     uniqueConfigProperties,
     type ConfigProperty,
     type ConstructionBaseEntry,
@@ -329,7 +330,11 @@ export function baseConfigProperties(
         const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
 
         if (qualifiedBase === undefined) {
-            return resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.configProperties ?? []
+            // Cross-file config: computed keys reference module-scoped consts/symbols of
+            // the DECLARING file and cannot be spelled here — strip them.
+            return transplantableConfigProperties(
+                resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)?.configProperties ?? []
+            )
         }
 
         return localClassConfigProperties(tsInstance, sourceFile, qualifiedBase, facts, crossFile, baseImportMap, seen)
@@ -382,10 +387,11 @@ function configPropertiesForName(
     const baseEntry = resolveCrossFileConstructionBase(name, crossFile, baseImportMap)
 
     if (baseEntry !== undefined) {
-        return baseEntry.configProperties
+        // Computed keys cannot be spelled outside their declaring file.
+        return transplantableConfigProperties(baseEntry.configProperties)
     }
 
-    return importedMixinConfigProperties(name, crossFile, baseImportMap, seen)
+    return transplantableConfigProperties(importedMixinConfigProperties(name, crossFile, baseImportMap, seen))
 }
 
 function importedMixinConfigProperties(

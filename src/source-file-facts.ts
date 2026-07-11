@@ -36,6 +36,9 @@ export type ClassFacts = {
     implementsQualifiedNames  : string[],
     requiredBaseName          : string | undefined,
     configProperties          : ConfigProperty[],
+    // Non-static index signatures of the class body — cloned into the generated
+    // construction config so a `.new` config object's bag keys stay value-constrained.
+    indexSignatures           : ts.IndexSignatureDeclaration[],
     staticNames               : Set<string>,
     hasStaticNew              : boolean,
     hasMixinDecorator         : boolean
@@ -279,7 +282,8 @@ function importFacts(
 
 type ClassMemberFacts = {
     staticNames      : Set<string>,
-    configProperties : ConfigProperty[]
+    configProperties : ConfigProperty[],
+    indexSignatures  : ts.IndexSignatureDeclaration[]
 }
 
 function classFacts(
@@ -322,6 +326,9 @@ function classFacts(
         get configProperties() {
             return getMemberFacts().configProperties
         },
+        get indexSignatures() {
+            return getMemberFacts().indexSignatures
+        },
         get staticNames() {
             return getMemberFacts().staticNames
         },
@@ -336,8 +343,9 @@ function collectClassMemberFacts(
     tsInstance: TypeScript,
     declaration: ts.ClassDeclaration
 ): ClassMemberFacts {
-    const staticNames                        = new Set<string>()
-    const configProperties: ConfigProperty[] = []
+    const staticNames                                     = new Set<string>()
+    const configProperties: ConfigProperty[]              = []
+    const indexSignatures: ts.IndexSignatureDeclaration[] = []
 
     for (const member of declaration.members) {
         // Fetch modifiers once per member: getModifiers allocates, and the
@@ -351,13 +359,29 @@ function collectClassMemberFacts(
 
         if (hasModifierKind(tsInstance.SyntaxKind.StaticKeyword)) {
             if (member.name !== undefined) {
-                const name = propertyNameText(tsInstance, member.name)
+                // A computed static name (`static [shared]`) is recorded as `[shared]` — the
+                // bracketed spelling keeps it distinct from a string-named `shared` static
+                // (different runtime keys must never merge) while still naming the colliding
+                // member in the static-collision diagnostic. The TYPE-level conflict check
+                // (`StaticConflictKeys`, keyof-based) sees symbol keys either way; this
+                // syntactic set gates whether that validation is emitted at all.
+                const name = propertyNameText(tsInstance, member.name) ??
+                    computedPropertyNameText(tsInstance, member.name)
 
                 if (name !== undefined) {
                     staticNames.add(name)
                 }
             }
 
+            continue
+        }
+
+        // A class INDEX SIGNATURE constrains what a config object may carry for its key
+        // domain — it flows into the generated config as a cloned index member (index
+        // signatures take no accessibility modifier, so the explicit-`public` convention
+        // cannot apply; they are collected unconditionally).
+        if (tsInstance.isIndexSignatureDeclaration(member)) {
+            indexSignatures.push(member)
             continue
         }
 
@@ -371,13 +395,21 @@ function collectClassMemberFacts(
             !hasModifierKind(tsInstance.SyntaxKind.ProtectedKeyword) &&
             hasModifierKind(tsInstance.SyntaxKind.PublicKeyword)
         ) {
-            const name = propertyNameText(tsInstance, member.name)
+            const name            = propertyNameText(tsInstance, member.name)
+            const computedKeyName = name === undefined
+                ? computedKeyEntityText(tsInstance, member.name)
+                : undefined
 
-            if (name !== undefined) {
+            if (name !== undefined || computedKeyName !== undefined) {
                 // Carry the setter's parameter type so the config field is typed by what the
                 // setter accepts (which `.new`'s `Object.assign` invokes), not the getter
                 // type a `Pick<Class, name>` would read for a split get/set accessor.
-                configProperties.push({ name, optional: true, valueType: member.parameters[0]?.type })
+                configProperties.push({
+                    name      : name ?? `[${computedKeyName}]`,
+                    optional  : true,
+                    valueType : member.parameters[0]?.type,
+                    computedKeyName
+                })
             }
 
             continue
@@ -391,24 +423,58 @@ function collectClassMemberFacts(
             continue
         }
 
-        const name = propertyNameText(tsInstance, member.name)
+        const name            = propertyNameText(tsInstance, member.name)
+        const computedKeyName = name === undefined
+            ? computedKeyEntityText(tsInstance, member.name)
+            : undefined
 
-        if (name !== undefined) {
+        if (name !== undefined || computedKeyName !== undefined) {
             // A config key is REQUIRED only when the field carries a definite-assignment `!`
             // (`public id!: T`); every other public field is an optional config key. The `!`
             // reads as "supplied from outside" — exactly true for a value coming from `.new`'s
             // config — and lets the field omit an initializer without a strict-init error.
+            // A COMPUTED key (`public [field]!`) keys the config through `typeof field`
+            // (`Pick<Class, typeof field>` handles const-string and unique-symbol keys alike).
             configProperties.push({
-                name,
-                optional : member.exclamationToken === undefined
+                name     : name ?? `[${computedKeyName}]`,
+                optional : member.exclamationToken === undefined,
+                computedKeyName
             })
         }
     }
 
     return {
         staticNames,
+        indexSignatures,
         configProperties : uniqueConfigProperties(configProperties)
     }
+}
+
+// The dotted entity text of a computed property name over an identifier / dotted
+// expression (`[field]` -> "field", `[tokens.key]` -> "tokens.key"); undefined for
+// anything not syntactically resolvable to an entity.
+function computedKeyEntityText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
+    if (!tsInstance.isComputedPropertyName(name)) {
+        return undefined
+    }
+
+    return tsInstance.isIdentifier(name.expression)
+        ? name.expression.text
+        : dottedExpressionText(tsInstance, name.expression)
+}
+
+// `[shared]` / `[tokens.shared]` for a computed property name over an identifier or dotted
+// expression; undefined for anything unresolvable syntactically.
+function computedPropertyNameText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
+    if (!tsInstance.isComputedPropertyName(name)) {
+        return undefined
+    }
+
+    const text = tsInstance.isIdentifier(name.expression)
+        ? name.expression.text
+        : dottedExpressionText(tsInstance, name.expression)
+
+    return text === undefined ? undefined : `[${text}]`
 }
 
 function sourceFileFactsCacheKey(options: TransformOptions): string {

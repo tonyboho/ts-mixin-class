@@ -245,14 +245,29 @@ export type StaticSource = {
 }
 
 export type ConfigProperty = {
-    name       : string,
-    optional   : boolean,
+    name             : string,
+    optional         : boolean,
     // For a settable ACCESSOR, the setter's parameter type. The config field is then
     // emitted as an explicit `name?: <valueType>` member rather than `Pick<Class, name>`,
     // because `Pick` reads the GETTER type — wrong when get/set types differ (the setter,
     // which `.new`'s `Object.assign` actually invokes, may accept a wider type). Absent for
     // data fields (and accessors resolved cross-file without a type node), which use `Pick`.
-    valueType? : ts.TypeNode
+    valueType?       : ts.TypeNode,
+    // A COMPUTED key (`public [field]!: string` over a module-level const / unique symbol):
+    // the key expression's dotted text. The config references the key as `typeof <entity>`
+    // (a `Pick` key or a computed explicit member), so it is only valid where the entity
+    // RESOLVES — cross-file contributors strip these (`transplantableConfigProperties`).
+    // `name` then holds the bracketed `[field]` spelling (distinct from a string-named
+    // `field` member — different runtime keys must never dedup together).
+    computedKeyName? : string
+}
+
+// Drops config keys that cannot be spelled outside their declaring file (computed keys
+// reference a module-scoped const/symbol by name). Applied wherever config properties
+// cross a file boundary; the runtime still assigns such keys — they just leave the
+// consumer's compile-time config, a documented narrower limitation.
+export function transplantableConfigProperties(values: ConfigProperty[]): ConfigProperty[] {
+    return values.filter((value) => value.computedKeyName === undefined)
 }
 
 export type MixinDeclarationDiagnostic = {
@@ -292,10 +307,11 @@ export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty
         const existing = byName.get(value.name)
 
         byName.set(value.name, {
-            name      : value.name,
-            optional  : (existing?.optional ?? true) && value.optional,
+            name            : value.name,
+            optional        : (existing?.optional ?? true) && value.optional,
             // Keep a setter value type from whichever contributor carries one.
-            valueType : existing?.valueType ?? value.valueType
+            valueType       : existing?.valueType ?? value.valueType,
+            computedKeyName : existing?.computedKeyName ?? value.computedKeyName
         })
     }
 

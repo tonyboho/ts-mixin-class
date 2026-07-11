@@ -1,4 +1,4 @@
-import { mixin } from "ts-mixin-class"
+import { Base, mixin } from "ts-mixin-class"
 
 export interface PlainContract {
     contractMethod(): string
@@ -71,6 +71,22 @@ export class Scaled {
     }
 
     set scale(value: number | string) {
+        this.height = 10 * (typeof value === "string" ? Number(value) : value)
+    }
+}
+
+// Construction twin of `Scaled`, exported specifically through this fixture package's
+// declarations. Downstream `.new` config must preserve the SETTER's wider write type instead
+// of falling back to `Pick<ConstructionScaled, "scale">` (which observes the getter type).
+@mixin()
+export class ConstructionScaled extends Base {
+    height: number = 10
+
+    public get scale(): number {
+        return this.height / 10
+    }
+
+    public set scale(value: number | string) {
         this.height = 10 * (typeof value === "string" ? Number(value) : value)
     }
 }

@@ -206,3 +206,95 @@ it("the extends+implements composition of the same pair stays clean — both pla
     t.equal(emit.exitCode, 0, `emit: the supported heritage form is untouched.\n${commandOutput(emit)}`)
     t.equal(sourceView.exitCode, 0, `source view agrees.\n${commandOutput(sourceView)}`)
 })
+
+const qualifiedAndWrappedMixCases: Array<{ label: string, files: TypeScriptFixtureSourceFile[] }> = [
+    {
+        label : "namespace import",
+        files : [
+            {
+                fileName : "logger.ts",
+                text     : trimIndent(`
+                    import { mixin } from "ts-mixin-class"
+
+                    @mixin()
+                    export class Logger {
+                        log(): string { return "log" }
+                    }
+                `)
+            },
+            {
+                fileName : "source.ts",
+                text     : trimIndent(`
+                    import * as lib from "./logger"
+
+                    class Base {}
+                    class App extends lib.Logger.mix(Base) {}
+
+                    void App
+                `)
+            }
+        ]
+    },
+    {
+        label : "re-export barrel",
+        files : [
+            {
+                fileName : "logger.ts",
+                text     : trimIndent(`
+                    import { mixin } from "ts-mixin-class"
+
+                    @mixin()
+                    export class Logger {
+                        log(): string { return "log" }
+                    }
+                `)
+            },
+            { fileName: "barrel.ts", text: `export { Logger } from "./logger"` },
+            {
+                fileName : "source.ts",
+                text     : trimIndent(`
+                    import { Logger } from "./barrel"
+
+                    class Base {}
+                    class App extends Logger.mix(Base) {}
+
+                    void App
+                `)
+            }
+        ]
+    },
+    {
+        label : "parenthesized local value",
+        files : [
+            {
+                fileName : "source.ts",
+                text     : trimIndent(`
+                    import { mixin } from "ts-mixin-class"
+
+                    @mixin()
+                    class Logger {
+                        log(): string { return "log" }
+                    }
+
+                    class Base {}
+                    class App extends (Logger).mix(Base) {}
+
+                    void App
+                `)
+            }
+        ]
+    }
+]
+
+for (const candidate of qualifiedAndWrappedMixCases) {
+    it(`rejects program-local .mix through a ${candidate.label}`, async (t: Test) => {
+        const { emit, sourceView } = await buildBothPlanes(candidate.files)
+
+        for (const [ plane, result ] of [ [ "emit", emit ], [ "source view", sourceView ] ] as const) {
+            const output = commandOutput(result)
+
+            t.ne(result.exitCode, 0, `${plane}: the wrapped/qualified application is rejected`)
+            t.match(output, "TS990012", `${plane}: the native manual-.mix ban is preserved.\n${output}`)
+        }
+    })
+}

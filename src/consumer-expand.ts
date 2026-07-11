@@ -901,12 +901,27 @@ function firstRequiredBaseType(
         }
 
         // A generic mixin's declared base references ITS OWN type parameters, which do
-        // not exist in the consumer's scope — cloned as-is it fails with TS2304 on a
-        // generated line. Instantiate from the direct use site when the arguments are
-        // spelled out; otherwise skip the ref — the runtime scan owns the base anyway
-        // (this fallback only runs without a selected plan).
+        // not exist in the consumer's scope — cloned as-is it fails with TS2304 (local
+        // declaration) or TS2314 (a bare generic cross-file alias) on a generated line.
+        // Instantiate from the direct use site when the arguments are spelled out;
+        // otherwise skip the ref — the runtime scan owns the base anyway (this fallback
+        // only runs without a selected plan).
         if (ref.declaration === undefined) {
-            return requiredBase
+            const instantiation = context.crossFile?.requiredBases.importedBaseInstantiation(
+                ref.key,
+                directHeritageByRef?.get(ref)
+            ) ?? { raw: true as const }
+
+            if (instantiation === undefined) {
+                continue
+            }
+
+            return instantiation.raw
+                ? requiredBase
+                : tsInstance.factory.createExpressionWithTypeArguments(
+                    deepCloneNode(tsInstance, requiredBase.expression),
+                    instantiation.typeArguments
+                )
         }
 
         const ownParameterNames = new Set(

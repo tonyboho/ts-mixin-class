@@ -148,7 +148,13 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   else — and `any`, which is what a published `.d.ts` marker erases forwarded parameters to —
   taints a MISMATCH to "unknown", never "unrelated". A comparison that still ends "unknown"
   makes the whole resolution INDETERMINATE: no diagnostic, no plan — never a false TS990013 on
-  valid code. **Superseded (kept for context):** before the use-site substitution, ANY free
+  valid code. The name-ordered variant of the identity (`stable`) feeds the ancestry
+  FINGERPRINT in the transform cache key — the allocation-ordered symbolic ids must never
+  reach it. A `.d.ts` mixin's constraint comes from its PUBLISHED INTERFACE heritage
+  (`interface M<T> extends Base<T>` retains the mapping the marker erases; the marker is
+  the fallback and names WHICH class is the base), making the published mixin an
+  interface-backed ProgramMixin with the same env-aware resolution — including a base-less
+  published middle mixin composing its generic dependencies transitively. **Superseded (kept for context):** before the use-site substitution, ANY free
   parameter was immediately "unknown"; that never rejected valid code, but it also silently
   degraded every generic composition to the runtime scan, and the raw declaration-site
   `Base<T>` leaked into the consumer's generated heritage (TS2304 "Cannot find name 'T'" +

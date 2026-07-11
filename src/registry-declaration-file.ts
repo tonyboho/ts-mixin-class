@@ -262,7 +262,7 @@ export function runtimeMixinClassRequiredBaseTypeNode(
     return findRuntimeMixinClassReference(tsInstance, typeNode)?.typeArguments?.[0]
 }
 
-function typeReferencesRuntimeMixinClass(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {
+export function typeReferencesRuntimeMixinClass(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {
     return findRuntimeMixinClassReference(tsInstance, typeNode) !== undefined
 }
 

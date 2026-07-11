@@ -393,6 +393,18 @@ function requiredBaseRequirementOfMixinRef(
     }
 
     if (ref.requiredBase !== undefined) {
+        // A GENERIC published base (`interface M<T> extends Base<T>` in the mixin's
+        // `.d.ts`) must be instantiated with the use-site arguments — a bare generic
+        // alias is a TS2314 on a generated line (and a conditional over it evaluates to
+        // `any`, a false TS2344 on VALID code). Inexpressible here → skip the validation;
+        // the nominal (checker-side) check and the runtime guard own the case.
+        const instantiation = context.crossFile?.requiredBases.importedBaseInstantiation(ref.key, useSiteHeritage)
+            ?? { raw: true as const }
+
+        if (instantiation === undefined) {
+            return undefined
+        }
+
         if (ref.requiredBase.import !== undefined) {
             // An UNEXPORTED (or unresolvable) cross-file base cannot be imported for the
             // checker-authored validation — emitting the import anyway fails the build
@@ -417,9 +429,21 @@ function requiredBaseRequirementOfMixinRef(
             )
         }
 
+        const typeArguments = instantiation.raw ? undefined : instantiation.typeArguments
+        const importedName  = ref.requiredBase.import?.importedName ?? ref.requiredBase.localName
+
         return {
-            typeNode : tsInstance.factory.createTypeReferenceNode(ref.requiredBase.localName, undefined),
-            name     : ref.requiredBase.import?.importedName ?? ref.requiredBase.localName
+            typeNode : tsInstance.factory.createTypeReferenceNode(ref.requiredBase.localName, typeArguments),
+            // The message names the base by its IMPORTED name with the instantiated
+            // arguments — not the generated alias.
+            name     : typeArguments === undefined
+                ? importedName
+                : printedTypeNodeText(
+                    tsInstance,
+                    sourceFile,
+                    tsInstance.factory.createTypeReferenceNode(importedName, typeArguments),
+                    importedName
+                )
         }
     }
 

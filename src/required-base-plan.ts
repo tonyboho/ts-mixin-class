@@ -4,7 +4,7 @@ import type { MixinRegistry, RegisteredMixin, ResolvedMixinRef, TransformOptions
 import { registryKey } from "./model.js"
 import { extendsClause } from "./heritage.js"
 import { collectTypeReferenceNames, substituteTypeParameterReferences } from "./expand-util.js"
-import { runtimeMixinClassRequiredBaseTypeNode } from "./registry-declaration-file.js"
+import { runtimeMixinClassRequiredBaseTypeNode, typeReferencesRuntimeMixinClass } from "./registry-declaration-file.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import { deepCloneNode, normalizePath } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -46,10 +46,12 @@ export type RequiredBaseConstraint = {
     mixinName      : string,
     baseName       : string,
     type           : ts.Type,
-    // The owning mixin declaration + its extends heritage node (ORIGINAL program nodes) —
-    // present for program-tier constraints, absent for `.d.ts` marker constraints. Feed
-    // the use-site instantiation of the emitted implicit base.
-    declaration    : ts.ClassDeclaration | undefined,
+    // The owning declaration (a `@mixin` class, or the PUBLISHED interface of a `.d.ts`
+    // mixin — the interface's `extends Base<T>` retains the type-parameter mapping the
+    // value marker erases to `any`) + the heritage node the constraint came from
+    // (ORIGINAL program nodes). Absent for a marker-only `.d.ts` constraint (no matching
+    // interface). Feed the use-site instantiation of the emitted implicit base.
+    declaration    : ts.ClassDeclaration | ts.InterfaceDeclaration | undefined,
     heritageNode   : ts.ExpressionWithTypeArguments | undefined
 }
 
@@ -138,20 +140,32 @@ export type RequiredBaseContext = {
         declaration: ts.ClassDeclaration,
         required: RequiredBaseInstance
     ) => boolean | undefined,
-    instantiateBase : (instance: RequiredBaseInstance) => RequiredBaseInstantiation | undefined,
-    canImportBase   : (resolvedFileName: string, exportedName: string) => boolean
+    instantiateBase           : (instance: RequiredBaseInstance) => RequiredBaseInstantiation | undefined,
+    // The syntactic-tier sibling of `instantiateBase` for an IMPORTED ref's OWN
+    // requirement: the published interface heritage instantiated with the direct
+    // use-site arguments by parameter name. `raw` — nothing to substitute (the alias is
+    // usable as-is); undefined — a generic requirement that cannot be expressed at this
+    // site (callers must skip rather than emit a bare generic alias).
+    importedBaseInstantiation : (
+        refKey: string,
+        useSiteHeritage: ts.ExpressionWithTypeArguments | undefined
+    ) => RequiredBaseInstantiation | undefined,
+    canImportBase : (resolvedFileName: string, exportedName: string) => boolean
 }
 
 type DependencyEdge =
     | { program: ProgramMixin, heritage: ts.ExpressionWithTypeArguments }
     | { registered: RegisteredMixin }
 
+// Both a `@mixin` class in a program source file and the published INTERFACE of a
+// `.d.ts` mixin resolve through this shape: type parameters, an optional own constraint,
+// and dependency heritage edges with use-site type arguments.
 type ProgramMixin = {
     locationKey             : string,
-    declaration             : ts.ClassDeclaration,
+    declaration             : ts.ClassDeclaration | ts.InterfaceDeclaration,
     registered              : RegisteredMixin | undefined,
     ownConstraint           : RequiredBaseConstraint | undefined,
-    dependencyHeritageTypes : ts.ExpressionWithTypeArguments[],
+    dependencyHeritageTypes : readonly ts.ExpressionWithTypeArguments[],
     dependencyEdges         : DependencyEdge[] | undefined
 }
 
@@ -208,13 +222,110 @@ export function buildRequiredBaseContext(
     // text prefilter is valid HERE (a mixin's file must import the decorator / the .d.ts
     // marker, so it always mentions the package); consumer-side data is never collected
     // eagerly (see explicitBaseSatisfies).
+    // A published `.d.ts` mixin: its value marker (`RuntimeMixinClass<Base>`) names the
+    // base but ERASES forwarded type parameters to `any`; the published INTERFACE
+    // (`interface M<T> extends Base<T>, Dep<T>`) retains the full mapping. When the
+    // interface is present the mixin becomes an interface-backed ProgramMixin — same
+    // env-aware resolution as an in-program class; the marker stays the fallback.
+    const collectDeclarationMixins = (sourceFile: ts.SourceFile): void => {
+        let interfaces: Map<string, ts.InterfaceDeclaration> | undefined
+
+        const interfaceFor = (name: string): ts.InterfaceDeclaration | undefined => {
+            if (interfaces === undefined) {
+                interfaces = new Map()
+
+                for (const statement of sourceFile.statements) {
+                    if (tsInstance.isInterfaceDeclaration(statement)) {
+                        interfaces.set(statement.name.text, statement)
+                    }
+                }
+            }
+
+            return interfaces.get(name)
+        }
+
+        for (const statement of sourceFile.statements) {
+            if (!tsInstance.isVariableStatement(statement)) {
+                continue
+            }
+
+            for (const declaration of statement.declarationList.declarations) {
+                if (!tsInstance.isIdentifier(declaration.name) || declaration.type === undefined) {
+                    continue
+                }
+
+                if (!typeReferencesRuntimeMixinClass(tsInstance, declaration.type)) {
+                    continue
+                }
+
+                const registered = registry.get(registryKey(sourceFile.fileName, declaration.name.text))
+
+                if (registered === undefined) {
+                    continue
+                }
+
+                const interfaceDeclaration = interfaceFor(declaration.name.text)
+                const interfaceHeritage    = interfaceDeclaration?.heritageClauses
+                    ?.find((clause) => clause.token === tsInstance.SyntaxKind.ExtendsKeyword)?.types ?? []
+                // The interface entry for the required base — matched by the name the
+                // registry recovered (an extends entry that is NOT a registered mixin).
+                const baseHeritage = registered.requiredBaseName === undefined
+                    ? undefined
+                    : interfaceHeritage.find((entry) =>
+                        tsInstance.isIdentifier(entry.expression) &&
+                        entry.expression.text === registered.requiredBaseName)
+
+                const markerBase = runtimeMixinClassRequiredBaseTypeNode(tsInstance, declaration.type)
+                const hasBase    = markerBase !== undefined && markerBase.kind !== tsInstance.SyntaxKind.ObjectKeyword
+                const baseType   = baseHeritage !== undefined
+                    ? tryGetType(() => checker.getTypeAtLocation(baseHeritage))
+                    : hasBase
+                        ? tryGetType(() => checker.getTypeFromTypeNode(markerBase))
+                        : undefined
+                const location   = classLocationKey(sourceFile.fileName, declaration.pos)
+                const constraint = !hasBase || baseType === undefined
+                    ? undefined
+                    : {
+                        id             : location,
+                        declarationKey : location,
+                        cacheIdentity  : "",
+                        mixin          : registered,
+                        mixinName      : declaration.name.text,
+                        baseName       : (baseHeritage ?? markerBase).getText(sourceFile),
+                        type           : baseType,
+                        declaration    : baseHeritage === undefined ? undefined : interfaceDeclaration,
+                        heritageNode   : baseHeritage
+                    }
+
+                if (constraint !== undefined) {
+                    ownConstraintByMixin.set(registered, constraint)
+                }
+
+                // Registered regardless of a base of its own: a base-less published mixin
+                // still composes its GENERIC dependencies' constraints through its
+                // interface heritage (the base entry is never a mixin, so leaving it in
+                // the dependency list is harmless — edge resolution drops it).
+                if (interfaceDeclaration !== undefined) {
+                    programMixins.set(location, {
+                        locationKey             : location,
+                        declaration             : interfaceDeclaration,
+                        registered,
+                        ownConstraint           : constraint,
+                        dependencyHeritageTypes : interfaceHeritage,
+                        dependencyEdges         : undefined
+                    })
+                }
+            }
+        }
+    }
+
     for (const sourceFile of program.getSourceFiles()) {
         if (!sourceFile.text.includes(options.packageName)) {
             continue
         }
 
         if (sourceFile.isDeclarationFile) {
-            collectDeclarationConstraints(tsInstance, checker, sourceFile, registry, ownConstraintByMixin)
+            collectDeclarationMixins(sourceFile)
             continue
         }
 
@@ -312,7 +423,11 @@ export function buildRequiredBaseContext(
     // and not memoized (their cache key would have to embed the whole env).
     const identityMemo = new WeakMap<ts.Type, string>()
 
-    type IdentityState = { free: boolean, failed: boolean }
+    // `stable` renders free parameters by NAME instead of the allocation-ordered symbolic
+    // id: the ancestry FINGERPRINT feeding the transform cache key must not depend on the
+    // order relation queries happened to touch parameters (names are unambiguous within
+    // one constraint's own fingerprint); relations keep object-identity ids.
+    type IdentityState = { free: boolean, failed: boolean, stable?: boolean }
 
     const typeIdentityText = (type: ts.Type, env: IdentityEnv, state: IdentityState): string => {
         if ((type.flags & tsInstance.TypeFlags.TypeParameter) !== 0) {
@@ -327,7 +442,7 @@ export function buildRequiredBaseContext(
 
             state.free = true
 
-            return `param:${symbolicTypeId(type)}`
+            return state.stable === true ? `param-name:${safeTypeName(type)}` : `param:${symbolicTypeId(type)}`
         }
 
         // `any` erases whatever was there (e.g. a published generic mixin's `.d.ts`
@@ -352,7 +467,7 @@ export function buildRequiredBaseContext(
         const name   = symbol === undefined ? safeTypeName(type) : safeQualifiedName(symbol, type)
         const args   = typeArgumentsOf(type, state)
 
-        const localState: IdentityState = { free: false, failed: false }
+        const localState: IdentityState = { free: false, failed: false, stable: state.stable }
         const text                      = args.length === 0
             ? `${type.flags}:${name}`
             : `${type.flags}:${name}<${args.map((argument) =>
@@ -463,7 +578,9 @@ export function buildRequiredBaseContext(
 
             if (argument === undefined) {
                 child.set(parameters[index]!, {
-                    id      : `param:${symbolicTypeId(parameters[index]!)}`,
+                    id : state.stable === true
+                        ? `param-name:${safeTypeName(parameters[index]!)}`
+                        : `param:${symbolicTypeId(parameters[index]!)}`,
                     display : safeTypeName(parameters[index]!),
                     free    : true,
                     node    : undefined
@@ -471,7 +588,7 @@ export function buildRequiredBaseContext(
                 continue
             }
 
-            const argState: IdentityState = { free: false, failed: false }
+            const argState: IdentityState = { free: false, failed: false, stable: state.stable }
             const id                      = typeIdentityText(argument, env, argState)
 
             // eslint-disable-next-line align-assignments/align-assignments
@@ -613,7 +730,7 @@ export function buildRequiredBaseContext(
     // itself stayed byte-identical (REVIEW finding 4 keeps POSITIONS out of it).
     const typeAncestryIdentity = (type: ts.Type): string => {
         try {
-            const state: IdentityState                         = { free: false, failed: false }
+            const state: IdentityState                         = { free: false, failed: false, stable: true }
             const queue: { type: ts.Type, env: IdentityEnv }[] = [ { type, env: emptyEnv } ]
             const seen                                         = new Set<string>()
             const result: string[]                             = []
@@ -886,7 +1003,7 @@ export function buildRequiredBaseContext(
     // keeps entry nodes expressible in the file under expansion (undefined at a top
     // consumer edge: the heritage IS in that file, its nodes are usable as-is).
     const useSiteEnvironment = (
-        parentDeclaration: ts.ClassDeclaration | undefined,
+        parentDeclaration: ts.ClassDeclaration | ts.InterfaceDeclaration | undefined,
         parentEnv: IdentityEnv,
         heritage: ts.ExpressionWithTypeArguments | undefined,
         target: ProgramMixin
@@ -938,7 +1055,7 @@ export function buildRequiredBaseContext(
     // else (a local of the parent's file, a qualified name) yields undefined and the
     // type-level base degrades rather than leak an unresolvable name.
     const composedArgumentNode = (
-        parentDeclaration: ts.ClassDeclaration | undefined,
+        parentDeclaration: ts.ClassDeclaration | ts.InterfaceDeclaration | undefined,
         parentEnv: IdentityEnv,
         argNode: ts.TypeNode
     ): ts.TypeNode | undefined => {
@@ -976,6 +1093,62 @@ export function buildRequiredBaseContext(
         }
 
         return substituteTypeParameterReferences(tsInstance, deepCloneNode(tsInstance, argNode), substitutions)
+    }
+
+    // The shared instantiation core: the constraint's heritage type ARGUMENTS rewritten
+    // for the consuming site. `raw` when there is nothing to substitute; undefined when a
+    // referenced own parameter has no replacement node, or a NON-parameter reference
+    // appears in an argument (it would resolve in the MIXIN's scope, not necessarily the
+    // consumer's) — the caller degrades instead of leaking an unresolvable name.
+    const instantiateHeritageArguments = (
+        heritage: ts.ExpressionWithTypeArguments | undefined,
+        declaration: ts.ClassDeclaration | ts.InterfaceDeclaration | undefined,
+        nodeForParameter: (parameter: ts.TypeParameterDeclaration) => ts.TypeNode | undefined
+    ): RequiredBaseInstantiation | undefined => {
+        const args = heritage?.typeArguments
+
+        if (heritage === undefined || declaration === undefined || args === undefined || args.length === 0) {
+            return { raw: true }
+        }
+
+        const parameterNames = new Set((declaration.typeParameters ?? []).map((parameter) => parameter.name.text))
+        const referencesOwn  = args.some((argument) => {
+            const names = collectTypeReferenceNames(tsInstance, argument)
+
+            return names === undefined || [ ...names ].some((name) => parameterNames.has(name))
+        })
+
+        if (!referencesOwn) {
+            return { raw: true }
+        }
+
+        const substitutions = new Map<string, ts.TypeNode>()
+
+        for (const parameter of declaration.typeParameters ?? []) {
+            const node = nodeForParameter(parameter)
+
+            if (node !== undefined) {
+                substitutions.set(parameter.name.text, node)
+            }
+        }
+
+        const typeArguments: ts.TypeNode[] = []
+
+        for (const argument of args) {
+            const names = collectTypeReferenceNames(tsInstance, argument)
+
+            if (names === undefined || [ ...names ].some((name) => !substitutions.has(name))) {
+                return undefined
+            }
+
+            typeArguments.push(substituteTypeParameterReferences(
+                tsInstance,
+                deepCloneNode(tsInstance, argument),
+                substitutions
+            ))
+        }
+
+        return { raw: false, typeArguments }
     }
 
     const resolveProgramMixin = (mixin: ProgramMixin, env: IdentityEnv): RequiredBaseResolution =>
@@ -1205,59 +1378,43 @@ export function buildRequiredBaseContext(
         // still flow through each mixin's own generated interface, and the plan/runtime
         // side is untouched).
         instantiateBase(instance) {
-            const heritage    = instance.constraint.heritageNode
             const declaration = instance.constraint.declaration
-            const args        = heritage?.typeArguments
 
-            if (heritage === undefined || declaration === undefined ||
-                args === undefined || args.length === 0
-            ) {
+            return instantiateHeritageArguments(
+                instance.constraint.heritageNode,
+                declaration,
+                (parameter) => {
+                    const parameterType = declaredParameterType(parameter)
+
+                    return parameterType === undefined ? undefined : instance.env.get(parameterType)?.node
+                }
+            )
+        },
+
+        // The syntactic-tier sibling of `instantiateBase` for an IMPORTED ref's OWN
+        // requirement (the checker-authored validation and the no-plan implicit-base
+        // fallback): the mixin's published interface heritage instantiated with the
+        // DIRECT use-site arguments by parameter NAME — pure syntax, no resolver state.
+        importedBaseInstantiation(refKey, useSiteHeritage) {
+            const registered = registry.get(refKey)
+            const constraint = registered === undefined ? undefined : ownConstraintByMixin.get(registered)
+
+            if (constraint === undefined) {
                 return { raw: true }
             }
 
-            const parameterNames = new Set((declaration.typeParameters ?? []).map((parameter) => parameter.name.text))
-            const referencesOwn  = args.some((argument) => {
-                const names = collectTypeReferenceNames(tsInstance, argument)
+            const declaration = constraint.declaration
+            const parameters  = declaration?.typeParameters ?? []
+            const args        = useSiteHeritage?.typeArguments
+            const argByName   = args !== undefined && args.length === parameters.length
+                ? new Map(parameters.map((parameter, index) => [ parameter.name.text, args[index]! ]))
+                : undefined
 
-                return names === undefined || [ ...names ].some((name) => parameterNames.has(name))
-            })
-
-            if (!referencesOwn) {
-                return { raw: true }
-            }
-
-            const substitutions = new Map<string, ts.TypeNode>()
-
-            for (const parameter of declaration.typeParameters ?? []) {
-                const parameterType = declaredParameterType(parameter)
-                const node          = parameterType === undefined
-                    ? undefined
-                    : instance.env.get(parameterType)?.node
-
-                if (node !== undefined) {
-                    substitutions.set(parameter.name.text, node)
-                }
-            }
-
-            const typeArguments: ts.TypeNode[] = []
-
-            for (const argument of args) {
-                const names = collectTypeReferenceNames(tsInstance, argument)
-
-                // Every reference must be a substitutable own parameter: a leftover name
-                // would resolve in the MIXIN's scope, not necessarily the consumer's.
-                if (names === undefined || [ ...names ].some((name) => !substitutions.has(name))) {
-                    return undefined
-                }
-
-                typeArguments.push(substituteTypeParameterReferences(
-                    tsInstance,
-                    deepCloneNode(tsInstance, argument),
-                    substitutions
-                ))
-            }
-
-            return { raw: false, typeArguments }
+            return instantiateHeritageArguments(
+                constraint.heritageNode,
+                declaration,
+                (parameter) => argByName?.get(parameter.name.text)
+            )
         },
 
         canImportBase(resolvedFileName, exportedName) {
@@ -1291,58 +1448,6 @@ export function buildRequiredBaseContext(
             importableExports.set(key, result)
 
             return result
-        }
-    }
-}
-
-function collectDeclarationConstraints(
-    tsInstance: TypeScript,
-    checker: ts.TypeChecker,
-    sourceFile: ts.SourceFile,
-    registry: MixinRegistry,
-    constraints: Map<RegisteredMixin, RequiredBaseConstraint>
-): void {
-    for (const statement of sourceFile.statements) {
-        if (!tsInstance.isVariableStatement(statement)) {
-            continue
-        }
-
-        for (const declaration of statement.declarationList.declarations) {
-            if (!tsInstance.isIdentifier(declaration.name) || declaration.type === undefined) {
-                continue
-            }
-
-            const requiredBase = runtimeMixinClassRequiredBaseTypeNode(tsInstance, declaration.type)
-
-            if (requiredBase === undefined || requiredBase.kind === tsInstance.SyntaxKind.ObjectKeyword) {
-                continue
-            }
-
-            const registered = registry.get(registryKey(sourceFile.fileName, declaration.name.text))
-
-            if (registered === undefined) {
-                continue
-            }
-
-            const baseType = tryGetType(() => checker.getTypeFromTypeNode(requiredBase))
-
-            if (baseType === undefined) {
-                continue
-            }
-
-            const location = classLocationKey(sourceFile.fileName, declaration.pos)
-
-            constraints.set(registered, {
-                id             : location,
-                declarationKey : location,
-                cacheIdentity  : "",
-                mixin          : registered,
-                mixinName      : declaration.name.text,
-                baseName       : requiredBase.getText(sourceFile),
-                type           : baseType,
-                declaration    : undefined,
-                heritageNode   : undefined
-            })
         }
     }
 }

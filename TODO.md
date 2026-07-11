@@ -49,6 +49,39 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
+### Exotic config keys of a GENERIC-instantiated `.d.ts` contributor don't reach downstream configs (known gap, 2026-07)
+
+**The gap.** The §13.8 value-route transport (`NonNullable<Parameters<(typeof V)["new"]>[0]>`
+intersected into the downstream config) is SKIPPED when the `.d.ts` construction
+mixin/base is instantiated with type arguments at the use site (`implements Boxed<string>`,
+`extends GenericBase<number>`): the value route names the UNINSTANTIATED published form —
+`"new"<T>(props: BoxedConfig<T>)` erodes `T` through `Parameters<>`, so key VALUE types
+depending on `T` would lie. For such contributors the computed const-string / unique-symbol
+keys and index signatures therefore do not reach the AGGREGATED downstream `.new` config
+(respellable keys still ride the fact transport). Also, `configRequiresArgument` is only
+read alongside the opaque part, so a generic-use contributor whose only required keys are
+computed leaves the downstream parameter optional.
+
+**Unaffected**: a generic CONSUMER over non-generic contributors (the gate checks the
+contributor's instantiation, not the consumer's own type parameters), and standalone calls
+on the imported value itself (`Boxed.new<string>({...})` — the checker instantiates the
+published `BoxedConfig<T>` directly).
+
+**Routes to lift it, in rising cost:**
+1. *Import-map-aware alias reference (cheap, partial).* When the consumer ALREADY imports
+   the published `<Name>Config` alias (any local alias name — resolve through the import
+   map, same module + exported name), reference it instantiated: `BoxedConfig<string>`.
+   No generated imports; silently degrades to today's behavior when not imported.
+2. *Phantom type import (full).* Generate `import type { BoxedConfig } from "<spec>"` and
+   reference it with the use-site arguments. The road §7.15/tree-config deliberately
+   avoided: collision/aliasing management, the default-export gap (a default-exported
+   class's config alias is NOT exported), a synthetic import node to range in source view.
+3. *Symbol-keyed config carrier on the instance type* — threads generics with no imports,
+   but REJECTED for perf: the carrier rides inside every structural instance comparison
+   (~2× check time; see the tree-config benchmark section below).
+
+Pinned boundary: USE-CASES §13.8 ("generic uses are skipped").
+
 ### Phantom "ancestors-only" interfaces to flatten the required-base checker cost (idea, 2026-07)
 
 **The problem.** The `requiredBase` compile-bench scenario (mixins `extends Base_k` over deep

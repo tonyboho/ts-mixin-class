@@ -53,7 +53,8 @@ function createMixinChainExpression(
     mixinRefs: ResolvedMixinRef[],
     baseExpression: ts.Expression,
     linearizationPlan: LinearizationPlanSlice[] | undefined,
-    mode: "verify" | "replay" | "c3"
+    mode: "verify" | "replay" | "c3",
+    requiredBasePlan?: number
 ): ts.Expression {
     const factory = tsInstance.factory
 
@@ -69,7 +70,8 @@ function createMixinChainExpression(
                 baseExpression,
                 factory.createArrayLiteralExpression(mixinRefs.map((ref) => mixinValueIdentifier(tsInstance, ref))),
                 createLinearizationPlanLiteral(tsInstance, linearizationPlan),
-                factory.createStringLiteral(mode)
+                factory.createStringLiteral(mode),
+                ...(requiredBasePlan === undefined ? [] : [ factory.createNumericLiteral(requiredBasePlan) ])
             ]
         )
     }
@@ -136,7 +138,10 @@ export function consumerBaseClassHeritage(
     construction?: ConstructionBrand,
     // Approach (B): the precomputed chain order for the runtime `mixinChainLinearized`
     // call. Emit only -- source view emits no runtime chain.
-    linearizationPlan?: LinearizationPlanSlice[]
+    linearizationPlan?: LinearizationPlanSlice[],
+    // One-based index into the materialized requirement linearization whose `[base]` marker is
+    // the compile-time-selected most-specific required base. `0` selects the package `Empty`.
+    requiredBasePlan?: number
 ): ts.HeritageClause {
     const factory = tsInstance.factory
 
@@ -181,13 +186,21 @@ export function consumerBaseClassHeritage(
                         createMixinChainExpression(
                             tsInstance,
                             directMixinRefs,
-                            deepCloneNode(
-                                tsInstance,
-                                consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
-                                    .expression
-                            ),
+                            // A POSITIVE plan index supplies the base at runtime (no phantom
+                            // import); plan 0 always rides with the `$empty` root, and an
+                            // absent plan keeps the legacy base expression — the pair is
+                            // derived TOGETHER in consumer-expand (REVIEW finding 1), never
+                            // re-derived from separate flags here.
+                            requiredBasePlan !== undefined && requiredBasePlan > 0
+                                ? factory.createIdentifier("undefined")
+                                : deepCloneNode(
+                                    tsInstance,
+                                    consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
+                                        .expression
+                                ),
                             linearizationPlan,
-                            linearizationMode(options)
+                            linearizationMode(options),
+                            requiredBasePlan
                         ),
                         factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
                     ),
@@ -320,7 +333,9 @@ export function createSourceViewConsumerBaseHeadType(
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {
-        return factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName as string))
+        return emptyBaseName === undefined
+            ? factory.createTypeReferenceNode(anyConstructorLocalName, undefined)
+            : factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName))
     }
 
     if (construction !== undefined) {
@@ -360,7 +375,9 @@ function createConsumerBaseHeadType(
     const baseType = extendsType ?? implicitRequiredBase
 
     if (baseType === undefined) {
-        return factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName as string))
+        return emptyBaseName === undefined
+            ? factory.createTypeReferenceNode(anyConstructorLocalName, undefined)
+            : factory.createTypeQueryNode(factory.createIdentifier(emptyBaseName))
     }
 
     if (construction !== undefined) {

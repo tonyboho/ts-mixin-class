@@ -1,5 +1,5 @@
 import { mixin } from "ts-mixin-class"
-import { base, factory, requirements } from "ts-mixin-class/base"
+import { Empty, base, factory, requirements } from "ts-mixin-class/base"
 
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
@@ -62,7 +62,7 @@ it("self-reference", async (t: Test) => {
     t.equal(typeof ChildMixin[factory], "function", "Mixin factory is visible through the exported metadata symbol")
     t.expect(ChildMixin[requirements]).toEqual([ SourceClass1 ])
     t.expect(SourceClass1[requirements]).toEqual([])
-    t.equal(ChildMixin[base], Object, "Dependent mixin without required base reports Object")
+    t.equal(ChildMixin[base], Empty, "Dependent mixin without a required-base constraint reports the runtime Empty base")
 
     const fresh = c.makeAnother()
 

@@ -171,3 +171,30 @@ export class RequiredMixin extends RequiredBase {
         return "staticRequiredMixin"
     }
 }
+
+// Kept private on purpose: the declaration-package consumer below cannot import this class.
+// Its only runtime route to the effective base is the required-base plan selecting the
+// exported mixin's already-materialized `[base]` marker.
+class DeclarationSpecificBase extends RequiredBase {
+    specificMethod(): string {
+        return "specificBase"
+    }
+}
+
+@mixin()
+export class DeclarationNeedsRoot extends RequiredBase {
+    rootMixinMethod(): string {
+        return super.requiredMethod()
+    }
+}
+
+@mixin()
+export class DeclarationNeedsSpecific extends DeclarationSpecificBase {
+    specificMixinMethod(): string {
+        return super.specificMethod()
+    }
+}
+
+export function isDeclarationSpecificBase(value: object): boolean {
+    return value instanceof DeclarationSpecificBase
+}

@@ -83,7 +83,7 @@ type RegisteredMixinClass = RuntimeMixinClassValue & {
 type RuntimeMixinMetadata = {
     factory       : MixinFactory,
     requirements  : RuntimeMixinClassValue[],
-    requiredBase  : AnyConstructor<any>,
+    requiredBase  : AnyConstructor<any> | undefined,
     linearization : RuntimeMixinClassValue[] | undefined,
     applications  : WeakMap<AnyConstructor<any>, AnyConstructor<any>>,
     marker        : symbol
@@ -97,11 +97,10 @@ export function defineMixinClass(
     name: string,
     mixinFactory: MixinFactory,
     mixinRequirements: readonly RuntimeMixinClassValue[] = [],
-    // The mixin's requirement CONSTRAINT: every base it is applied over must `classExtends` this
-    // (see `applyRuntimeMixin`). `Object` means "no constraint" — a base-less mixin composes over
-    // any base. This is distinct from the standalone SEED below: the constraint governs consumers,
-    // the seed only roots the mixin's own `new`-able canonical class.
-    requiredBase: AnyConstructor<any> = Object,
+    // The mixin's OWN requirement constraint. `undefined` means the compile-time `object` top
+    // constraint. `Object` is accepted as the legacy spelling but is normalized away below;
+    // the zero runtime base is always the package `Empty` class.
+    requiredBase?: AnyConstructor<any>,
     // Approach (B): a compile-time merge plan that reconstructs this mixin's requirement
     // linearization by slicing its dependencies' already-materialized linearizations,
     // skipping the runtime C3 merge. Optional: dependency-free mixins need no plan, and a
@@ -118,7 +117,10 @@ export function defineMixinClass(
     // once, to the value). Standard (TC39) mode passes an IIFE-shaped callback whose decorated
     // class declaration the COMPILER emits; legacy mode passes an `applyLegacyClassDecorators`
     // fold.
-    decorate?: (value: AnyConstructor<any>) => AnyConstructor<any>
+    decorate?: (value: AnyConstructor<any>) => AnyConstructor<any>,
+    // One-based index into `requirementLinearization` whose effective `[base]` marker is the
+    // compile-time-selected required base. `0` means there is no constraint (`Empty` seed).
+    requiredBasePlan?: number
 ): RuntimeMixinClassValue {
     const requirementList          = [ ...mixinRequirements ]
     const requirementLinearization = resolveRequirementLinearization(
@@ -127,13 +129,16 @@ export function defineMixinClass(
         linearizationPlan,
         linearizationMode
     )
-    // Seed the mixin's own canonical (standalone, `new`-able) class from `Empty` when no required
-    // base was given, so a base-less mixin instance descends from the library-owned `Empty` rather
-    // than a bare `Object`. This is a runtime filler only — `Empty` is never stored as the
-    // requirement `requiredBase` (which stays `Object`), so it imposes no constraint on consumers.
-    const seedBase       = requiredBase === Object ? Empty : requiredBase
-    const canonicalBase  = applyRuntimeMixins(seedBase, requirementLinearization.slice().reverse())
-    const canonicalClass = mixinFactory(canonicalBase) as RuntimeMixinClassValue
+    const ownRequiredBase          = normalizeRequiredBase(requiredBase)
+    const effectiveRequiredBase    = ownRequiredBase ?? resolvePlannedRequiredBase(
+        name,
+        requirementLinearization,
+        requiredBasePlan,
+        linearizationMode
+    )
+    const seedBase                 = effectiveRequiredBase ?? Empty
+    const canonicalBase            = applyRuntimeMixins(seedBase, requirementLinearization.slice().reverse())
+    const canonicalClass           = mixinFactory(canonicalBase) as RuntimeMixinClassValue
 
     // Named BEFORE decoration: the decorators observe the mixin's real name (the factory's
     // inner class declaration carries a generated lexical name).
@@ -147,7 +152,7 @@ export function defineMixinClass(
     const metadata: RuntimeMixinMetadata = {
         factory       : mixinFactory,
         requirements  : requirementList,
-        requiredBase,
+        requiredBase  : effectiveRequiredBase,
         linearization : [ mixinClass, ...requirementLinearization ],
         applications,
         marker
@@ -159,7 +164,7 @@ export function defineMixinClass(
     Object.defineProperty(mixinClass, mixinMetadata, { value: metadata })
     Object.defineProperty(mixinClass, factory, { value: mixinFactory })
     Object.defineProperty(mixinClass, requirements, { value: requirementList })
-    Object.defineProperty(mixinClass, base, { value: requiredBase })
+    Object.defineProperty(mixinClass, base, { value: effectiveRequiredBase ?? Empty })
     Object.defineProperty(mixinClass, "mix", {
         value(runtimeBase: AnyConstructor<any>) {
             return mixinChain(runtimeBase, mixinClass)
@@ -191,11 +196,12 @@ export function mixinChain<Base extends AnyConstructor<any>>(
 // merge plan instead of the runtime C3 merge `mixinChain` runs. `mixins` is an array
 // (not variadic) so the trailing plan stays unambiguous; `mixinChain` keeps the
 // variadic, plan-free signature for manual use and older emitted consumers.
-export function mixinChainLinearized<Base extends AnyConstructor<any>>(
-    base: Base,
+export function mixinChainLinearized(
+    base: AnyConstructor<any> | undefined,
     mixins: readonly RuntimeMixinClassValue[],
     linearizationPlan: LinearizationPlan,
-    linearizationMode?: LinearizationMode
+    linearizationMode?: LinearizationMode,
+    requiredBasePlan?: number
 ): AnyConstructor<any> {
     const linearization = resolveRequirementLinearization(
         "mixinChain",
@@ -204,7 +210,14 @@ export function mixinChainLinearized<Base extends AnyConstructor<any>>(
         linearizationMode
     )
 
-    return applyRuntimeMixins(base, linearization.slice().reverse())
+    const runtimeBase = base ?? resolvePlannedRequiredBase(
+        "mixinChain",
+        linearization,
+        requiredBasePlan,
+        linearizationMode
+    ) ?? Empty
+
+    return applyRuntimeMixins(runtimeBase, linearization.slice().reverse())
 }
 
 // A compile-time merge plan: a list of contiguous slices over the merge inputs. Each
@@ -296,6 +309,94 @@ function assertLinearizationMatches(
     }
 }
 
+function resolvePlannedRequiredBase(
+    name: string,
+    linearization: readonly RuntimeMixinClassValue[],
+    requiredBasePlan: number | undefined,
+    linearizationMode: LinearizationMode | undefined
+): AnyConstructor<any> | undefined {
+    // No plan, and the "c3" escape hatch ("ignore the plan, recompute"), both take the
+    // scan: the hatch exists for a suspected compiler-plan bug, so the base index is
+    // exactly as suspect as the merge plan it rides with.
+    if (requiredBasePlan === undefined || linearizationMode === "c3") {
+        return resolveRuntimeRequiredBase(linearization)
+    }
+
+    // Validated BEFORE the read: a negative or fractional index would otherwise resolve
+    // `linearization[...]` to undefined and silently claim "no required base".
+    if (!Number.isInteger(requiredBasePlan) || requiredBasePlan < 0 || requiredBasePlan > linearization.length) {
+        throw new Error(
+            `Required-base plan for ${name} references missing linearization entry ${requiredBasePlan}`
+        )
+    }
+
+    const selected = requiredBasePlan === 0
+        ? undefined
+        : runtimeRequiredBase(linearization[requiredBasePlan - 1]!)
+
+    if (linearizationMode === "verify") {
+        const reference = resolveRuntimeRequiredBase(linearization)
+
+        if (selected !== reference) {
+            throw new Error(
+                `Precomputed required base for ${name} differs from the runtime result: ` +
+                `${selected?.name ?? "Empty"} vs ${reference?.name ?? "Empty"}`
+            )
+        }
+    }
+
+    return selected
+}
+
+function resolveRuntimeRequiredBase(
+    linearization: readonly RuntimeMixinClassValue[]
+): AnyConstructor<any> | undefined {
+    let selected: AnyConstructor<any> | undefined
+
+    for (const mixinClass of linearization) {
+        const candidate = runtimeRequiredBase(mixinClass)
+
+        if (candidate === undefined || candidate === selected) {
+            continue
+        }
+
+        if (selected === undefined || classExtends(candidate, selected)) {
+            selected = candidate
+            continue
+        }
+
+        if (!classExtends(selected, candidate)) {
+            throw new Error(
+                `Mixin class ${mixinClass.name || "<anonymous>"} requires base ` +
+                `${candidate.name || "<anonymous>"}, incompatible with ${selected.name || "<anonymous>"}`
+            )
+        }
+    }
+
+    return selected
+}
+
+// The single choke point for the required-base sentinel convention: `undefined` is the
+// canonical "no constraint"; `Object` is the legacy emitted spelling; `Empty` is the
+// published zero root (`[base]` of an unconstrained mixin). Every ingress — the
+// `defineMixinClass` argument, own metadata, a foreign value's public `[base]` — must
+// normalize here, or the same "no base" declaration resolves differently per code path.
+function normalizeRequiredBase(
+    value: AnyConstructor<any> | undefined
+): AnyConstructor<any> | undefined {
+    return value === Object || value === Empty ? undefined : value
+}
+
+function runtimeRequiredBase(mixinClass: RuntimeMixinClassValue): AnyConstructor<any> | undefined {
+    const metadata = (mixinClass as RegisteredMixinClass)[mixinMetadata]
+
+    if (metadata !== undefined) {
+        return normalizeRequiredBase(metadata.requiredBase)
+    }
+
+    return normalizeRequiredBase(mixinClass[base])
+}
+
 function applyRuntimeMixins(
     base: AnyConstructor<any>,
     mixins: readonly RuntimeMixinClassValue[]
@@ -316,7 +417,7 @@ function applyRuntimeMixin(
     const metadata = (mixinClass as RegisteredMixinClass)[mixinMetadata]
     const cached   = metadata.applications.get(base)
 
-    if (!classExtends(base, metadata.requiredBase)) {
+    if (metadata.requiredBase !== undefined && !classExtends(base, metadata.requiredBase)) {
         throw new Error(
             `Mixin class ${mixinClass.name || "<anonymous>"} requires base ` +
             `${metadata.requiredBase.name || "<anonymous>"}`
@@ -378,8 +479,7 @@ function mergeRuntimeLinearizations(sequences: RuntimeMixinClassValue[][]): Runt
 }
 
 function classExtends(base: AnyConstructor<any>, requiredBase: AnyConstructor<any>): boolean {
-    return requiredBase === Object ||
-        base === requiredBase ||
+    return base === requiredBase ||
         requiredBase.prototype.isPrototypeOf(base.prototype)
 }
 

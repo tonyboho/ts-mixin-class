@@ -9,11 +9,13 @@ import type { StaticCollisionCheckMode } from "./model.js"
 export const anyConstructorName = "AnyConstructor"
 export const classStaticsName = "ClassStatics"
 export const defineMixinClassName = "defineMixinClass"
+export const emptyName = "Empty"
 export const mixinChainName = "mixinChain"
 export const mixinChainLinearizedName = "mixinChainLinearized"
 // The VALUE helpers are imported under reserved double-underscore LOCAL aliases so the injected
 // import can never collide with a user binding of the package name (TS2440).
 export const defineMixinClassLocalName = "__defineMixinClass__"
+export const emptyLocalName = "__Empty__"
 export const applyLegacyClassDecoratorsName = "applyLegacyClassDecorators"
 export const applyLegacyClassDecoratorsLocalName = "__applyLegacyClassDecorators__"
 export const mixinChainLocalName = "__mixinChain__"

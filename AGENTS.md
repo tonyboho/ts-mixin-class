@@ -14,6 +14,14 @@ a **consumer** is a class that applies mixins via `extends` / `implements`. Mixi
 through runtime factories (`class extends base {…}`); a mixin's own `extends Base` records a
 *required consumer base* (a constraint on consumers), **not** a runtime parent.
 
+The library-owned `Empty` class exported from `base.ts` is the **zero runtime base**. Any
+base-less mixin or consumer must ultimately be rooted in `Empty`, **never directly in the
+`Object` constructor**: `Object` brings an unwanted static API (`assign`, `keys`, and so on)
+into the generated class's static side. The separate compile-time counterpart is the lowercase
+`object` **type**, used by type checking to mean "no required-base constraint". Do not confuse
+that top type with a runtime base value or materialize it as `Object` in the generated
+inheritance chain.
+
 Stock TypeScript gives one declaration only **one face**, but we need two, so every build runs
 **two transform paths**, selected by `resolveUsePrintedSourceFile` (checks `noEmit` /
 `process.argv`):
@@ -77,6 +85,85 @@ the dependencies' already-materialized linearizations, with **no** good-head sea
   transform's C3 cost (~-20% whole-pass on the large bench rows). A conflicting list stays
   uncached: it must keep throwing on every call. Callers never mutate the cached array —
   `linearizeDependencies` maps it into fresh refs.
+
+## Precomputed effective required base (base-plan replay)
+
+Required-base selection is the second compile-time plan replayed against the materialized C3
+linearization. The compiler collects every required-base constraint from the **full transitive
+C3 closure**, then orders them by **nominal class inheritance** (not TypeScript's structural
+assignability). A valid constraint set forms one chain; its bottom is the most-specific base.
+Unrelated bases, sibling subclasses, and different instantiations such as `Base<string>` vs
+`Base<number>` have no bottom and produce native **TS990013** in both planes.
+
+- A consumer/mixin with an explicit `extends Actual` does not select another base: `Actual` must
+  equal the effective required base or nominally inherit from it. A plain consumer's generated
+  validation stays checker-authored (so `@ts-expect-error` can suppress an intentional negative
+  fixture); a `@mixin`'s own `extends` follows the same rule through TS990014 because that mixin is
+  also a consumer of its dependencies.
+- With no explicit base, the compiler emits a **one-based index** into the already-materialized
+  requirement linearization; `0` means no required-base constraint / the `Empty` zero root
+  (a base-less consumer still supplies its own `$empty extends Empty` factual base). Runtime replay reads the
+  selected mixin's effective `[base]` marker in O(1). It does not scan/compare bases and does not
+  import the selected base class. The latter is load-bearing for an exported mixin whose required
+  base is private to its module. The same key-space/runtime-order invariant as the C3 merge plan
+  makes the index cross-file and cross-package safe.
+- `defineMixinClass` publishes the **effective transitive** base through `[base]`. With no
+  constraint it publishes `Empty`, while the compile-time marker remains the lowercase `object`
+  top type. Do not regress this to the `Object` constructor. A base-less consumer emits its own
+  `__X$empty extends __Empty__` runtime class: `Empty` is the shared ZERO ROOT, while the generated
+  subclass is the distinct factual base used as the application-cache key. Source view keeps the
+  same `$empty` sibling as a compile-time scaffold without a visible runtime import.
+  **Superseded (kept for context):** the first base-plan implementation concluded that base-less
+  consumers should therefore reuse the mixin's canonical application over the single package
+  `Empty`. That confused a shared zero ROOT with a shared APPLICATION: it collapsed factory
+  evaluation, so mixin member decorators and static initializers stopped running for each
+  base-less `implements` site. **Superseded (kept for context):** the next attempted fix bypassed
+  the application cache for compiler-emitted chains. That restored decorator counts but broke the
+  invariant that applications are memoized by their factual base. The current fix keeps the cache
+  unchanged and restores distinct per-consumer `$empty` subclasses rooted in `Empty`. Consumers
+  with the SAME explicit/required factual base still reuse the cached application; duplicate
+  mixins inside one C3 chain still apply once.
+- The original Program's checker supplies the nominal relations lazily (cached), including generic heritage
+  and `RuntimeMixinClass<RequiredBase>` markers recovered from `.d.ts`. Type queries are guarded:
+  a transient/incomplete source-view tree must degrade to an unknown constraint rather than throw
+  during program creation. Every constraint's ancestry fingerprint is part of the transform cache
+  key, so changing a base's `extends` invalidates consumers even when mixin declarations themselves
+  did not change. Nested mixins are keyed by declaration position because they deliberately do not
+  enter the cross-file registry; they still use the same resolver and base-plan semantics.
+- Plan mode mirrors C3: compiler-generated code replays the index; `"verify"` cross-checks it
+  against the runtime scan, `"c3"` IGNORES the base index too (the escape hatch escapes the
+  whole plan), and a malformed index (negative/fractional/out of range) throws loudly instead
+  of silently resolving to the Empty root.
+- **Degradation ladder (load-bearing).** Relations are TRI-STATE: nominal ancestry is compared
+  under an identity-substitution environment (`checker.getBaseTypes` returns UNINSTANTIATED
+  generic bases — substituting the reference's own type arguments while ascending is what keeps
+  `GenericMid<string>` a `GenericRoot<string[]>`), and a comparison that still reaches a FREE
+  type parameter (a generic mixin applied with the consumer's own parameter) is "unknown", which
+  makes the whole resolution INDETERMINATE: no diagnostic, no plan — never a false TS990013 on
+  valid code. The emitted pair follows one rule, derived in ONE place per expander
+  (`planSelection` on `RequiredBaseContext`): a positive index rides with the literal
+  `undefined` base; **plan `0` ("known unconstrained") may only ever ride with the `$empty`
+  root and only when the SYNTACTIC side also finds no base**; every other state (no cross-file
+  context — the public in-process API, a `matchesRef` miss, indeterminate, resolver/registry
+  disagreement) emits the pre-plan base expression with NO plan and lets the runtime scan
+  decide. Degrading "couldn't place it" to `0` is the bug class that seeds `Empty` under a
+  constrained mixin and throws at import time of a compile-green build.
+- **The expanders hand the context CLONED nodes** (the compiler host clones per call): any
+  checker query for an expander-supplied declaration must RE-ANCHOR by position into the
+  original program's file first (`explicitBaseTypeOf`) — querying the clone silently degrades
+  to "unknown" and the TS990014 validation vanishes. Explicit consumer bases are resolved this
+  way LAZILY, never from an eager file scan: the old `text.includes(packageName)` gate skipped
+  consumer files that import only their mixin module, silently disabling the mismatch check.
+  A generic mixin's declared base referencing its OWN type parameters is instantiated into the
+  checker-authored validation from the use-site arguments (`implements M<U>` → `Base<U>`);
+  with no spelled arguments it degrades to the nominal/runtime checks (cloned as-is it was
+  TS2304 on a generated line whenever the consumer's parameter names differed).
+- The context build is TWO-PHASE and mostly lazy: eager work is mixin discovery + own
+  constraints only (zero constraints → an inert context, nothing per rebuild); dependency
+  symbol-linking, explicit-base types, and export lookups (`canImportBase`, memoized) resolve
+  on demand. The cache-key component is SHAPE-based (file, mixin name, base spelling, ancestry
+  fingerprint) — never byte positions, or typing a comment above any mixin would invalidate
+  every cached transformed file in the program (`required-base-plan-cache-key.t.ts` pins it).
 
 ## Source-view invariants
 

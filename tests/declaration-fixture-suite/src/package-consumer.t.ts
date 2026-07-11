@@ -1,7 +1,15 @@
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
-import { RequiredBase, RequiredMixin, SourceClass1, SourceClass2 } from "ts-mixin-class-fixture-suite/mixins"
+import {
+    DeclarationNeedsRoot,
+    DeclarationNeedsSpecific,
+    isDeclarationSpecificBase,
+    RequiredBase,
+    RequiredMixin,
+    SourceClass1,
+    SourceClass2
+} from "ts-mixin-class-fixture-suite/mixins"
 
 class GenericBase<T> {
     baseValue: T
@@ -36,6 +44,9 @@ class DeclarationRequiredConsumer extends DeclarationRequiredBase implements Req
     }
 }
 
+class DeclarationMultipleBaseConsumer implements DeclarationNeedsRoot, DeclarationNeedsSpecific {
+}
+
 const consumer = new Consumer1(42)
 const required = new DeclarationRequiredConsumer()
 
@@ -57,6 +68,7 @@ const e3: string = consumer.passThrough2("x")
 
 it("uses mixins from another package through declarations", async (t: Test) => {
     const second = new Consumer2(7)
+    const multipleBase = new DeclarationMultipleBaseConsumer()
 
     t.equal(consumer.baseValue, 42, "Generic base field is typed and initialized")
     t.equal(consumer.own(), 42, "Generic base super method works")
@@ -73,6 +85,11 @@ it("uses mixins from another package through declarations", async (t: Test) => {
     t.isInstanceOf(consumer, SourceClass2, "Declaration-imported second mixin instanceof works")
     t.isInstanceOf(required, RequiredMixin, "Declaration required-base consumer matches the mixin")
     t.isInstanceOf(required, RequiredBase, "Declaration required-base consumer keeps the required base")
+    t.ok(isDeclarationSpecificBase(multipleBase), "The declaration plan selects the private most-specific base")
+    t.isInstanceOf(multipleBase, DeclarationNeedsRoot, "The declaration plan applies the broad-base mixin")
+    t.isInstanceOf(multipleBase, DeclarationNeedsSpecific, "The declaration plan applies the specific-base mixin")
+    t.equal(multipleBase.rootMixinMethod(), "requiredBase", "The broad-base mixin sees the selected base")
+    t.equal(multipleBase.specificMixinMethod(), "specificBase", "The specific-base mixin sees the selected base")
 })
 
 void [ v1, v2, v3, v4, v5, v6, e1, e2, e3 ]

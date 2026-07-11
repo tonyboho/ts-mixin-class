@@ -246,13 +246,20 @@ function findRuntimeMixinClassReference(
 // mixin value's declared type. `RuntimeMixinClass` with no type argument (a mixin
 // without a required base) yields undefined.
 function runtimeMixinClassRequiredBaseIdentifier(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.Identifier | undefined {
-    const argument = findRuntimeMixinClassReference(tsInstance, typeNode)?.typeArguments?.[0]
+    const argument = runtimeMixinClassRequiredBaseTypeNode(tsInstance, typeNode)
 
     return argument !== undefined &&
         tsInstance.isTypeReferenceNode(argument) &&
         tsInstance.isIdentifier(argument.typeName)
         ? argument.typeName
         : undefined
+}
+
+export function runtimeMixinClassRequiredBaseTypeNode(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode
+): ts.TypeNode | undefined {
+    return findRuntimeMixinClassReference(tsInstance, typeNode)?.typeArguments?.[0]
 }
 
 function typeReferencesRuntimeMixinClass(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {

@@ -5,9 +5,9 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 
 // MEMBER decorators (§2.8's member-level sibling). A consumer's decorated members are
 // preserved through the heritage rewrite and their decorators run ONCE; a MIXIN's member
-// decorators ride inside the factory's class declaration, so they run PER APPLICATION —
-// canonical class + each base-less consumer's own empty base — the §1.18 static-block
-// semantics. In the fixture corpus this file also feeds the stress sweep (navigation,
+// decorators ride inside the factory's class declaration, so they run PER DISTINCT FACTUAL BASE.
+// The canonical declaration uses `Empty`; every base-less consumer applies over its own
+// `$empty extends Empty`, while the runtime cache still reuses truly identical bases. In the fixture corpus this file also feeds the stress sweep (navigation,
 // quickinfo, rename over decorated members).
 //
 // Builds under BOTH decorator modes: the factory emits a named class DECLARATION
@@ -102,7 +102,7 @@ it("member decorators on consumers and mixins", async (t: Test) => {
     t.equal(consumerDecorated, 1, "a consumer member decorator runs ONCE (the member is preserved, not re-created)")
 
     t.equal(mixinMethodDecorated, 3,
-        "a mixin METHOD decorator runs per application — canonical + one per base-less consumer (§1.18 semantics)")
+        "a mixin METHOD decorator runs per application — canonical + one per base-less consumer")
     t.equal(mixinFieldDecorated, 3, "…and the mixin FIELD decorator the same")
 })
 

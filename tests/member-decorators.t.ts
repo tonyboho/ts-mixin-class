@@ -291,7 +291,7 @@ it("STANDARD accessor decorators on BOTH halves of a mixin's get/set pair", asyn
     const { emit, run } = await buildAndRun(source, false)
 
     t.equal(emit.exitCode, 0, `emit: decorated get AND set halves compile.\n${commandOutput(emit)}`)
-    // 2 applications (canonical + Meter's empty base) × (getter + setter).
+    // 2 factual bases (Empty + Meter$empty extends Empty) × (getter + setter).
     t.equal(
         run?.stdout.trim(),
         "decorated=getter:value,setter:value,getter:value,setter:value value=42",
@@ -374,7 +374,7 @@ it("LEGACY parameter decorators on a mixin method", async (t: Test) => {
     const { emit, run } = await buildAndRun(source, true)
 
     t.equal(emit.exitCode, 0, `emit: the parameter decorator compiles inside the factory.\n${commandOutput(emit)}`)
-    // 2 applications (canonical + Handler's empty base) × 1 decorated parameter.
+    // Canonical Empty base + Handler$empty rooted in Empty.
     t.equal(
         run?.stdout.trim(),
         "params=handle:0,handle:0 out=handled:x",

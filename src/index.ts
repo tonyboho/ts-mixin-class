@@ -5,6 +5,7 @@ import { wrapProgramDiagnostics } from "./emit-diagnostic-remap.js"
 import type { MixinClassTransformerConfig, NativeMixinDiagnostic } from "./model.js"
 import { buildConstructionBaseRegistry, buildMixinRegistry } from "./registry.js"
 import { hasRuntimeModuleForDeclaration } from "./registry-declaration-file.js"
+import { buildRequiredBaseContext } from "./required-base-plan.js"
 import { effectiveUseDefineForClassFields, resolveTransformOptions } from "./transform-options.js"
 
 export * from "./base.js"
@@ -73,15 +74,18 @@ export default function transformProgram(
 
     const registry          = buildMixinRegistry(tsInstance, program, options, resolveModuleFileName)
     const constructionBases = buildConstructionBaseRegistry(tsInstance, program, options, resolveModuleFileName, registry)
+    const requiredBases     = buildRequiredBaseContext(tsInstance, program, registry, options)
     // Per-program sink the transform pushes native diagnostics into and the diagnostic wrap
     // drains. Shared by reference with `crossFile` (where the transform reaches it) below.
     const nativeDiagnostics: NativeMixinDiagnostic[] = []
-    const crossFile                                  = registry.size === 0 && constructionBases.size === 0
+    const crossFile                                  = registry.size === 0 && constructionBases.size === 0 &&
+        !requiredBases.hasMixins
         ? undefined
         : {
             registry,
             constructionBases,
-            cacheKey           : registryCacheKey(registry, constructionBases),
+            requiredBases,
+            cacheKey           : `${registryCacheKey(registry, constructionBases)}\0${requiredBases.cacheKey}`,
             resolveModuleFileName,
             canImportRuntimeValue,
             linearizationCache : new Map<string, string[]>()

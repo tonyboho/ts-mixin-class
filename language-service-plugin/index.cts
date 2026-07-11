@@ -361,7 +361,7 @@ function init(modules: { typescript: typeof import("typescript") }): ts.server.P
         // what the transform generates never surfaces in the editor UI.
         const isGeneratedHelperName = (name: string): boolean =>
             /^__.+\$(base|empty|mixin)$/.test(name) ||
-            /^(__defineMixinClass__|__mixinChain__|__mixinChainLinearized__|__mixinBase)$/.test(name)
+            /^(__defineMixinClass__|__Empty__|__mixinChain__|__mixinChainLinearized__|__mixinBase)$/.test(name)
 
         const baseGetCompletionsAtPosition = ls.getCompletionsAtPosition.bind(ls)
         ls.getCompletionsAtPosition = (fileName, position, options, formattingSettings) => {

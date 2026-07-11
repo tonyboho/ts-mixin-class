@@ -506,3 +506,58 @@ function createTrackedMixin(
 
     return defineMixinClass(name, factory, requirements)
 }
+
+// --- required-base plan replay (REVIEW.md findings 8a/8b) -------------------
+
+it("the c3 escape mode ignores the required-base plan and rescans", async (t: Test) => {
+    class RealBase {
+        who(): string {
+            return "RealBase"
+        }
+    }
+
+    const factoryOf = (name: string): MixinFactory => ((base: AnyConstructor<NamedInstance>) => {
+        return class extends base {
+            who(): string {
+                return `${name}>${super.who()}`
+            }
+        }
+    }) as unknown as MixinFactory
+
+    const Needy = defineMixinClass("Needy", factoryOf("Needy"), [], RealBase)
+
+    // A deliberately WRONG plan index (0 = "no constraint") with mode "c3": the escape
+    // hatch must ignore the plan and let the runtime scan find RealBase.
+    class Consumer extends mixinChainLinearized(undefined, [ Needy ], [ [ 1, 0, 1 ] ], "c3", 0) {}
+
+    t.isInstanceOf(new Consumer(), RealBase, "c3 mode rescans the required base instead of replaying the plan")
+})
+
+it("a malformed required-base plan index throws instead of silently seeding Empty", async (t: Test) => {
+    class RealBase {
+        who(): string {
+            return "RealBase"
+        }
+    }
+
+    const factoryOf = (name: string): MixinFactory => ((base: AnyConstructor<NamedInstance>) => {
+        return class extends base {
+            who(): string {
+                return `${name}>${super.who()}`
+            }
+        }
+    }) as unknown as MixinFactory
+
+    const Needy = defineMixinClass("NeedyNegative", factoryOf("NeedyNegative"), [], RealBase)
+
+    t.throwsOk(
+        () => mixinChainLinearized(undefined, [ Needy ], [ [ 1, 0, 1 ] ], "replay", -1),
+        "Required-base plan",
+        "A negative index is rejected loudly"
+    )
+    t.throwsOk(
+        () => mixinChainLinearized(undefined, [ Needy ], [ [ 1, 0, 1 ] ], "replay", 1.5),
+        "Required-base plan",
+        "A fractional index is rejected loudly"
+    )
+})

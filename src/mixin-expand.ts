@@ -25,7 +25,9 @@ import { createLinearizationPlanLiteral, linearizationMode } from "./linearizati
 import { mixinValueIdentifier } from "./entity-name.js"
 import {
     linearizationDiagnosticMessage,
-    pushLinearizationConflictDiagnostic
+    pushLinearizationConflictDiagnostic,
+    pushRequiredBaseConflictDiagnostic,
+    pushRequiredBaseMismatchDiagnostic
 } from "./consumer-diagnostics.js"
 import {
     collectMixinClassDiagnostics
@@ -172,9 +174,11 @@ export function expandMixinClass(
     // split so it surfaces identically in both — no `__X$base` validation (source view) or
     // `MixinLinearizationConflict<message>` value-cast intersection (emit) any more. No merge plan
     // is emitted for a conflicting set. Spanned on the first `implements` entry (the conflict's deps).
-    const dependencyHeritage    = localMixinHeritageTypes(tsInstance, declaration, context)
-    const dependencyRefs        = localMixinRefs(tsInstance, context, dependencyHeritage)
-    const linearizationConflict = mixinLinearizationConflict(context, dependencyRefs)
+    const dependencyHeritage     = localMixinHeritageTypes(tsInstance, declaration, context)
+    const dependencyRefs         = localMixinRefs(tsInstance, context, dependencyHeritage)
+    const linearizationConflict  = mixinLinearizationConflict(context, dependencyRefs)
+    const declaredRequiredBase   = requiredBaseType(tsInstance, declaration)
+    const requiredBaseResolution = context.crossFile?.requiredBases.resolveRefs(sourceFile.fileName, [ ref ])
 
     if (linearizationConflict !== undefined && declaration.name !== undefined) {
         pushLinearizationConflictDiagnostic(
@@ -183,6 +187,37 @@ export function expandMixinClass(
             context,
             dependencyHeritage[0] ?? declaration.name,
             linearizationDiagnosticMessage(dependencyRefs, context, linearizationConflict)
+        )
+    }
+
+    if (requiredBaseResolution?.conflict !== undefined) {
+        pushRequiredBaseConflictDiagnostic(
+            tsInstance,
+            sourceFile,
+            context,
+            dependencyHeritage[0] ?? declaration.name ?? declaration,
+            requiredBaseResolution.conflict
+        )
+    }
+
+    // Reported ONLY when the mismatch was produced by THIS mixin's own `extends` — a
+    // dependency's mismatch propagates through the resolution (it correctly blocks base
+    // selection) but is diagnosed once, on the dependency itself (REVIEW finding 7).
+    if (requiredBaseResolution?.explicitMismatch !== undefined && declaredRequiredBase !== undefined &&
+        context.crossFile?.requiredBases.ownsMismatch(
+            sourceFile.fileName,
+            declaration.pos,
+            requiredBaseResolution.explicitMismatch
+        ) === true
+    ) {
+        pushRequiredBaseMismatchDiagnostic(
+            tsInstance,
+            sourceFile,
+            context,
+            declaredRequiredBase,
+            ref.className,
+            requiredBaseResolution.explicitMismatch.actual.baseName,
+            requiredBaseResolution.explicitMismatch.required
         )
     }
 
@@ -205,14 +240,34 @@ export function expandMixinClass(
     // Emit-only: the source-view path above recomputes its own heritage/required
     // base, so these stay below the early return to avoid wasted work per edit.
     const typeParameters = declaration.typeParameters !== undefined ? [ ...declaration.typeParameters ] : undefined
-    const requiredBase   = requiredBaseType(tsInstance, declaration)
+    const requiredBase   = declaredRequiredBase
     // Approach (B): precompute this mixin's requirement linearization as a merge plan the
     // runtime replays instead of running C3. Absent for a dependency-free mixin (no merge)
     // and for a conflicting requirement set (the conflict is reported above) -- the runtime
     // falls back to C3 in those cases.
-    const linearizationPlan = linearizationConflict !== undefined || dependencyRefs.length === 0
+    const linearizationPlan      = linearizationConflict !== undefined || dependencyRefs.length === 0
         ? undefined
         : deriveLinearizationPlan(dependencyRefs.map((dependencyRef) => dependencyRef.key), context)
+    const linearizedDependencies = requiredBase === undefined && linearizationPlan !== undefined
+        ? linearizeDependencies(dependencyRefs.map((dependencyRef) => dependencyRef.key), context)
+        : []
+    const planSelection          = requiredBase === undefined && linearizationPlan !== undefined
+        ? context.crossFile?.requiredBases.planSelection(
+            sourceFile.fileName,
+            linearizedDependencies,
+            requiredBaseResolution
+        )
+        : undefined
+    // Same three shapes as the consumer emit (REVIEW finding 1): a selected index, a
+    // syntactically-verified `0` ("known unconstrained"), or NO plan — the runtime
+    // required-base scan resolves whatever the compile side could not decide.
+    const requiredBasePlan = requiredBase !== undefined || linearizationPlan === undefined
+        ? undefined
+        : planSelection?.selectedRef !== undefined
+            ? planSelection.plan
+            : linearizedDependencies.some((dependencyRef) => hasSyntacticRequiredBase(tsInstance, dependencyRef))
+                ? undefined
+                : 0
 
     // A mixin that extends the package `Base` is construction-enabled. Generic
     // mixins keep the inline value form and are handled separately, so the
@@ -323,7 +378,8 @@ export function expandMixinClass(
                                         requiredBase,
                                         linearizationPlan,
                                         linearizationMode(options),
-                                        createMixinDecorateCallback(tsInstance, sourceFile, declaration, ref, options)
+                                        createMixinDecorateCallback(tsInstance, sourceFile, declaration, ref, options),
+                                        requiredBasePlan
                                     )
                                 ),
                                 factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
@@ -379,7 +435,8 @@ function defineMixinClassArguments(
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
     linearizationPlan: LinearizationPlanSlice[] | undefined,
     mode: "verify" | "replay" | "c3",
-    decorateCallback: ts.Expression | undefined
+    decorateCallback: ts.Expression | undefined,
+    requiredBasePlan: number | undefined
 ): ts.Expression[] {
     const factory                                 = tsInstance.factory
     const explicitUndefined                       = (): ts.Expression => factory.createIdentifier("undefined")
@@ -387,7 +444,8 @@ function defineMixinClassArguments(
         requiredBase === undefined ? undefined : cloneNode(tsInstance, requiredBase.expression),
         linearizationPlan === undefined ? undefined : createLinearizationPlanLiteral(tsInstance, linearizationPlan),
         linearizationPlan === undefined ? undefined : factory.createStringLiteral(mode),
-        decorateCallback
+        decorateCallback,
+        requiredBasePlan === undefined ? undefined : factory.createNumericLiteral(requiredBasePlan)
     ]
 
     while (trailing.length > 0 && trailing[trailing.length - 1] === undefined) {
@@ -406,6 +464,17 @@ function defineMixinClassArguments(
 
 // The mixin's own requirement set cannot be C3-linearized: returns the error (so the caller
 // can report it on the mixin) or undefined when the set is empty or consistent.
+// Whether the ref carries a required base SYNTACTICALLY (its declaration's `extends`, or
+// the registry/.d.ts marker) — a pure check, unlike `requiredBaseTypeOfRef`, which also
+// registers the base's import. Used to verify a "known unconstrained" plan `0`: when any
+// dependency names a base the resolver could not place, the plan degrades to the runtime
+// scan instead of asserting an Empty root.
+function hasSyntacticRequiredBase(tsInstance: TypeScript, ref: ResolvedMixinRef): boolean {
+    return ref.declaration !== undefined
+        ? requiredBaseType(tsInstance, ref.declaration) !== undefined
+        : ref.requiredBase !== undefined
+}
+
 function mixinLinearizationConflict(
     context: FileMixinContext,
     dependencyRefs: ResolvedMixinRef[]

@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import type { PluginConfig } from "ts-patch"
+import type { RequiredBaseContext } from "./required-base-plan.js"
 import { normalizePath } from "./util.js"
 import type { TypeScript } from "./util.js"
 
@@ -86,6 +87,7 @@ export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
 export type CrossFileContext = {
     registry               : MixinRegistry,
     constructionBases      : ConstructionBaseRegistry,
+    requiredBases          : RequiredBaseContext,
     cacheKey               : string,
     resolveModuleFileName  : (specifier: string, containingFile: string) => string | undefined,
     canImportRuntimeValue? : (resolvedFileName: string) => boolean,
@@ -122,7 +124,9 @@ export const mixinDiagnosticCode = {
     MixinNamespaceMerge          : 990009,
     MixinMemberKindOverride      : 990010,
     MixinPartialAccessorOverride : 990011,
-    MixinManualApplication       : 990012
+    MixinManualApplication       : 990012,
+    MixinRequiredBaseConflict    : 990013,
+    MixinRequiredBaseMismatch    : 990014
 } as const
 
 // The one shared constructor for a transformer-authored error: spans `node`'s own

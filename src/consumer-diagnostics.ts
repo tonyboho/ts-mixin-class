@@ -19,6 +19,7 @@ import { metadataBaseLocalName, uniqueTypeParameterName } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
 import { cloneNode, deepCloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
+import type { RequiredBaseConflict, RequiredBaseConstraint } from "./required-base-plan.js"
 import type { TypeScript } from "./util.js"
 
 // A set of mixins (a consumer's `implements`, or a mixin's own dependencies) that cannot be
@@ -44,6 +45,94 @@ export function pushLinearizationConflictDiagnostic(
         mixinDiagnosticCode.MixinLinearizationConflict,
         message
     ))
+}
+
+export function pushRequiredBaseConflictDiagnostic(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext,
+    anchor: ts.Node,
+    conflict: RequiredBaseConflict
+): void {
+    if (anchor.pos < 0 || anchor.end < 0) {
+        return
+    }
+
+    context.nativeDiagnostics.push(nativeDiagnosticOn(
+        tsInstance,
+        sourceFile,
+        anchor,
+        mixinDiagnosticCode.MixinRequiredBaseConflict,
+        requiredBaseConflictDiagnosticMessage(conflict)
+    ))
+}
+
+export function requiredBaseConflictDiagnosticMessage(conflict: RequiredBaseConflict): string {
+    return "Incompatible mixin required bases. " +
+        `${conflict.left.mixinName} requires ${conflict.left.baseName}, while ` +
+        `${conflict.right.mixinName} requires ${conflict.right.baseName}; ` +
+        "neither required base inherits from the other. " +
+        "Fix: make one required base extend the other, or do not compose these mixins."
+}
+
+export function pushRequiredBaseMismatchDiagnostic(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    context: FileMixinContext,
+    anchor: ts.Node,
+    consumerName: string,
+    actualBaseName: string,
+    required: RequiredBaseConstraint
+): void {
+    if (anchor.pos < 0 || anchor.end < 0) {
+        return
+    }
+
+    context.nativeDiagnostics.push(nativeDiagnosticOn(
+        tsInstance,
+        sourceFile,
+        anchor,
+        mixinDiagnosticCode.MixinRequiredBaseMismatch,
+        requiredBaseMismatchDiagnosticMessage(consumerName, actualBaseName, required)
+    ))
+}
+
+export function requiredBaseMismatchDiagnosticMessage(
+    consumerName: string,
+    actualBaseName: string,
+    required: RequiredBaseConstraint
+): string {
+    return "Mixin required base mismatch. " +
+        `${consumerName} declares base ${actualBaseName}, but ` +
+        `${required.mixinName} requires ${required.baseName}. ` +
+        `Fix: make ${consumerName}'s base equal to ${required.baseName} or inherit from it.`
+}
+
+export function createNominalRequiredBaseValidation(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    generatedRange: ts.TextRange,
+    message: string
+): RequiredBaseValidation {
+    const typeParameter = preserveTextRange(
+        tsInstance,
+        tsInstance.factory.createTypeParameterDeclaration(
+            undefined,
+            uniqueTypeParameterName(declaration, "__mixinNominalRequiredBase"),
+            tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword),
+            undefined
+        ),
+        generatedRange
+    )
+
+    return {
+        typeParameter,
+        typeArgument : preserveTextRange(
+            tsInstance,
+            createDiagnosticLiteralType(tsInstance, message),
+            generatedRange
+        )
+    }
 }
 
 export function unsupportedBaseDiagnosticMessage(
@@ -88,7 +177,12 @@ export function createRequiredBaseValidations(
     extendsType: ts.ExpressionWithTypeArguments,
     mixinRefs: ResolvedMixinRef[],
     generatedRange: ts.TextRange,
-    options: TransformOptions
+    options: TransformOptions,
+    // Use-site heritage per DIRECT ref (`implements M<U>` → the `M<U>` node): supplies
+    // the type arguments that instantiate a generic mixin's declared base in the
+    // consumer's scope. Transitive refs have no use site here — their generic bases
+    // degrade to the nominal/runtime checks.
+    directHeritageByRef?: ReadonlyMap<ResolvedMixinRef, ts.ExpressionWithTypeArguments>
 ): RequiredBaseValidation[] {
     const validations: RequiredBaseValidation[] = []
 
@@ -97,7 +191,13 @@ export function createRequiredBaseValidations(
             continue
         }
 
-        const requiredBase = requiredBaseRequirementOfMixinRef(tsInstance, context, sourceFile, ref)
+        const requiredBase = requiredBaseRequirementOfMixinRef(
+            tsInstance,
+            context,
+            sourceFile,
+            ref,
+            directHeritageByRef?.get(ref)
+        )
 
         if (requiredBase === undefined) {
             continue
@@ -246,19 +346,64 @@ function requiredBaseRequirementOfMixinRef(
     tsInstance: TypeScript,
     context: FileMixinContext,
     sourceFile: ts.SourceFile,
-    ref: ResolvedMixinRef
+    ref: ResolvedMixinRef,
+    useSiteHeritage?: ts.ExpressionWithTypeArguments
 ): RequiredBaseRequirement | undefined {
     if (ref.declaration !== undefined) {
         const requiredBase = requiredBaseType(tsInstance, ref.declaration)
 
-        return requiredBase === undefined ? undefined : {
-            typeNode : heritageTypeToTypeReference(tsInstance, requiredBase),
-            name     : heritageTypeText(tsInstance, sourceFile, requiredBase)
+        if (requiredBase === undefined) {
+            return undefined
+        }
+
+        // A generic mixin's declared base (`@mixin class M<T> extends Base<T>`) references
+        // the MIXIN's own type parameters, which do not exist in the consumer's scope —
+        // cloned as-is the validation fails with TS2304 on a generated line. Instantiate
+        // it from the use site (`implements M<U>` → `Base<U>`) when the arguments are
+        // spelled out; otherwise skip this validation — the nominal (checker-side) check
+        // and the runtime guard own the case.
+        let typeNode            = heritageTypeToTypeReference(tsInstance, requiredBase)
+        const ownParameterNames = new Set(
+            (ref.declaration.typeParameters ?? []).map((parameter) => parameter.name.text)
+        )
+
+        if (ownParameterNames.size > 0 &&
+            typeNodeReferencesTypeParameters(tsInstance, typeNode, ownParameterNames)
+        ) {
+            const substitutions = useSiteTypeParameterSubstitutions(ref.declaration, useSiteHeritage)
+
+            if (substitutions === undefined) {
+                return undefined
+            }
+
+            typeNode = substituteTypeParameterReferences(tsInstance, typeNode, substitutions)
+        }
+
+        return {
+            typeNode,
+            name : heritageTypeText(tsInstance, sourceFile, requiredBase)
         }
     }
 
     if (ref.requiredBase !== undefined) {
         if (ref.requiredBase.import !== undefined) {
+            // An UNEXPORTED (or unresolvable) cross-file base cannot be imported for the
+            // checker-authored validation — emitting the import anyway fails the build
+            // with TS2459 on a generated line. Skip this validation; the nominal
+            // required-base check (TS990014 path) covers the mismatch without any import.
+            const crossFile        = context.crossFile
+            const resolvedFileName = crossFile?.resolveModuleFileName(
+                ref.requiredBase.import.specifier,
+                sourceFile.fileName
+            )
+
+            if (crossFile !== undefined && (
+                resolvedFileName === undefined ||
+                !crossFile.requiredBases.canImportBase(resolvedFileName, ref.requiredBase.import.importedName)
+            )) {
+                return undefined
+            }
+
             context.usedFactoryImports.set(
                 `${ref.requiredBase.import.specifier}:${ref.requiredBase.import.localName}`,
                 ref.requiredBase.import
@@ -379,4 +524,66 @@ function runtimeMixinClassRequiredBaseInstanceType(
             factory.createTypeQueryNode(factory.createIdentifier(metadataBaseLocalName))
         )
     ])
+}
+
+// Whether the type node references any of `names` as a bare type reference — the
+// detection side of the generic required-base instantiation above.
+function typeNodeReferencesTypeParameters(
+    tsInstance: TypeScript,
+    node: ts.Node,
+    names: ReadonlySet<string>
+): boolean {
+    if (tsInstance.isTypeReferenceNode(node) &&
+        tsInstance.isIdentifier(node.typeName) && names.has(node.typeName.text)
+    ) {
+        return true
+    }
+
+    return tsInstance.forEachChild(node, (child) =>
+        typeNodeReferencesTypeParameters(tsInstance, child, names) || undefined) === true
+}
+
+// The `implements M<U>` use-site arguments mapped onto M's declared type parameters —
+// undefined when the site spells no (or a mismatched number of) arguments, e.g. when
+// parameter defaults are relied on: those cases degrade to the nominal/runtime checks.
+function useSiteTypeParameterSubstitutions(
+    declaration: ts.ClassDeclaration,
+    useSiteHeritage: ts.ExpressionWithTypeArguments | undefined
+): Map<string, ts.TypeNode> | undefined {
+    const parameters = declaration.typeParameters ?? []
+    const args       = useSiteHeritage?.typeArguments
+
+    if (args === undefined || args.length !== parameters.length) {
+        return undefined
+    }
+
+    return new Map(parameters.map((parameter, index) => [ parameter.name.text, args[index]! ]))
+}
+
+function substituteTypeParameterReferences(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    substitutions: ReadonlyMap<string, ts.TypeNode>
+): ts.TypeNode {
+    // `nullTransformationContext` is a real runtime export absent from the public typings
+    // (same access pattern as transform-source-file.ts).
+    const nullTransformationContext = (tsInstance as unknown as {
+        nullTransformationContext : ts.TransformationContext
+    }).nullTransformationContext
+
+    const visit = (node: ts.Node): ts.Node => {
+        if (tsInstance.isTypeReferenceNode(node) &&
+            tsInstance.isIdentifier(node.typeName) && node.typeArguments === undefined
+        ) {
+            const substitution = substitutions.get(node.typeName.text)
+
+            if (substitution !== undefined) {
+                return deepCloneNode(tsInstance, substitution)
+            }
+        }
+
+        return tsInstance.visitEachChild(node, visit, nullTransformationContext)
+    }
+
+    return visit(typeNode) as ts.TypeNode
 }

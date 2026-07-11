@@ -9,6 +9,8 @@ import {
     classStaticsLocalName,
     defineMixinClassName,
     defineMixinClassLocalName,
+    emptyName,
+    emptyLocalName,
     metadataBaseImportName,
     metadataBaseLocalName,
     mixinApplicationName,
@@ -232,6 +234,7 @@ function createNamedImportDeclaration(
 function helperImportCandidates(options: TransformOptions): NamedImportElement[] {
     return [
         { typeOnly: false, importedName: defineMixinClassName,     localName: defineMixinClassLocalName },
+        { typeOnly: false, importedName: emptyName,                localName: emptyLocalName },
         { typeOnly: false, importedName: applyLegacyClassDecoratorsName, localName: applyLegacyClassDecoratorsLocalName },
         { typeOnly: false, importedName: mixinChainName,           localName: mixinChainLocalName },
         { typeOnly: false, importedName: mixinChainLinearizedName, localName: mixinChainLinearizedLocalName },

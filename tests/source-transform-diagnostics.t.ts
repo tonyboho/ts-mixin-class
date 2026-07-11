@@ -98,7 +98,7 @@ it("reports unsupported mixin class declarations with native diagnostics", async
                 }
 
                 // A static {} block on a mixin is SUPPORTED (it lands in the factory class
-                // expression and runs once per distinct base, like static field initializers) —
+                // declaration and runs once per distinct factual base, like static field initializers) —
                 // it must NOT surface in the invalid-declaration family below.
                 @mixin()
                 class StaticBlockMixin {

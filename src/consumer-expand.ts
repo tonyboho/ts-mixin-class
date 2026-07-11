@@ -11,10 +11,13 @@ import { brandConstructorParameter, type ConstructionBrand } from "./constructio
 import {
     appendRequiredBaseValidationTypeParameters,
     appendSourceViewValidationTypeParameters,
+    createNominalRequiredBaseValidation,
     createRequiredBaseValidations,
     linearizationDiagnosticMessage,
     pushLinearizationConflictDiagnostic,
     pushMissingRuntimeImportDiagnostics,
+    pushRequiredBaseConflictDiagnostic,
+    requiredBaseMismatchDiagnosticMessage,
     unsupportedBaseDiagnosticMessage
 } from "./consumer-diagnostics.js"
 import { addSyntheticSuperCallToConstructors } from "./consumer-constructors.js"
@@ -49,7 +52,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { consumerBaseSuffix, consumerEmptyBaseSuffix, generatedName } from "./naming.js"
+import { consumerBaseSuffix, consumerEmptyBaseSuffix, emptyLocalName, generatedName } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
 import { generatedTextRange, preserveGeneratedDeclarationRange, preserveSourceViewGeneratedClassLikeRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
@@ -109,9 +112,20 @@ export function expandConsumerClass(
 
     // Approach (B): the merge above succeeded, so the chain order can be precomputed as a
     // plan the runtime `mixinChainLinearized` replays instead of running C3 per consumer.
-    const linearizationPlan = expansion.directMixinRefs.length === 0
+    const linearizationPlan      = expansion.directMixinRefs.length === 0
         ? undefined
         : deriveLinearizationPlan(expansion.directMixinRefs.map((ref) => ref.key), context)
+    const requiredBaseResolution = context.crossFile?.requiredBases.resolveRefs(sourceFile.fileName, linearized)
+
+    if (requiredBaseResolution?.conflict !== undefined) {
+        pushRequiredBaseConflictDiagnostic(
+            tsInstance,
+            sourceFile,
+            context,
+            mixinHeritage[0] ?? declaration.name ?? declaration,
+            requiredBaseResolution.conflict
+        )
+    }
 
     if (expansion.extendsType !== undefined && !isSupportedBaseExpression(tsInstance, expansion.extendsType.expression)) {
         return expandConsumerClassWithUnsupportedBaseDiagnostic(
@@ -128,24 +142,84 @@ export function expandConsumerClass(
         )
     }
 
-    const implicitRequiredBase    = expansion.extendsType === undefined
-        ? firstRequiredBaseType(tsInstance, context, linearized)
+    // The base/plan pair is derived ONCE, here, and travels together (REVIEW finding 1).
+    // Exactly one of three shapes reaches the emit:
+    //  - a SELECTED ref: plan = its one-based index, the runtime base expression is the
+    //    literal `undefined` (the plan supplies the base — no phantom import);
+    //  - KNOWN unconstrained with nothing found syntactically either: the generated
+    //    `$empty` root with plan 0 (inert at runtime — the base is provided);
+    //  - everything else (no cross-file context, a plan miss, an indeterminate generic
+    //    resolution, or the resolver disagreeing with the syntactic side): the pre-plan
+    //    emit — the implicit base expression (or `$empty`) with NO plan; the runtime
+    //    required-base scan is the designed safety net.
+    const planSelection                 = expansion.extendsType === undefined && linearizationPlan !== undefined
+        ? context.crossFile?.requiredBases.planSelection(sourceFile.fileName, linearized, requiredBaseResolution)
         : undefined
-    const emptyBaseName           = expansion.extendsType === undefined && implicitRequiredBase === undefined
+    const selectedRequiredBaseRef       = planSelection?.selectedRef
+    const selectedRequiredBaseImport    = selectedRequiredBaseRef?.requiredBase?.import
+    const selectedRequiredBaseFile      = selectedRequiredBaseImport === undefined || context.crossFile === undefined
+        ? undefined
+        : context.crossFile.resolveModuleFileName(selectedRequiredBaseImport.specifier, sourceFile.fileName)
+    const canUseSelectedRequiredBase    = selectedRequiredBaseRef?.declaration !== undefined ||
+        (selectedRequiredBaseRef?.requiredBase !== undefined && (
+            selectedRequiredBaseImport === undefined ||
+            (selectedRequiredBaseFile !== undefined && context.crossFile?.requiredBases.canImportBase(
+                selectedRequiredBaseFile,
+                selectedRequiredBaseImport.importedName
+            ) === true)
+        ))
+    const implicitRequiredBase          = expansion.extendsType !== undefined
+        ? undefined
+        : selectedRequiredBaseRef !== undefined
+            ? requiredBaseTypeOfRef(tsInstance, context, selectedRequiredBaseRef, canUseSelectedRequiredBase)
+            : firstRequiredBaseType(tsInstance, context, linearized)
+    const emptyBaseName                 = expansion.extendsType === undefined &&
+        implicitRequiredBase === undefined && selectedRequiredBaseRef === undefined
         ? generatedName(expansion.name, consumerEmptyBaseSuffix)
         : undefined
-    const requiredBaseValidations = expansion.extendsType === undefined
-        ? []
-        : createRequiredBaseValidations(
-            tsInstance,
-            context,
-            sourceFile,
+    const requiredBasePlan              = expansion.extendsType !== undefined || linearizationPlan === undefined
+        ? undefined
+        : selectedRequiredBaseRef !== undefined
+            ? planSelection!.plan
+            : emptyBaseName !== undefined
+                ? 0
+                : undefined
+    const nominalRequiredBaseValidation = expansion.extendsType !== undefined &&
+        requiredBaseResolution?.selected !== undefined &&
+        context.crossFile?.requiredBases.explicitBaseSatisfies(
+            sourceFile.fileName,
             declaration,
-            expansion.extendsType,
-            linearized,
+            requiredBaseResolution.selected
+        ) === false
+        ? [ createNominalRequiredBaseValidation(
+            tsInstance,
+            declaration,
             expansion.generatedHeritageTypeRange,
-            options
-        )
+            requiredBaseMismatchDiagnosticMessage(
+                expansion.name,
+                expansion.extendsType.getText(sourceFile),
+                requiredBaseResolution.selected
+            )
+        ) ]
+        : []
+    const requiredBaseValidations       = expansion.extendsType === undefined
+        ? []
+        : [
+            ...createRequiredBaseValidations(
+                tsInstance,
+                context,
+                sourceFile,
+                declaration,
+                expansion.extendsType,
+                linearized,
+                expansion.generatedHeritageTypeRange,
+                options,
+                // `localMixinRefs` maps the heritage list 1:1, so direct refs pair with
+                // their use-site `implements` entries by index.
+                new Map(expansion.directMixinRefs.map((directRef, index) => [ directRef, mixinHeritage[index]! ]))
+            ),
+            ...nominalRequiredBaseValidation
+        ]
     pushMissingRuntimeImportDiagnostics(
         tsInstance,
         sourceFile,
@@ -348,7 +422,8 @@ export function expandConsumerClass(
             isConstructionConsumer
                 ? { consumerName: expansion.name, branded: brandsConstruction }
                 : undefined,
-            linearizationPlan
+            linearizationPlan,
+            requiredBasePlan
         ) ],
         []
     )
@@ -378,13 +453,13 @@ export function expandConsumerClass(
         : [ options.sourceView
             ? preserveGeneratedDeclarationRange(
                 tsInstance,
-                factory.createClassDeclaration(undefined, emptyBaseName, undefined, undefined, []),
+                createConsumerEmptyBaseClass(tsInstance, emptyBaseName, true),
                 expansion.sourceViewGeneratedRange,
                 declaration
             )
             : preserveGeneratedDeclarationRange(
                 tsInstance,
-                factory.createClassDeclaration(undefined, emptyBaseName, undefined, undefined, []),
+                createConsumerEmptyBaseClass(tsInstance, emptyBaseName, false),
                 expansion.generatedRange,
                 declaration
             ) ]
@@ -720,12 +795,33 @@ function expandConsumerClassWithLinearizationDiagnostic(
         ? []
         : [ preserveGeneratedDeclarationRange(
             tsInstance,
-            factory.createClassDeclaration(undefined, emptyBaseName, undefined, undefined, []),
+            createConsumerEmptyBaseClass(tsInstance, emptyBaseName, options.sourceView),
             generatedRange,
             declaration
         ) ]
 
     return [ ...emptyBaseClass, baseInterface, baseClass, updatedConsumer ]
+}
+
+function createConsumerEmptyBaseClass(
+    tsInstance: TypeScript,
+    name: string,
+    sourceView: boolean
+): ts.ClassDeclaration {
+    return tsInstance.factory.createClassDeclaration(
+        undefined,
+        name,
+        undefined,
+        sourceView
+            ? undefined
+            : [ tsInstance.factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
+                tsInstance.factory.createExpressionWithTypeArguments(
+                    tsInstance.factory.createIdentifier(emptyLocalName),
+                    undefined
+                )
+            ]) ],
+        []
+    )
 }
 
 function firstRequiredBaseType(
@@ -734,25 +830,7 @@ function firstRequiredBaseType(
     mixinRefs: ResolvedMixinRef[]
 ): ts.ExpressionWithTypeArguments | undefined {
     for (const ref of mixinRefs) {
-        if (ref.declaration === undefined) {
-            if (ref.requiredBase === undefined) {
-                continue
-            }
-
-            if (ref.requiredBase.import !== undefined) {
-                context.usedFactoryImports.set(
-                    `${ref.requiredBase.import.specifier}:${ref.requiredBase.import.localName}`,
-                    ref.requiredBase.import
-                )
-            }
-
-            return tsInstance.factory.createExpressionWithTypeArguments(
-                tsInstance.factory.createIdentifier(ref.requiredBase.localName),
-                undefined
-            )
-        }
-
-        const requiredBase = requiredBaseType(tsInstance, ref.declaration)
+        const requiredBase = requiredBaseTypeOfRef(tsInstance, context, ref)
 
         if (requiredBase !== undefined) {
             return requiredBase
@@ -760,6 +838,37 @@ function firstRequiredBaseType(
     }
 
     return undefined
+}
+
+function requiredBaseTypeOfRef(
+    tsInstance: TypeScript,
+    context: FileMixinContext,
+    ref: ResolvedMixinRef | undefined,
+    allowImportedBase = true
+): ts.ExpressionWithTypeArguments | undefined {
+    if (ref === undefined) {
+        return undefined
+    }
+
+    if (ref.declaration !== undefined) {
+        return requiredBaseType(tsInstance, ref.declaration)
+    }
+
+    if (!allowImportedBase || ref.requiredBase === undefined) {
+        return undefined
+    }
+
+    if (ref.requiredBase.import !== undefined) {
+        context.usedFactoryImports.set(
+            `${ref.requiredBase.import.specifier}:${ref.requiredBase.import.localName}`,
+            ref.requiredBase.import
+        )
+    }
+
+    return tsInstance.factory.createExpressionWithTypeArguments(
+        tsInstance.factory.createIdentifier(ref.requiredBase.localName),
+        undefined
+    )
 }
 
 // Base import map for the consumer, augmented with the generated aliases of any

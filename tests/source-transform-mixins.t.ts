@@ -261,8 +261,8 @@ it("expands a dependent mixin with a typed base and a dependency chain", async (
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as __MixinFactory__, [SourceClass1], undefined, [[0, 0, 1]], \"verify\")",
-        "Value const registers the direct dependency with the runtime helper"
+        "__defineMixinClass__(\"ChildMixin\", __ChildMixin$mixin as unknown as __MixinFactory__, [SourceClass1], undefined, [[0, 0, 1]], \"verify\", undefined, 0)",
+        "Value const registers the direct dependency and Empty base plan with the runtime helper"
     )
     t.match(
         printed,
@@ -305,8 +305,8 @@ it("reduces transitive mixin interface heritage", async (t: Test) => {
     )
     t.match(
         printed,
-        "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as __MixinFactory__, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\")",
-        "Runtime dependency metadata keeps the direct dependency list"
+        "__defineMixinClass__(\"LeafMixin\", __LeafMixin$mixin as unknown as __MixinFactory__, [ChildMixin, BaseMixin], undefined, [[0, 0, 2]], \"verify\", undefined, 0)",
+        "Runtime dependency metadata keeps the direct dependency list and Empty base plan"
     )
     t.expect(typecheckText(printed)).toEqual([])
 })

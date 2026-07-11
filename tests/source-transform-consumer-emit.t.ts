@@ -62,14 +62,14 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
 
     t.match(
         printed,
-        "class __Consumer$empty {\n}",
-        "An explicit empty base class is generated"
+        "class __Consumer$empty extends __Empty__",
+        "The consumer gets a distinct factual base rooted in the package Empty class"
     )
     t.match(
         printed,
-        "class __Consumer$base<T> extends (__mixinChainLinearized__(__Consumer$empty, [SourceClass1], [[0, 0, 1]], \"verify\") as unknown as " +
+        "class __Consumer$base<T> extends (__mixinChainLinearized__(__Consumer$empty, [SourceClass1], [[0, 0, 1]], \"verify\", 0) as unknown as " +
             "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\" | \"mix\">)",
-        "Helper chain starts at the generated empty base and keeps mixin statics"
+        "Helper chain applies the mixin to the consumer's cached factual base and keeps mixin statics"
     )
     t.notMatch(
         printed,
@@ -161,8 +161,8 @@ it("consumer transitively applies mixin dependencies", async (t: Test) => {
 
     t.match(
         printed,
-        "__mixinChainLinearized__(__Consumer$empty, [ChildMixin], [[0, 0, 2]], \"verify\")",
-        "Consumer delegates transitive dependency application to the runtime helper"
+        "__mixinChainLinearized__(__Consumer$empty, [ChildMixin], [[0, 0, 2]], \"verify\", 0)",
+        "Consumer delegates transitive dependency application over its Empty-rooted factual base"
     )
     t.match(
         printed,
@@ -470,4 +470,35 @@ it("fills nothing under fillMissedInitializersWith \"nothing\"", async (t: Test)
     t.match(printed, "public baseValue!: number;", "nothing mode leaves the `!` field with no initializer")
     t.notMatch(printed, "= undefined!", "nothing mode adds no undefined fill")
     t.notMatch(printed, "= null!", "nothing mode adds no null fill")
+})
+
+// REVIEW.md finding 1: without a cross-file context (the public in-process API) the
+// implicit required base found syntactically must still reach the runtime chain — it must
+// never be replaced by `undefined` + base-plan 0 (which would seed Empty and throw at load).
+it("keeps the implicit required base in the runtime chain without cross-file context", async (t: Test) => {
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { mixin } from "ts-mixin-class"
+
+        class ReqBase {
+            req (): string { return "req" }
+        }
+
+        @mixin()
+        class RequiredMixin extends ReqBase {
+        }
+
+        class DefaultConsumer implements RequiredMixin {
+        }
+    `)))
+
+    t.match(
+        printed,
+        "__mixinChainLinearized__(ReqBase",
+        "The chain is rooted at the syntactically-found required base"
+    )
+    t.notMatch(
+        printed,
+        "__mixinChainLinearized__(undefined",
+        "The base expression is never discarded in favor of an unknowable plan"
+    )
 })

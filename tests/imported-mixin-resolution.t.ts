@@ -98,8 +98,8 @@ async function assertApplied(t: Test, label: string, localName: string, files: T
     t.equal(result.exitCode, 0, `${label}: the consumer should compile (mixin resolved).\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        `__mixinChainLinearized__(__Service$empty, [${localName}], [[0, 0, 1]], "verify")`,
-        `${label}: the resolved mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`
+        `__mixinChainLinearized__(__Service$empty, [${localName}], [[0, 0, 1]], "verify", 0)`,
+        `${label}: the resolved mixin is applied over Service's Empty-rooted factual base.\n--- consumer.js ---\n${consumerJs}`
     )
 }
 

@@ -198,6 +198,13 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   on demand. The cache-key component is SHAPE-based (file, mixin name, base spelling, ancestry
   fingerprint) — never byte positions, or typing a comment above any mixin would invalidate
   every cached transformed file in the program (`required-base-plan-cache-key.t.ts` pins it).
+- **Perf: the resolver scales super-linearly with constraint count** (pairwise nominal
+  comparisons, each walking a base chain). Measured on the `bench:compile` `base-chain` corpus
+  (every mixin extends a class from one deep chain, depth ~size/4; the plain corpus has NO
+  required bases at all, so only these rows exercise the resolver): the compile-time delta over
+  the plain corpus of the same size is ~+25ms @30 mixins, ~+120ms @80, ~+0.5s @160, ~+3.2s @320
+  (2026-07). Fine for realistic projects; re-check the curve before optimizing anything here
+  (`TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30,80,160,320 pnpm run bench:compile`).
 
 ## Source-view invariants
 

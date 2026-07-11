@@ -897,8 +897,8 @@ export function buildRequiredBaseContext(
     const programResolutionInProgress    = new Set<string>()
 
     // The registry-key tier: covers `.d.ts` mixins (whose constraints are env-free by
-    // construction — a published marker erases the parameter mapping, see REVIEW.md item
-    // 1). In-program mixins resolve through the env-aware program tier below.
+    // construction — a published marker erases the parameter mapping; the 2026-07 review's
+    // cross-package item). In-program mixins resolve through the env-aware program tier below.
     const resolveRegisteredMixin = (mixin: RegisteredMixin): RequiredBaseResolution => {
         if (!hasConstraints) {
             return emptyResolution

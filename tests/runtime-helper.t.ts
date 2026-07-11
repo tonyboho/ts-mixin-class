@@ -507,7 +507,7 @@ function createTrackedMixin(
     return defineMixinClass(name, factory, requirements)
 }
 
-// --- required-base plan replay (REVIEW.md findings 8a/8b) -------------------
+// --- required-base plan replay (2026-07 review findings 8a/8b) --------------
 
 it("the c3 escape mode ignores the required-base plan and rescans", async (t: Test) => {
     class RealBase {

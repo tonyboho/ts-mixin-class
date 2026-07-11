@@ -12,7 +12,7 @@ import { defaultTransformOptions } from "../src/model.js"
 import { buildMixinRegistry } from "../src/registry.js"
 import { buildRequiredBaseContext } from "../src/required-base-plan.js"
 
-// REVIEW.md finding 4: the required-base part of the transform cache key must be
+// 2026-07 review finding 4: the required-base part of the transform cache key must be
 // SHAPE-based, like registryCacheKey — a position-shifting edit (a comment above a
 // mixin) must not change it, or every cached transformed file in the program misses
 // on each such keystroke.

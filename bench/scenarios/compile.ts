@@ -7,6 +7,7 @@ import {
     createBenchmarkFixture,
     defaultCompileScenarios,
     previousWindowPropertiesScenario,
+    requiredBaseChainScenario,
     scenarioDirectoryName,
     type BenchmarkScenario
 } from "../fixtures/generator.js"
@@ -47,8 +48,7 @@ export async function runCompile(config: BenchConfig): Promise<BenchReport> {
 
 function compileScenarios(config: BenchConfig): BenchmarkScenario[] {
     const sizes = scenarioSizes("TS_MIXIN_BENCH_SIZES")
-
-    return sizes === undefined
+    const plain = sizes === undefined
         ? defaultCompileScenarios(config.propertyCount, config.graphOptions, config.propertyVisibility, config.construction)
         : sizes.map((size) => {
             return previousWindowPropertiesScenario(
@@ -59,6 +59,24 @@ function compileScenarios(config: BenchConfig): BenchmarkScenario[] {
                 config.construction
             )
         })
+
+    // The same corpus with required bases — the resolver's heavy path is measured
+    // only here (the plain corpus has no `extends` chains at all).
+    const requiredBase = requiredBaseSizes(sizes).map((size) => {
+        return requiredBaseChainScenario(
+            size,
+            config.propertyCount,
+            config.graphOptions,
+            config.propertyVisibility,
+            config.construction
+        )
+    })
+
+    return [ ...plain, ...requiredBase ]
+}
+
+function requiredBaseSizes(defaultSizes: number[] | undefined): number[] {
+    return scenarioSizes("TS_MIXIN_BENCH_REQUIRED_BASE_SIZES") ?? defaultSizes ?? [ 30 ]
 }
 
 async function runCleanCompile(tsconfigFile: string, directory: string): Promise<number> {

@@ -30,6 +30,10 @@ Each scenario maps to one way the transformer is actually used:
 
 `pnpm run bench` runs all four. `node dist/bench/index.js <scenario>` runs one.
 
+`compile` also runs a `base-chain` variant of the corpus (every mixin extends a class
+from one deep `extends` chain) — the only rows that exercise the required-base
+resolver; the plain corpus has no `extends` at all. Default: one row at size 30.
+
 The `transform` scenario is in-process and fast (no `tsc`/`tsserver` fork), so it
 is the right place to judge a transformer change before writing it. The other
 three are end-to-end regression guards where the transformer's own cost is
@@ -100,6 +104,7 @@ each measured sample; raising it steadies the per-pass timing.
 TS_MIXIN_BENCH_SIZES=10,30              # default size list for all three groups
 TS_MIXIN_BENCH_TSSERVER_SIZES=10,30     # override for tsserver
 TS_MIXIN_BENCH_EDIT_SIZES=10,30         # override for edit
+TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30   # override for the compile base-chain rows
 TS_MIXIN_BENCH_PROPERTY_COUNT=1
 TS_MIXIN_BENCH_PROPERTY_VISIBILITY=implicit|public
 TS_MIXIN_BENCH_CONSTRUCTION=plain|base  # base: consumers extend Base and call .new(...)

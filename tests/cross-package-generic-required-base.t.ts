@@ -9,7 +9,8 @@ import type { CommandResult, TypeScriptFixtureSourceFile } from "./util.js"
 
 const tscBinary = path.join(packageRoot, "node_modules", "typescript", "bin", "tsc")
 
-// GENERIC required bases across a package boundary (REVIEW.md item 1). The published
+// GENERIC required bases across a package boundary (2026-07 review, the cross-package
+// item). The published
 // `RuntimeMixinClass<Base>` marker erases forwarded type parameters to `any`, but the
 // published `interface M<T> extends Base<T>` retains the full parameter mapping — the
 // resolver recovers the constraint from there, so use-site instantiation works through

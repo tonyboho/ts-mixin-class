@@ -472,7 +472,7 @@ it("fills nothing under fillMissedInitializersWith \"nothing\"", async (t: Test)
     t.notMatch(printed, "= null!", "nothing mode adds no null fill")
 })
 
-// REVIEW.md finding 1: without a cross-file context (the public in-process API) the
+// 2026-07 review finding 1: without a cross-file context (the public in-process API) the
 // implicit required base found syntactically must still reach the runtime chain — it must
 // never be replaced by `undefined` + base-plan 0 (which would seed Empty and throw at load).
 it("keeps the implicit required base in the runtime chain without cross-file context", async (t: Test) => {

@@ -22,7 +22,13 @@ export type BenchmarkScenario = {
     propertyVisibility : BenchmarkPropertyVisibility,
     construction       : BenchmarkConstructionMode,
     previousWindow?    : PreviousWindowGraphOptions,
-    consumerLeafCount  : number
+    consumerLeafCount  : number,
+    // Depth of a plain-class `extends` chain (`src/bases.ts`); when set, every mixin
+    // extends a chain class (monotonically deeper with the mixin index, so every
+    // dependency's required base is an ancestor of the dependent's own base and the
+    // graph stays valid). This is the required-base resolver's heavy path: one
+    // constraint per mixin in the closure, compared pairwise along the chain.
+    baseChainDepth?    : number
 }
 
 export type BenchmarkFixture = {
@@ -147,6 +153,29 @@ export function previousWindowPropertiesScenario(
     }
 }
 
+// The previous-window corpus with every mixin extending a class from one deep
+// `extends` chain — measures the required-base resolver over the same graph shape.
+export function requiredBaseChainScenario(
+    size: number,
+    propertyCount: number,
+    graphOptions = defaultPreviousWindowGraphOptions(),
+    propertyVisibility: BenchmarkPropertyVisibility = "implicit",
+    construction: BenchmarkConstructionMode = "plain"
+): BenchmarkScenario {
+    const base  = previousWindowPropertiesScenario(size, propertyCount, graphOptions, propertyVisibility, construction)
+    const depth = defaultBaseChainDepth(size)
+
+    return {
+        ...base,
+        name           : `${base.name}-base-chain-${depth}`,
+        baseChainDepth : depth
+    }
+}
+
+export function defaultBaseChainDepth(size: number): number {
+    return Math.max(4, Math.round(size / 4))
+}
+
 export function binaryTreePropertiesScenario(
     size: number,
     propertyCount: number,
@@ -193,6 +222,9 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
     }
 
     return [
+        ...(scenario.baseChainDepth === undefined
+            ? []
+            : [ { fileName: "src/bases.ts", text: baseChainSource(scenario.baseChainDepth) } ]),
         ...Array.from({ length: scenario.size }, (_, index) => {
             return {
                 fileName : `src/${mixinModuleName(index)}.ts`,
@@ -206,14 +238,39 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
     ]
 }
 
+function baseChainSource(depth: number): string {
+    return Array.from({ length: depth }, (_, index) => {
+        const extendsClause = index === 0 ? "" : ` extends ${baseClassName(index - 1)}`
+
+        return `export class ${baseClassName(index)}${extendsClause} {
+    baseValue${index}: number = ${index}
+}
+`
+    }).join("\n")
+}
+
+// Monotonic with the mixin index: dependencies (always earlier mixins) sit at the
+// same depth or shallower, so each mixin's own base satisfies every dependency's
+// required base and the corpus compiles without required-base diagnostics.
+function mixinBaseIndex(scenario: BenchmarkScenario, index: number): number {
+    const depth = scenario.baseChainDepth ?? 0
+
+    return Math.min(depth - 1, Math.floor(index * depth / scenario.size))
+}
+
 function mixinSource(scenario: BenchmarkScenario, index: number): string {
     const dependencyIndexes = mixinDependencyIndexes(scenario, index)
+    const baseName          = scenario.baseChainDepth === undefined
+        ? undefined
+        : baseClassName(mixinBaseIndex(scenario, index))
     const imports           = [
         `import { mixin } from "ts-mixin-class"`,
+        ...(baseName === undefined ? [] : [ `import { ${baseName} } from "./bases.js"` ]),
         ...dependencyIndexes.map((dependencyIndex) => {
             return `import { ${mixinClassName(dependencyIndex)} } from "./${mixinModuleName(dependencyIndex)}.js"`
         })
     ]
+    const extendsClause     = baseName === undefined ? "" : ` extends ${baseName}`
     const implementsClause  = dependencyIndexes.length === 0
         ? ""
         : ` implements ${dependencyIndexes.map((dependencyIndex) => mixinClassName(dependencyIndex)).join(", ")}`
@@ -225,7 +282,7 @@ function mixinSource(scenario: BenchmarkScenario, index: number): string {
     return `${imports.join("\n")}
 
 @mixin()
-export class ${mixinClassName(index)}${implementsClause} {
+export class ${mixinClassName(index)}${extendsClause}${implementsClause} {
 ${properties.join("\n")}
 }
 `
@@ -343,6 +400,10 @@ function consumerLeafIndexes(size: number, count: number): number[] {
 
 function mixinClassName(index: number): string {
     return `Mixin${index}`
+}
+
+function baseClassName(index: number): string {
+    return `Base${index}`
 }
 
 function mixinModuleName(index: number): string {

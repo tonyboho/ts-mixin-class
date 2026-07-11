@@ -279,7 +279,16 @@ export function transformSourceFile(
                     : tsInstance.factory.updateDefaultClause(inner, statements)
             }
 
-            return tsInstance.visitEachChild(inner, visit, nullTransformationContext)
+            // A transient mid-edit tree can hold a node `visitEachChild`'s own Debug
+            // assertions reject (e.g. a half-typed `[` member parsing as an index
+            // signature with no type). Skip descending such a subtree for this keystroke
+            // — a nested class inside it simply stays unexpanded until the next complete
+            // parse; throwing would crash the whole program build in tsserver.
+            try {
+                return tsInstance.visitEachChild(inner, visit, nullTransformationContext)
+            } catch {
+                return inner
+            }
         }
 
         return visit(node) as ts.Statement

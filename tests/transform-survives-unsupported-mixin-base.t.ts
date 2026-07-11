@@ -22,6 +22,58 @@ const unsupportedHeritage = [
     "factory().Inner" // property access on a call (recurses to an unsupported expression)
 ]
 
+// Regression (deterministic replacement for stress-edit seed MIXIN_STRESS_SEED=386732370):
+// a half-typed "[" member inside a class (`static[ built: string = ""`) parses as a
+// MALFORMED IndexSignatureDeclaration (no closing bracket, no type). The nested-scope
+// expansion walk (`expandNestedStatementLists` → `visitEachChild`) hit TypeScript's own
+// `visitEachChildOfIndexSignatureDeclaration` Debug assertion on the missing type and
+// crashed the emit-plane transform mid-keystroke. The walk must skip an unvisitable
+// subtree instead — the next complete parse restores it.
+it("does not throw on a class member that parses as a malformed index signature", async (t: Test) => {
+    // The nested consumer in makeNested is what routes the file through the nested
+    // statement-list walk (`hasNestedClasses`) — without it the malformed class is never
+    // visited and the crash cannot reproduce.
+    const sourceText = `
+        import { mixin } from "ts-mixin-class"
+
+        @mixin()
+        class Labeled {
+            label(): string {
+                return "x"
+            }
+        }
+
+        function makeNested(): string {
+            class NestedConsumer implements Labeled {
+            }
+
+            return new NestedConsumer().label()
+        }
+
+        class StaticBlockHost {
+            static[ built: string = ""
+
+            static {
+                class StaticBlockConsumer implements Labeled {
+                }
+
+                void StaticBlockConsumer
+            }
+        }
+
+        void makeNested
+    `
+
+    t.doesNotThrow(
+        () => transformSourceFile(ts, createSourceFile(sourceText)),
+        "emit tolerates a half-typed index-signature member on the nested-scope walk"
+    )
+    t.doesNotThrow(
+        () => transformSourceFile(ts, createSourceFile(sourceText), { sourceView: true }),
+        "source view tolerates it too"
+    )
+})
+
 it("does not throw on a @mixin class with an unsupported (non-reference) implements entry", async (t: Test) => {
     for (const heritage of unsupportedHeritage) {
         // The `.mix(...)` usage stays deliberately: the crashing apply-type build it used

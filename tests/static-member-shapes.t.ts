@@ -118,3 +118,49 @@ it("static accessor and symbol-key collisions are diagnosed in both planes", asy
         t.match(output, "shared", `${plane}: the symbol-keyed collision is named too`)
     }
 })
+
+it("static collisions normalize equivalent JavaScript property-key spellings", async (t: Test) => {
+    const cases = [
+        {
+            description : "identifier and computed string literal",
+            expectedKey : "foo",
+            leftMember  : 'static foo: string = "left"',
+            rightMember : 'static ["foo"]: number = 1'
+        },
+        {
+            description : "numeric and string-literal numeric name",
+            expectedKey : "0",
+            leftMember  : 'static 0: string = "left"',
+            rightMember : 'static "0": number = 1'
+        }
+    ]
+
+    for (const collision of cases) {
+        const source = trimIndent(`
+            import { mixin } from "ts-mixin-class"
+
+            @mixin()
+            class Left {
+                ${collision.leftMember}
+            }
+
+            @mixin()
+            class Right {
+                ${collision.rightMember}
+            }
+
+            class Broken implements Left, Right {
+            }
+
+            void Broken
+        `)
+
+        for (const [ plane, result ] of [ [ "emit", await build(source) ], [ "source view", await build(source, true) ] ] as const) {
+            const output = commandOutput(result)
+
+            t.ne(result.exitCode, 0, `${plane}: ${collision.description} resolves to one incompatible runtime key`)
+            t.match(output, "Static mixin member collision", `${plane}: the normalized key uses the dedicated diagnostic.\n${output}`)
+            t.match(output, collision.expectedKey, `${plane}: the diagnostic names the normalized ${collision.expectedKey} key`)
+        }
+    }
+})

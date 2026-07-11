@@ -98,7 +98,8 @@ it("emits a generic config alias carrying the class type parameters", async (t: 
     )
     t.match(
         printed,
-        "Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
+        // Key order is NEAREST-first (§7.29): own, then mixins, then the base chain.
+        "Pick<Consumer<T>, \"ownValue\" | \"mixinValue\" | \"baseValue\"> & " +
             "Partial<Pick<Consumer<T>, \"optionalBaseValue\">>",
         "The generic alias references the consumer instance type with required and optional keys"
     )

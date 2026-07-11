@@ -241,8 +241,9 @@ it("generates public-only static construction config overloads by default", asyn
     )
     t.match(
         printed,
-        "Pick<Consumer<T>, \"baseValue\" | \"mixinValue\" | \"ownValue\"> & " +
-            "Partial<Pick<Consumer<T>, \"optionalBaseValue\" | \"optionalMixinValue\" | \"optionalOwnValue\">>",
+        // Key order is NEAREST-first (§7.29): own, then mixins, then the base chain.
+        "Pick<Consumer<T>, \"ownValue\" | \"mixinValue\" | \"baseValue\"> & " +
+            "Partial<Pick<Consumer<T>, \"optionalOwnValue\" | \"optionalMixinValue\" | \"optionalBaseValue\">>",
         "Default public-only construction config preserves required and optional property names in the named alias"
     )
     t.match(

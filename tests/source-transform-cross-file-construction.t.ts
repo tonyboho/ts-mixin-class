@@ -704,3 +704,356 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
         await fixture.dispose()
     }
 })
+
+it("keeps literal/index config keys but deliberately drops computed keys across source files", async (t: Test) => {
+    const sourceFiles: TypeScriptFixtureSourceFile[] = [
+        {
+            fileName : "exotic.ts",
+            text     : `
+                import { Base, mixin } from "ts-mixin-class"
+
+                export const computed = "computed" as const
+                export const symbolic: unique symbol = Symbol("symbolic")
+
+                @mixin()
+                export class Exotic extends Base {
+                    public 0!: string
+                    public "dash-name"!: number
+                    public [computed]!: boolean
+                    public [symbolic]!: boolean
+                }
+            `
+        },
+        {
+            fileName : "consumer.ts",
+            text     : `
+                import { Exotic, computed, symbolic } from "./exotic.js"
+
+                class Holder implements Exotic {
+                    public own!: Date = new Date(0)
+                }
+
+                const value = Holder.new({
+                    0           : "zero",
+                    "dash-name" : 1,
+                    own         : new Date(0)
+                })
+
+                const literal: string = value[0]
+                const dashed: number = value["dash-name"]
+                const computedValue: boolean = value[computed]
+                const symbolicValue: boolean = value[symbolic]
+
+                // A computed key's declaration cannot be transplanted into another source scope.
+                // @ts-expect-error cross-file consumer configs deliberately omit computed string keys
+                Holder.new({ 0: "zero", "dash-name": 1, computed: true, own: new Date(0) })
+
+                // @ts-expect-error the same transplantability rule applies to unique-symbol keys
+                Holder.new({ 0: "zero", "dash-name": 1, [symbolic]: true, own: new Date(0) })
+
+                void [ literal, dashed, computedValue, symbolicValue ]
+            `
+        }
+    ]
+
+    for (const [ plane, compilerOptions ] of [
+        [ "emit", undefined ],
+        [ "source view", { noEmit: true } ]
+    ] as const) {
+        const fixture = await createTypeScriptFixture({
+            experimentalDecorators : false,
+            compilerOptions,
+            sourceFiles
+        })
+
+        try {
+            const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+            t.isStrict(
+                result.exitCode,
+                0,
+                `${plane}: cross-file config transport keeps spellable keys and drops scoped computed keys:\n${commandOutput(result)}`
+            )
+        } finally {
+            await fixture.dispose()
+        }
+    }
+})
+
+it("carries exotic construction config shapes through a declaration package", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "exotic-construction-lib", [
+        {
+            fileName : "exotic.ts",
+            text     : `
+                import { Base, mixin } from "ts-mixin-class"
+
+                export const computed = "computed" as const
+                export const symbolic: unique symbol = Symbol("symbolic")
+
+                @mixin()
+                export class Exotic extends Base {
+                    public 0!: string
+                    public "dash-name"!: number
+                    public [computed]!: boolean
+                    public [symbolic]!: boolean
+                }
+
+                export class ExoticBag extends Base {
+                    [index: number]: string
+                    [key: symbol]: boolean
+                }
+            `
+        }
+    ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { Exotic, ExoticBag, computed, symbolic } from "exotic-construction-lib/exotic"
+
+                    const standalone = Exotic.new({
+                        0           : "zero",
+                        "dash-name" : 1,
+                        computed    : true,
+                        [symbolic]  : false
+                    })
+
+                    class Holder implements Exotic {
+                        public own!: Date = new Date(0)
+                    }
+
+                    const consumed = Holder.new({
+                        0           : "zero",
+                        "dash-name" : 1,
+                        computed    : true,
+                        [symbolic]  : false,
+                        own         : new Date(0)
+                    })
+
+                    class BagChild extends ExoticBag {
+                        public own!: Date
+                    }
+
+                    const bag = ExoticBag.new({ 1: "one", [Symbol("flag")]: true })
+                    const bagChild = BagChild.new({ 1: "one", [Symbol("flag")]: true, own: new Date(0) })
+
+                    const a: number = consumed["dash-name"]
+                    const b: boolean = consumed[computed]
+                    const c: boolean = consumed[symbolic]
+                    const d: string = bag[1]
+                    const e: Date = bagChild.own
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the numeric index remains string-valued through .d.ts
+                        Exotic.new({ 0: 1, "dash-name": 1, computed: true, [symbolic]: false })
+
+                        // @ts-expect-error the unique-symbol key keeps its boolean value type
+                        Exotic.new({ 0: "zero", "dash-name": 1, computed: true, [symbolic]: "wrong" })
+                    }
+
+                    void [ standalone, a, b, c, d, e, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Declaration consumers retain literal, computed, symbol and index config shapes:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("supports default-exported construction classes and mixins through declarations", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "default-construction-lib", [
+        {
+            fileName : "default-base.ts",
+            text     : `
+                import { Base } from "ts-mixin-class/base"
+
+                export default class DefaultBase extends Base {
+                    public baseKey!: string = ""
+                }
+            `
+        },
+        {
+            fileName : "default-mixin.ts",
+            text     : `
+                import { Base, mixin } from "ts-mixin-class"
+
+                @mixin()
+                export default class DefaultMixin extends Base {
+                    public mixinKey!: number = 0
+                }
+            `
+        }
+    ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import DefaultBase from "default-construction-lib/default-base"
+                    import DefaultMixin from "default-construction-lib/default-mixin"
+
+                    const base = DefaultBase.new({ baseKey: "base" })
+                    const mixin = DefaultMixin.new({ mixinKey: 1 })
+
+                    class BaseChild extends DefaultBase {
+                        public childKey!: boolean
+                    }
+
+                    class MixinConsumer implements DefaultMixin {
+                        public ownKey!: Date
+                    }
+
+                    const child = BaseChild.new({ baseKey: "base", childKey: true })
+                    const consumed = MixinConsumer.new({ mixinKey: 1, ownKey: new Date(0) })
+
+                    const a: string = base.baseKey
+                    const b: number = mixin.mixinKey
+                    const c: boolean = child.childKey
+                    const d: Date = consumed.ownKey
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the non-exported default-base config alias still enforces its required key
+                        DefaultBase.new({})
+
+                        // @ts-expect-error the default mixin's config stays exact through declarations
+                        DefaultMixin.new({ mixinKey: 1, extra: true })
+                    }
+
+                    void [ a, b, c, d, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Default-exported construction values remain usable through their non-exported config aliases:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("preserves overloaded constructors and exotic statics through a declaration package", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "declaration-shapes-lib", [
+        {
+            fileName : "shapes.ts",
+            text     : `
+                import { mixin } from "ts-mixin-class"
+
+                export const staticToken: unique symbol = Symbol("staticToken")
+
+                @mixin()
+                export class DeclarationShapes {
+                    static state: string = "initial"
+
+                    constructor()
+                    constructor(seed: string)
+                    constructor(seed: string = "initial") {
+                        DeclarationShapes.state = seed
+                    }
+
+                    static identity<T>(value: T): T {
+                        return value
+                    }
+
+                    static parse(value: string): string
+                    static parse(value: number): number
+                    static parse(value: string | number): string | number {
+                        return value
+                    }
+
+                    static get current(): string {
+                        return this.state
+                    }
+
+                    static set current(value: string) {
+                        this.state = value
+                    }
+
+                    static [staticToken](): string {
+                        return "symbol"
+                    }
+                }
+            `
+        }
+    ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { DeclarationShapes, staticToken } from "declaration-shapes-lib/shapes"
+
+                    const first = new DeclarationShapes()
+                    const second = new DeclarationShapes("seed")
+
+                    class Consumer implements DeclarationShapes {
+                    }
+
+                    const generic: { value: number } = Consumer.identity({ value: 1 })
+                    const parsedString: string = Consumer.parse("x")
+                    const parsedNumber: number = Consumer.parse(1)
+
+                    Consumer.current = "changed"
+
+                    const current: string = Consumer.current
+                    const symbolResult: string = Consumer[staticToken]()
+
+                    // BY DESIGN: a mixin VALUE's construct signature is deliberately
+                    // PERMISSIVE (MixinClassValue's \`new (...args: any[])\` — a mixin value
+                    // is primarily an appliable factory; §2.16 direct subclassing works but
+                    // is loosely typed), so a mis-typed direct \`new\` is NOT rejected
+                    // through the published value. Pinned so a shape change is noticed.
+                    const permissive = new DeclarationShapes(1)
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the published static overloads reject booleans
+                        Consumer.parse(true)
+
+                        // @ts-expect-error the published accessor keeps its string setter type
+                        Consumer.current = 1
+                    }
+
+                    void [ first, second, generic, parsedString, parsedNumber, current, symbolResult, permissive, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Declaration consumers retain constructor overloads and every static member shape:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})

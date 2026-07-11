@@ -352,11 +352,13 @@ function localClassConfigProperties(
     baseImportMap: ImportMap | undefined,
     seen: Set<string>
 ): ConfigProperty[] {
+    // NEAREST-first (the `uniqueConfigProperties` contract): own members, then the
+    // consumed mixins in listed (nearest) order, then the extends chain.
     return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, sourceFile, localClass.extendsType, facts, crossFile, baseImportMap, seen),
+        ...localClass.configProperties,
         ...localClass.implementsIdentifierNames.flatMap((implemented) =>
             configPropertiesForName(tsInstance, sourceFile, implemented, facts, crossFile, baseImportMap, seen)),
-        ...localClass.configProperties
+        ...baseConfigProperties(tsInstance, sourceFile, localClass.extendsType, facts, crossFile, baseImportMap, seen)
     ])
 }
 

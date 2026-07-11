@@ -274,16 +274,16 @@ it("tsserver navigation on a CONSTRUCTION consumer's base name reaches the base 
         import { Base } from "ts-mixin-class/base"
 
         class Model extends Base {
-            modelValue: number = 0
+            public modelValue: number = 0
         }
 
         @mixin()
         class Feature {
-            feature?: string
+            public feature?: string
         }
 
         class Widget extends Model implements Feature {
-            widget: boolean = false
+            public widget: boolean = false
         }
 
         const widget = Widget.new({ widget: true, modelValue: 1, feature: "x" })

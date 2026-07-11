@@ -40,6 +40,11 @@ export type ClassFacts = {
     // construction config so a `.new` config object's bag keys stay value-constrained.
     indexSignatures           : ts.IndexSignatureDeclaration[],
     staticNames               : Set<string>,
+    // NAMED instance members (fields, methods, accessors — any visibility), normalized to
+    // their JavaScript property identity like `staticNames`. Gates the source-view
+    // fast-path instance-collision check (§7.27): a validation is emitted only for
+    // contributor pairs whose instance names actually overlap.
+    instanceNames             : Set<string>,
     hasStaticNew              : boolean,
     hasMixinDecorator         : boolean
 }
@@ -282,6 +287,7 @@ function importFacts(
 
 type ClassMemberFacts = {
     staticNames      : Set<string>,
+    instanceNames    : Set<string>,
     configProperties : ConfigProperty[],
     indexSignatures  : ts.IndexSignatureDeclaration[]
 }
@@ -332,6 +338,9 @@ function classFacts(
         get staticNames() {
             return getMemberFacts().staticNames
         },
+        get instanceNames() {
+            return getMemberFacts().instanceNames
+        },
         get hasStaticNew() {
             return getMemberFacts().staticNames.has("new")
         },
@@ -344,6 +353,7 @@ function collectClassMemberFacts(
     declaration: ts.ClassDeclaration
 ): ClassMemberFacts {
     const staticNames                                     = new Set<string>()
+    const instanceNames                                   = new Set<string>()
     const configProperties: ConfigProperty[]              = []
     const indexSignatures: ts.IndexSignatureDeclaration[] = []
 
@@ -383,6 +393,18 @@ function collectClassMemberFacts(
         if (tsInstance.isIndexSignatureDeclaration(member)) {
             indexSignatures.push(member)
             continue
+        }
+
+        // Every remaining NAMED member is an instance member (fields, methods, get/set
+        // accessors — visibility immaterial: a non-`keyof`-visible private resolves the
+        // gated §7.27 check to `never`, so over-collecting is harmless).
+        if (member.name !== undefined) {
+            const instanceName = propertyNameText(tsInstance, member.name) ??
+                computedPropertyNameText(tsInstance, member.name)
+
+            if (instanceName !== undefined) {
+                instanceNames.add(instanceName)
+            }
         }
 
         // A public SET accessor (set-only or the setter of a get/set pair) is assignable —
@@ -445,6 +467,7 @@ function collectClassMemberFacts(
 
     return {
         staticNames,
+        instanceNames,
         indexSignatures,
         configProperties : uniqueConfigProperties(configProperties)
     }
@@ -464,10 +487,21 @@ function computedKeyEntityText(tsInstance: TypeScript, name: ts.PropertyName): s
 }
 
 // `[shared]` / `[tokens.shared]` for a computed property name over an identifier or dotted
-// expression; undefined for anything unresolvable syntactically.
+// expression; undefined for anything unresolvable syntactically. A computed name over a
+// LITERAL (`["foo"]`, `[0]`) is the SAME JavaScript property key as the plain spelling
+// (`foo` / `0`), so it normalizes to the bare literal text — bracketed spelling is reserved
+// for identifier/dotted references, whose runtime key (a symbol or const value) is distinct
+// from the same-spelled string name.
 function computedPropertyNameText(tsInstance: TypeScript, name: ts.PropertyName): string | undefined {
     if (!tsInstance.isComputedPropertyName(name)) {
         return undefined
+    }
+
+    if (tsInstance.isStringLiteral(name.expression) ||
+        tsInstance.isNoSubstitutionTemplateLiteral(name.expression) ||
+        tsInstance.isNumericLiteral(name.expression)
+    ) {
+        return name.expression.text
     }
 
     const text = tsInstance.isIdentifier(name.expression)

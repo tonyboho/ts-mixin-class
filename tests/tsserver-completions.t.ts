@@ -96,6 +96,31 @@ it("the `.new({ … })` config object completes the config keys as a member comp
     t.eq(phantomNames(names), [], "no generated phantom names leak into the config completion")
 })
 
+it("the `.new({ … })` config completion includes exotic spellable keys", async (t: Test) => {
+    const text                          = trimIndent(`
+        import { Base } from "ts-mixin-class"
+
+        const computed = "computed" as const
+        const symbolic: unique symbol = Symbol("symbolic")
+
+        class Exotic extends Base {
+            public 0!: string
+            public "dash-name"!: number
+            public [computed]!: boolean
+            public [symbolic]!: Date
+        }
+
+        Exotic.new({  })
+    `)
+    const { names, isMemberCompletion } = await completionsAt(t, text, "Exotic.new({  })", "Exotic.new({ ".length)
+
+    t.true(names.includes('"0"'), "the numeric config key is offered with an object-literal-safe spelling")
+    t.true(names.includes('"dash-name"'), "the string-literal config key is offered with quotes")
+    t.true(names.includes("computed"), "the computed const-string config key is offered by its concrete value")
+    t.is(isMemberCompletion, true, "exotic config keys come from the contextual config type")
+    t.eq(phantomNames(names), [], "exotic config completions do not expose generated declarations")
+})
+
 it("module-scope identifier completions do not leak generated phantom names", async (t: Test) => {
     // An expression position at top level (`void Widget`): identifier completions here read the
     // whole module scope — exactly where the generated top-level siblings live.

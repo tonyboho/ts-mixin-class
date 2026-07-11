@@ -404,6 +404,15 @@ Violating any of these produces confusing tsserver errors or crashes.
     collapse the CLONE to `{pos: -1, end: -1}` (see `appendGeneratedConfigAliasesAsRealText`) so
     every node kind prints from its `.text`.
 
+    The EMIT-plane twin (2026-07): the printer's `canUseOriginalText` gate also requires the node to
+    have a PARENT — factory-fresh generated nodes are parentless and always print from `.text` even
+    after a real-range collapse, but a `getSynthesizedDeepClone`d subtree keeps parent pointers, so
+    once the alias positioning stamps real ranges over it, its NUMERIC literals print as source
+    slices (`Pick<C, }>` — the reprint→reparse then cascades into TS1005 parse garbage and leaks
+    type fragments into `.js`). The flatten wrapper's second intersection occurrence is exactly such
+    a clone — `orphanSubtree` (construction-config) strips the clone's parents before it enters the
+    alias; source view re-parents the whole file afterwards, so nothing is lost there.
+
 11. **Source view is position-preserving WITHOUT a source map — never insert *visible* text inside a
     position-preserved span.** The source-view plane does not reprint+remap (that is the emit path);
     the printed transformed text must occupy the SAME offsets as the original so the language service

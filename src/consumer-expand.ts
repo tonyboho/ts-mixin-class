@@ -45,7 +45,7 @@ import {
 } from "./mixin-refs.js"
 import { reduceTransitiveMixinHeritageTypes } from "./transitive-heritage-workaround.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
-import { createStaticCollisionValidations } from "./static-collisions.js"
+import { createInstanceCollisionStatements, createStaticCollisionValidations } from "./static-collisions.js"
 import {
     type ImportMap,
     nativeDiagnosticOn,
@@ -396,6 +396,18 @@ export function expandConsumerClass(
                 isConstructionConsumer
                     ? { consumerName: expansion.name, branded: brandsConstruction }
                     : undefined
+            ),
+            // The fast path's intersection cast silently absorbs incompatible same-named
+            // instance members (`string & number = never`) that the `$base` interface of
+            // every other shape surfaces as TS2320 — this facts-gated carrier restores the
+            // diagnostic (§7.27).
+            ...createInstanceCollisionStatements(
+                tsInstance,
+                sourceFile,
+                declaration,
+                expansion.extendsType,
+                reducedMixinHeritage,
+                facts
             ),
             ...configAliasStatement
         ]

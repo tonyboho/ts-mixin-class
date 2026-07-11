@@ -503,7 +503,8 @@ it("collects the transitive mixin chain into a construction-base mixin's `new` c
 
     t.match(
         printed,
-        "Pick<Leaf, \"deepValue\" | \"ownValue\">",
+        // Key order is NEAREST-first (§7.29): own members lead, the dependency chain trails.
+        "Pick<Leaf, \"ownValue\" | \"deepValue\">",
         "Mixin construction config includes the transitive mixin-chain public property"
     )
     t.expect(typecheckText(printed)).toEqual([])

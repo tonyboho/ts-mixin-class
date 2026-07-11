@@ -7,6 +7,7 @@ import {
 import { dottedExpressionText, dottedNameToEntityName, dottedNameToExpression } from "./entity-name.js"
 import {
     type ImportMap,
+    registryKeyFileName,
     transplantableConfigProperties,
     uniqueConfigProperties,
     type ConfigProperty,
@@ -14,7 +15,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { baseConfigProperties, isConstructionBaseOptIn } from "./construction-chain.js"
+import { baseConfigProperties, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
 import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
 import { collapseSubtreeTextRange, preserveGeneratedDeclarationRange, preserveTextRange } from "./text-range.js"
@@ -60,7 +61,13 @@ export function createConstructionMembers(
 ): ConstructionMembers {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
 
+    // An ABSTRACT class gets NO generated factory: a `static new` member would make the
+    // abstract class constructible. With none generated, an `AbstractModel.new(...)` call
+    // resolves to the inherited `Base.new`, whose concrete-constructor `this` parameter
+    // rejects the abstract static side (§7.26); a concrete subclass generates its own
+    // typed factory (with the full accumulated config) as usual.
     if (declaration.name === undefined ||
+        hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.AbstractKeyword) ||
         facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
         !(
             requiredBaseIsConstructionBase ||
@@ -382,6 +389,14 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
+    const opaque                      = declarationFileConfigParts(
+        tsInstance,
+        declaration,
+        extendsType ?? implicitRequiredBase,
+        mixinRefs,
+        crossFile,
+        baseImportMap
+    )
     const requiredKeys: ts.TypeNode[] = []
     const optionalKeys: ts.TypeNode[] = []
     // Settable accessors that carry a setter type are emitted as explicit members (typed by
@@ -433,15 +448,20 @@ function createConstructionConfig(
         : factory.createTypeLiteralNode(explicitMembers)
 
     // Explicit accessor members are always optional, so they never force a required param.
-    const parts = ([ requiredType, optionalType, explicitType ] as Array<ts.TypeNode | undefined>).filter(
+    const parts = ([ requiredType, optionalType, explicitType, ...opaque.types ] as Array<ts.TypeNode | undefined>).filter(
         (part): part is ts.TypeNode => part !== undefined
     )
 
+    // An EMPTY config must stay EXACT: `Partial<Pick<C, never>>` reduces to `{}`, which
+    // accepts EVERY object (excess-property checking has nothing to check against), so an
+    // unknown key would silently pass. `Partial<Record<PropertyKey, never>>` keeps `.new()`
+    // and `.new({})` legal while typing every possible key `never` — any supplied key is a
+    // type error (§7.25).
     if (parts.length === 0) {
         return {
             type : factory.createTypeReferenceNode("Partial", [
-                factory.createTypeReferenceNode("Pick", [
-                    consumerType,
+                factory.createTypeReferenceNode("Record", [
+                    factory.createTypeReferenceNode("PropertyKey", undefined),
                     factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
                 ])
             ]),
@@ -451,8 +471,90 @@ function createConstructionConfig(
 
     return {
         type              : flattenIfIntersection(tsInstance, parts),
-        optionalParameter : requiredType === undefined
+        // A `.d.ts` contributor whose PUBLISHED `.new` parameter is required may owe that
+        // requiredness to keys the fact transport cannot respell (computed/symbol) — the
+        // opaque flag keeps this `.new`'s parameter required in that case.
+        optionalParameter : requiredType === undefined && !opaque.requiresArgument
     }
+}
+
+// §13.8 — the VALUE-ROUTE config carrier for DECLARATION-file contributors. A published
+// construction mixin/base carries its FULL config type on its `"new"(props: <Name>Config)`
+// member — including COMPUTED const-string / unique-symbol keys and INDEX signatures, which
+// the fact-based transport cannot respell in the consuming file (they are stripped by
+// `transplantableConfigProperties`). The contributor's VALUE is already imported (it appears
+// in the heritage), so `NonNullable<Parameters<(typeof V)["new"]>[0]>` names its exact
+// published config with NO generated import — default exports included. It rides the config
+// intersection alongside the respelled flat parts: duplicate keys intersect to the same
+// types, and requiredness stays monotonic through the intersection. Boundaries: same-PROGRAM
+// cross-file contributors stay fact-only (§10.25 — their transformed `"new"` is not a stable
+// published surface), and a GENERIC use (`implements M<T>` / `extends B<T>`) is skipped —
+// the value route cannot thread an instantiation.
+function declarationFileConfigParts(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    baseType: ts.ExpressionWithTypeArguments | undefined,
+    mixinRefs: ResolvedMixinRef[],
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined
+): { types: ts.TypeNode[], requiresArgument: boolean } {
+    const factory              = tsInstance.factory
+    const types: ts.TypeNode[] = []
+    let requiresArgument       = false
+
+    const valueRouteConfigType = (entityName: ts.EntityName): ts.TypeNode =>
+        factory.createTypeReferenceNode("NonNullable", [
+            factory.createIndexedAccessTypeNode(
+                factory.createTypeReferenceNode("Parameters", [
+                    factory.createIndexedAccessTypeNode(
+                        factory.createParenthesizedType(factory.createTypeQueryNode(entityName)),
+                        factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+                    )
+                ]),
+                factory.createLiteralTypeNode(factory.createNumericLiteral("0"))
+            )
+        ])
+
+    for (const ref of mixinRefs) {
+        if (ref.declaration !== undefined ||
+            ref.localValueName === undefined ||
+            ref.requiredBase?.isPackageBase !== true ||
+            !registryKeyFileName(ref.key).endsWith(".d.ts") ||
+            mixinImplementsTypeArguments(tsInstance, declaration, ref) !== undefined
+        ) {
+            continue
+        }
+
+        // A dependency's computed keys ride the DEPENDENT's published config (the emitted
+        // `.new` param aggregates transitive dependencies), so only directly-referenced
+        // (value-carrying) mixins contribute a part.
+        types.push(valueRouteConfigType(dottedNameToEntityName(tsInstance, ref.localValueName)))
+
+        if (crossFile?.registry.get(ref.key)?.configRequiresArgument === true) {
+            requiresArgument = true
+        }
+    }
+
+    if (baseType !== undefined && baseType.typeArguments === undefined) {
+        const baseName  = tsInstance.isIdentifier(baseType.expression)
+            ? baseType.expression.text
+            : dottedExpressionText(tsInstance, baseType.expression)
+        const baseEntry = baseName === undefined
+            ? undefined
+            : resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)
+
+        if (baseEntry?.isBaseDescendant === true && baseEntry.fileName.endsWith(".d.ts")) {
+            types.push(valueRouteConfigType(
+                dottedNameToEntityName(tsInstance, baseName as string)
+            ))
+
+            if (baseEntry.configRequiresArgument === true) {
+                requiresArgument = true
+            }
+        }
+    }
+
+    return { types, requiresArgument }
 }
 
 // A config that combines constituents (required `Pick`, optional `Partial<Pick>`, explicit
@@ -485,11 +587,29 @@ function flattenIfIntersection(tsInstance: TypeScript, parts: ts.TypeNode[]): ts
         undefined,
         undefined,
         factory.createIndexedAccessTypeNode(
-            deepCloneNode(tsInstance, combined),
+            orphanSubtree(tsInstance, deepCloneNode(tsInstance, combined)),
             factory.createTypeReferenceNode("K", undefined)
         ),
         undefined
     )
+}
+
+// Drop every PARENT pointer of a `getSynthesizedDeepClone`d subtree. The clone keeps
+// parents, and once the alias positioning stamps REAL ranges over the subtree, a parented,
+// real-ranged literal satisfies the printer's "can use original text" test — a NUMERIC
+// literal then prints as a SOURCE SLICE at its (foreign, zero-width-ish) range instead of
+// its text (`Pick<C, }>`, the emit twin of invariant 10a's numeric branch; a string literal
+// happens to re-quote from `.text`). Fresh factory nodes are parentless and always print
+// from text — orphaning the clone restores exactly that behavior. Source view re-parents
+// the whole transformed file afterwards, so nothing is lost there.
+function orphanSubtree<Node extends ts.Node>(tsInstance: TypeScript, node: Node): Node {
+    (node as { parent?: ts.Node }).parent = undefined
+
+    tsInstance.forEachChild(node, (child) => {
+        orphanSubtree(tsInstance, child)
+    })
+
+    return node
 }
 
 function staticConstructionConfigProperties(
@@ -503,10 +623,13 @@ function staticConstructionConfigProperties(
     crossFile?: CrossFileContext,
     baseImportMap?: ImportMap
 ): ConfigProperty[] {
+    // NEAREST-first (the `uniqueConfigProperties` contract): the class's own members, then
+    // the applied mixins in linearization order, then the base chain — the nearest
+    // declaration of a shared key chooses its config representation (§7.29).
     return uniqueConfigProperties([
-        ...baseConfigProperties(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set()),
+        ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? []),
         ...mixinRefs.flatMap((ref) => substituteMixinConfigTypeParameters(tsInstance, declaration, ref)),
-        ...(facts.classesByDeclaration.get(declaration)?.configProperties ?? [])
+        ...baseConfigProperties(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, facts, crossFile, baseImportMap, new Set())
     ])
 }
 

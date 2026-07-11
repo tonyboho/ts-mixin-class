@@ -1,21 +1,46 @@
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
 import { Empty, base, factory, requirements, type AnyConstructor, type ClassStatics, type MixinApplication, type MixinFactory } from "./base.js"
 
+// The static side with every key normalized to its JavaScript PROPERTY identity: a numeric
+// key (`static 0`) and its string spelling (`static "0"`) are one runtime property, so the
+// numeric key is remapped to its string form before the conflict-key intersection — without
+// this, `keyof` yields the numeric literal `0`, which never intersects `"0"` and the
+// collision passes silently. Symbol and string keys are untouched.
+type NormalizedStatics<T> = {
+    [Key in keyof ClassStatics<T> as Key extends number ? `${Key}` : Key]: ClassStatics<T>[Key]
+}
+
 export type StaticNeverConflictKeys<Left, Right> = {
-    [Key in Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]:
-        [ ClassStatics<Left>[Key] & ClassStatics<Right>[Key] ] extends [ never ]
+    [Key in Extract<keyof NormalizedStatics<Left>, keyof NormalizedStatics<Right>>]:
+        [ NormalizedStatics<Left>[Key] & NormalizedStatics<Right>[Key] ] extends [ never ]
             ? Key
             : never
-}[Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]
+}[Extract<keyof NormalizedStatics<Left>, keyof NormalizedStatics<Right>>]
 
 export type StaticStrictConflictKeys<Left, Right> = {
-    [Key in Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]:
-        [ ClassStatics<Left>[Key] ] extends [ ClassStatics<Right>[Key] ]
-            ? [ ClassStatics<Right>[Key] ] extends [ ClassStatics<Left>[Key] ]
+    [Key in Extract<keyof NormalizedStatics<Left>, keyof NormalizedStatics<Right>>]:
+        [ NormalizedStatics<Left>[Key] ] extends [ NormalizedStatics<Right>[Key] ]
+            ? [ NormalizedStatics<Right>[Key] ] extends [ NormalizedStatics<Left>[Key] ]
                 ? never
                 : Key
             : Key
-}[Extract<keyof ClassStatics<Left>, keyof ClassStatics<Right>>]
+}[Extract<keyof NormalizedStatics<Left>, keyof NormalizedStatics<Right>>]
+
+// The INSTANCE-member twin of `StaticNeverConflictKeys`, but LINEAR: instead of pairwise
+// comparisons it takes the whole combined instance intersection (`Base & M1 & M2 & …`) and
+// yields the keys whose member type collapsed to `never` (e.g. `value: string` vs
+// `value: number`). One check per consumer — and stronger than pairwise: a key can collapse
+// only through the COMBINATION of three-plus layers (`{1|2} & {2|3} & {1|3}`), which no pair
+// exhibits. Backs the source-view fast-path collision check (§7.27) — the navigable fast
+// path types the consumer's base as an intersection, where such a conflict silently becomes
+// a `never`-typed member instead of the TS2320 the emit plane's `$base` interface raises.
+// Compatible overlaps (identical/overlapping types, method overload unions) stay non-`never`.
+export type ConflictingInstanceKeys<Combined> = {
+    [Key in keyof Combined]:
+        [ Combined[Key] ] extends [ never ]
+            ? Key
+            : never
+}[keyof Combined]
 
 export type RuntimeMixinClass<RequiredBase extends object = object> = {
     readonly [factory]      : MixinFactory,

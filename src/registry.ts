@@ -55,7 +55,8 @@ export function buildMixinRegistry(
             dependencies              : [],
             requiredBaseName          : candidate.requiredBaseName,
             requiredBaseIsPackageBase : candidate.requiredBaseIsPackageBase,
-            configProperties          : candidate.configProperties
+            configProperties          : candidate.configProperties,
+            configRequiresArgument    : candidate.configRequiresArgument
         })
 
         if (candidate.defaultExport) {
@@ -220,6 +221,8 @@ export type Candidate = {
     requiredBaseName          : string | undefined,
     requiredBaseIsPackageBase : boolean,
     configProperties          : ConfigProperty[],
+    // `.d.ts` construction mixins only — see `RegisteredMixin.configRequiresArgument`.
+    configRequiresArgument?   : boolean,
     declarationHeritage       : boolean,
     defaultExport             : boolean
 }
@@ -444,12 +447,13 @@ export function buildConstructionBaseRegistry(
     // The construction config an ordinary class contributes on its own: its public
     // fields plus those of every mixin it consumes (transitively). Without the mixin
     // half, subclassing an imported construction *consumer* would drop the base's
-    // mixin config from the subclass's `.new`.
+    // mixin config from the subclass's `.new`. NEAREST-first (the
+    // `uniqueConfigProperties` contract): own, then mixins, then the qualified chain.
     const ownPlusMixinConfig = (candidate: ConstructionBaseCandidate): ConfigProperty[] =>
         uniqueConfigProperties([
-            ...candidate.qualifiedBaseConfigProperties,
+            ...candidate.ownConfigProperties,
             ...candidateMixinConfig(candidate),
-            ...candidate.ownConfigProperties
+            ...candidate.qualifiedBaseConfigProperties
         ])
 
     const resolve = (
@@ -493,7 +497,8 @@ export function buildConstructionBaseRegistry(
         const baseResolved = resolve(baseCandidate, seen)
         const result       = {
             isBaseDescendant : baseResolved.isBaseDescendant,
-            configProperties : uniqueConfigProperties([ ...baseResolved.configProperties, ...ownPlusMixinConfig(candidate) ])
+            // Own-plus-mixin leads: nearer than the resolved base chain (nearest-first).
+            configProperties : uniqueConfigProperties([ ...ownPlusMixinConfig(candidate), ...baseResolved.configProperties ])
         }
 
         resolved.set(key, result)
@@ -544,12 +549,22 @@ export function buildConstructionBaseRegistry(
         }
 
         for (const constructionBase of collectDeclarationFileConstructionBases(tsInstance, sourceFile)) {
-            registry.set(registryKey(sourceFile.fileName, constructionBase.name), {
-                fileName         : sourceFile.fileName,
-                name             : constructionBase.name,
-                isBaseDescendant : true,
-                configProperties : constructionBase.configProperties
-            })
+            const entry = {
+                fileName               : sourceFile.fileName,
+                name                   : constructionBase.name,
+                isBaseDescendant       : true,
+                configProperties       : constructionBase.configProperties,
+                configRequiresArgument : constructionBase.configRequiresArgument
+            }
+
+            registry.set(registryKey(sourceFile.fileName, constructionBase.name), entry)
+
+            // A DEFAULT-exported construction base is imported as a default binding, whose
+            // registry lookup resolves under the "default" name (§13.9) — alias the entry
+            // the same way the mixin registry aliases default-exported mixins.
+            if (constructionBase.defaultExport) {
+                registry.set(registryKey(sourceFile.fileName, "default"), entry)
+            }
         }
     }
 

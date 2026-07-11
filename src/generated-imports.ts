@@ -28,7 +28,9 @@ import {
     runtimeMixinClassName,
     runtimeMixinClassLocalName,
     staticConflictKeysName,
-    staticConflictKeysLocalName
+    staticConflictKeysLocalName,
+    instanceConflictKeysName,
+    instanceConflictKeysLocalName
 } from "./naming.js"
 import type { SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
@@ -249,6 +251,7 @@ function helperImportCandidates(options: TransformOptions): NamedImportElement[]
                 importedName : staticConflictKeysName(options.staticCollisionCheck),
                 localName    : staticConflictKeysLocalName(options.staticCollisionCheck)
             } ]),
+        { typeOnly: true, importedName: instanceConflictKeysName, localName: instanceConflictKeysLocalName },
         { typeOnly: true, importedName: metadataBaseImportName,        localName: metadataBaseLocalName },
         { typeOnly: true, importedName: runtimeMixinClassName,         localName: runtimeMixinClassLocalName },
         { typeOnly: true, importedName: mixinClassValueName,           localName: mixinClassValueLocalName },

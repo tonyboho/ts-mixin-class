@@ -65,7 +65,13 @@ export class Base {
         Object.assign(this, props)
     }
 
-    static new(props?: unknown): Base {
+    // The `this` parameter requires a CONCRETE constructor: an `abstract class` extending
+    // `Base` therefore has no callable inherited `.new` (TS2684 — an abstract constructor
+    // type is not assignable to a non-abstract one), while every concrete descendant —
+    // including the generated branded-constructor consumers — passes (§7.26). The transform
+    // also skips generating a `static new` on an abstract class, so this inherited signature
+    // is what an `AbstractModel.new(...)` call resolves to.
+    static new(this: new (...args: any[]) => Base, props?: unknown): Base {
         const instance = new this()
 
         instance.initialize(props)

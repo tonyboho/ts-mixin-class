@@ -65,7 +65,12 @@ export type RegisteredMixin = {
     // base), so consumers must import it from the package rather than from the
     // mixin's own module, and are construction-enabled.
     requiredBaseIsPackageBase : boolean,
-    configProperties          : ConfigProperty[]
+    configProperties          : ConfigProperty[],
+    // `.d.ts` mixins only: the published `"new"(props: …)` parameter is REQUIRED. The
+    // fact transport strips computed/symbol keys (unspellable here), so their
+    // requiredness survives ONLY through this flag — a downstream `.new` keeps a
+    // required parameter even when every RESPELLED key is optional (§13.8).
+    configRequiresArgument?   : boolean
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -76,10 +81,12 @@ export type MixinRegistry = Map<string, RegisteredMixin>
 // accumulates the class's own public config fields plus those of its ancestors up
 // to `Base`, which is exactly what a downstream `.new(...)` config type needs.
 export type ConstructionBaseEntry = {
-    fileName         : string,
-    name             : string,
-    isBaseDescendant : boolean,
-    configProperties : ConfigProperty[]
+    fileName                : string,
+    name                    : string,
+    isBaseDescendant        : boolean,
+    configProperties        : ConfigProperty[],
+    // `.d.ts` bases only — see `RegisteredMixin.configRequiresArgument`.
+    configRequiresArgument? : boolean
 }
 
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
@@ -300,6 +307,12 @@ export const defaultTransformOptions: TransformOptions = {
     isolatedDeclarations       : false
 }
 
+// Merges duplicate config keys. INPUT CONTRACT: contributors are ordered NEAREST-first
+// (own members, then mixins in linearization order, then the base chain) — every assembly
+// site upholds this. The NEAREST declaration chooses the key's REPRESENTATION (a field goes
+// through `Pick`, a setter keeps its explicit write type — nearest-wins, §7.29, the config
+// twin of runtime member resolution); requiredness stays MONOTONIC regardless of order —
+// one `!` contributor anywhere keeps the key required (§7.28).
 export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty[] {
     const byName = new Map<string, ConfigProperty>()
 
@@ -309,9 +322,8 @@ export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty
         byName.set(value.name, {
             name            : value.name,
             optional        : (existing?.optional ?? true) && value.optional,
-            // Keep a setter value type from whichever contributor carries one.
-            valueType       : existing?.valueType ?? value.valueType,
-            computedKeyName : existing?.computedKeyName ?? value.computedKeyName
+            valueType       : existing === undefined ? value.valueType : existing.valueType,
+            computedKeyName : existing === undefined ? value.computedKeyName : existing.computedKeyName
         })
     }
 
@@ -322,6 +334,7 @@ export function uniqueConfigProperties(values: ConfigProperty[]): ConfigProperty
 // public fields plus those of every mixin it depends on, transitively. Used both when
 // a consumer applies the mixin and when an ordinary class consuming the mixin is used
 // as a construction base for a subclass (so the subclass's `.new` sees the field).
+// Own fields lead: the mixin is NEARER than its dependencies (nearest-first contract).
 export function accumulateRegisteredMixinConfig(
     key: string,
     registry: MixinRegistry,
@@ -340,13 +353,18 @@ export function accumulateRegisteredMixinConfig(
     }
 
     return uniqueConfigProperties([
-        ...registered.dependencies.flatMap((dependency) => accumulateRegisteredMixinConfig(dependency, registry, seen)),
-        ...registered.configProperties
+        ...registered.configProperties,
+        ...registered.dependencies.flatMap((dependency) => accumulateRegisteredMixinConfig(dependency, registry, seen))
     ])
 }
 
 export function registryKey(fileName: string, name: string): string {
     return `${normalizePath(fileName)}::${name}`
+}
+
+// The file-name half of a registry key — e.g. to detect a `.d.ts`-origin entry.
+export function registryKeyFileName(key: string): string {
+    return key.slice(0, key.lastIndexOf("::"))
 }
 
 // Resolves a possibly-dotted reference name to its registry key through the import map:

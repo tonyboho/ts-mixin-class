@@ -27,6 +27,7 @@ export const mixinClassValueName = "MixinClassValue"
 export const constructionMixinClassValueName = "ConstructionMixinClassValue"
 export const staticNeverConflictKeysName = "StaticNeverConflictKeys"
 export const staticStrictConflictKeysName = "StaticStrictConflictKeys"
+export const instanceConflictKeysName = "ConflictingInstanceKeys"
 // The TYPE helpers ride the same reserved aliases: injected under their public names they
 // would collide with a user's same-named declaration — or the user's own import of the
 // helper — in the transformed file (TS2440 / TS2300), and silently re-bind the generated
@@ -41,6 +42,7 @@ export const mixinClassValueLocalName = "__MixinClassValue__"
 export const constructionMixinClassValueLocalName = "__ConstructionMixinClassValue__"
 export const staticNeverConflictKeysLocalName = "__StaticNeverConflictKeys__"
 export const staticStrictConflictKeysLocalName = "__StaticStrictConflictKeys__"
+export const instanceConflictKeysLocalName = "__ConflictingInstanceKeys__"
 export const metadataBaseImportName = "base"
 export const metadataBaseLocalName = "__mixinBase"
 export const mixinFactorySuffix = "$mixin"

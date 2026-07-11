@@ -105,7 +105,7 @@ it("targeted incomplete mixin syntax never drops transforms from unrelated files
         import { Base } from "ts-mixin-class"
 
         export class Stable extends Base {
-            value!: string
+            public value!: string
         }
 
         export const stable = Stable.new({ value: "ok" })

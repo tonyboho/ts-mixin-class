@@ -29,12 +29,30 @@ import type { TypeScript } from "./util.js"
 export function collectDeclarationFileConstructionBases(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
-): Array<{ name: string, configProperties: ConfigProperty[] }> {
-    const bases: Array<{ name: string, configProperties: ConfigProperty[] }> = []
+): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean, defaultExport: boolean }> {
+    const bases: Array<{
+        name                   : string,
+        configProperties       : ConfigProperty[],
+        configRequiresArgument : boolean,
+        defaultExport          : boolean
+    }> = []
     // The generated `static new(props: <Name>Config)` references an exported config
     // alias declared alongside it in the same `.d.ts`; map alias name -> body so the
     // reader can resolve the reference back to its `Pick<...> & Partial<...>` shape.
     const configAliases = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
+    // A default-exported construction base emits as `declare class X …; export default X`,
+    // and a consumer's default-import binding resolves through the registry under the
+    // "default" name — the entry is aliased under it by the registry builder.
+    const defaultExportNames = new Set<string>()
+
+    for (const statement of sourceFile.statements) {
+        if (tsInstance.isExportAssignment(statement) &&
+            statement.isExportEquals !== true &&
+            tsInstance.isIdentifier(statement.expression)
+        ) {
+            defaultExportNames.add(statement.expression.text)
+        }
+    }
 
     for (const statement of sourceFile.statements) {
         if (!tsInstance.isClassDeclaration(statement) || statement.name === undefined) {
@@ -49,13 +67,16 @@ export function collectDeclarationFileConstructionBases(
 
         const configType = staticNew?.parameters[0]?.type
 
-        if (configType === undefined) {
+        if (configType === undefined || staticNew === undefined) {
             continue
         }
 
         bases.push({
-            name             : statement.name.text,
-            configProperties : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set())
+            name                   : statement.name.text,
+            configProperties       : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set()),
+            configRequiresArgument : staticNew.parameters[0].questionToken === undefined,
+            defaultExport          : defaultExportNames.has(statement.name.text) ||
+                hasModifier(tsInstance, statement, tsInstance.SyntaxKind.DefaultKeyword)
         })
     }
 
@@ -154,8 +175,15 @@ function configPropertiesFromConstructionNewParam(
     return []
 }
 
+// String AND numeric literal keys: a published `Pick<Exotic, 0 | "dash-name">` spells a
+// numeric field's key as a NUMERIC literal type (see `configKeyType`), which names the same
+// property as its string text — recovered as "0" and re-emitted numeric downstream. `typeof
+// const`/`typeof symbol` keys are deliberately NOT recovered here: a computed key cannot be
+// spelled outside its declaring file (same rule as `transplantableConfigProperties`).
 function literalStringNames(tsInstance: TypeScript, typeNode: ts.TypeNode): string[] {
-    if (tsInstance.isLiteralTypeNode(typeNode) && tsInstance.isStringLiteral(typeNode.literal)) {
+    if (tsInstance.isLiteralTypeNode(typeNode) &&
+        (tsInstance.isStringLiteral(typeNode.literal) || tsInstance.isNumericLiteral(typeNode.literal))
+    ) {
         return [ typeNode.literal.text ]
     }
 
@@ -242,6 +270,9 @@ export function collectDeclarationFileMixinCandidates(
                 requiredBaseIsPackageBase,
                 configProperties : newParamConfig ??
                     interfaceConfigProperties(tsInstance, interfaces.get(declaration.name.text)),
+                configRequiresArgument : requiredBaseIsPackageBase
+                    ? mixinValueNewRequiresArgument(tsInstance, declaration.type)
+                    : undefined,
                 declarationHeritage : true,
                 defaultExport
             })
@@ -266,10 +297,26 @@ function mixinValueNewConfigProperties(
         : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set())
 }
 
+// TRUE when the published `"new"(props: …)` parameter is required — the flag that keeps a
+// downstream `.new` argument required even though the respelled fact transport loses the
+// computed/symbol keys carrying the requirement (§13.8). Undefined-shaped values (no `"new"`
+// member) yield false.
+function mixinValueNewRequiresArgument(tsInstance: TypeScript, typeNode: ts.TypeNode): boolean {
+    const newMember = mixinValueNewMember(tsInstance, typeNode)
+
+    return newMember !== undefined &&
+        newMember.parameters[0] !== undefined &&
+        newMember.parameters[0].questionToken === undefined
+}
+
 function mixinValueNewConfigType(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.TypeNode | undefined {
+    return mixinValueNewMember(tsInstance, typeNode)?.parameters[0]?.type
+}
+
+function mixinValueNewMember(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.MethodSignature | undefined {
     if (tsInstance.isIntersectionTypeNode(typeNode)) {
         for (const type of typeNode.types) {
-            const found = mixinValueNewConfigType(tsInstance, type)
+            const found = mixinValueNewMember(tsInstance, type)
 
             if (found !== undefined) {
                 return found
@@ -280,18 +327,16 @@ function mixinValueNewConfigType(tsInstance: TypeScript, typeNode: ts.TypeNode):
     }
 
     if (tsInstance.isParenthesizedTypeNode(typeNode)) {
-        return mixinValueNewConfigType(tsInstance, typeNode.type)
+        return mixinValueNewMember(tsInstance, typeNode.type)
     }
 
     if (!tsInstance.isTypeLiteralNode(typeNode)) {
         return undefined
     }
 
-    const newMember = typeNode.members.find((member): member is ts.MethodSignature =>
+    return typeNode.members.find((member): member is ts.MethodSignature =>
         tsInstance.isMethodSignature(member) &&
         propertyNameText(tsInstance, member.name) === "new")
-
-    return newMember?.parameters[0]?.type
 }
 
 // Locates the `RuntimeMixinClass<…>` marker type reference inside a mixin value's

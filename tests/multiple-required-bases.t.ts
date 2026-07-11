@@ -500,7 +500,7 @@ it("requires an explicit consumer or mixin base to satisfy the transitive most-s
     }
 })
 
-// --- review pins (see REVIEW.md) -------------------------------------------
+// --- review pins (2026-07 required-base review; see git history) ------------
 
 // Finding 2: the explicit-base validation must not depend on the consumer file's TEXT
 // containing the package name. The consumer module below imports only its mixin module —
@@ -886,6 +886,95 @@ it("composes use-site substitutions through a transitive generic mixin chain", a
         t.match(output, "Mixin required base mismatch", `${plane}: reports the mismatch.\n${output}`)
         t.match(output, "GenericBase<string>", `${plane}: names the composed requirement.\n${output}`)
     }
+})
+
+// A CONSTRAINT on the consumer's parameter (`<U extends string>`) must not disturb the
+// symbolic comparison: the same parameter object still equals itself, so the base is
+// planned at compile time. (Subtyping implications of the constraint are deliberately
+// NOT interpreted — that is the structural checker's jurisdiction.)
+it("plans the base for a constrained consumer parameter through symbolic equality", async (t: Test) => {
+    const results = await buildBoth(
+        trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class GenericBase<T> {
+            tag(): string {
+                return "base"
+            }
+        }
+
+        @mixin()
+        class MixinA<T> extends GenericBase<T> {
+        }
+
+        @mixin()
+        class MixinB<T> extends GenericBase<T> {
+        }
+
+        class Consumer<U extends string> implements MixinA<U>, MixinB<U> {
+        }
+
+        const consumer = new Consumer<"x">()
+
+        if (!(consumer instanceof GenericBase)) throw new Error("the generic required base was not applied")
+        if (consumer.tag() !== "base") throw new Error("the base layer is broken")
+    `),
+        true
+    )
+
+    assertBuildAndRuntime(t, results)
+    t.match(
+        results.emittedJs ?? "",
+        '"verify", 1)',
+        "a constrained parameter still compares symbolically — the base is planned, no runtime scan"
+    )
+})
+
+// A use site relying on a parameter DEFAULT (`implements WithDefault` with no arguments)
+// is not interpreted (resolving defaults would be another slice of checker work): the
+// resolution must degrade GRACEFULLY to the runtime scan — no crash, no false conflict,
+// no plan index — and the runtime resolves the base precisely.
+it("degrades a defaulted use site to the runtime scan gracefully", async (t: Test) => {
+    const results = await buildBoth(
+        trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class GenericBase<T> {
+            tag(): string {
+                return "base"
+            }
+        }
+
+        @mixin()
+        class WithDefault<T = string> extends GenericBase<T> {
+        }
+
+        @mixin()
+        class Concrete extends GenericBase<string> {
+        }
+
+        class Consumer implements WithDefault, Concrete {
+        }
+
+        const consumer = new Consumer()
+
+        if (!(consumer instanceof GenericBase)) throw new Error("the runtime scan did not resolve the base")
+        if (consumer.tag() !== "base") throw new Error("the base layer is broken")
+    `),
+        true
+    )
+
+    assertBuildAndRuntime(t, results)
+    t.match(
+        results.emittedJs ?? "",
+        '"verify")',
+        "no plan index is emitted — the runtime scan owns the defaulted use site"
+    )
+    t.notMatch(
+        results.emittedJs ?? "",
+        '"verify", ',
+        "the degrade is to NO plan, never to a wrong index"
+    )
 })
 
 // A genuinely undecidable combination (a free consumer parameter against a concrete

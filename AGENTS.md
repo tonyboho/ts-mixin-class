@@ -198,13 +198,30 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   on demand. The cache-key component is SHAPE-based (file, mixin name, base spelling, ancestry
   fingerprint) — never byte positions, or typing a comment above any mixin would invalidate
   every cached transformed file in the program (`required-base-plan-cache-key.t.ts` pins it).
-- **Perf: the resolver scales super-linearly with constraint count** (pairwise nominal
-  comparisons, each walking a base chain). Measured on the `bench:compile` `base-chain` corpus
-  (every mixin extends a class from one deep chain, depth ~size/4; the plain corpus has NO
-  required bases at all, so only these rows exercise the resolver): the compile-time delta over
-  the plain corpus of the same size is ~+25ms @30 mixins, ~+120ms @80, ~+0.5s @160, ~+3.2s @320
-  (2026-07). Fine for realistic projects; re-check the curve before optimizing anything here
-  (`TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30,80,160,320 pnpm run bench:compile`).
+- **Perf: deep required-base chains cost super-linear CHECKER time — the resolver is not
+  the cost.** Measured on the `bench:compile` `base-chain` corpus (every mixin extends a class
+  from one deep chain, depth ~size/4; the plain corpus has NO required bases at all): the
+  compile-time delta over the plain corpus of the same size is ~+25ms @30 mixins, ~+120ms @80,
+  ~+0.5s @160, ~+3.2s @320 (2026-07). A CPU profile at 320 put the whole resolver at ~6ms
+  (pairwise relations are memoized in `relationCache`; the selection fold is linear) — the
+  delta is `addInheritedMembers`/`resolveObjectTypeMembers` + GC: the checker re-instantiates
+  the ENTIRE base chain under each generated type's `this` (72k types anchored in the chain
+  file at 320: ~2 full chain walks per mixin — the generated `interface Mixin_i extends
+  Base_k, FirstDep` and the factory's intersection-typed `base` parameter), while a
+  hand-written `class X extends Base_k` corpus is free (0.33s) because single-extends class
+  member tables are reused. The C3-REDUCED interface heritage (base + first parent only) is
+  LOAD-BEARING here: the naive full-dependency-list heritage is EXPONENTIAL in vanilla tsc
+  (0.14s @20 mixins → >5min @40; uncached base-type traversal — reported upstream as
+  https://github.com/microsoft/TypeScript/issues/63555, Backlog). Considered and REJECTED
+  (2026-07): typing the factory `base` parameter as the public interface instead of the
+  intersection (−25% modeled) — it would put the mixin's OWN members on `base`, so
+  `super.<ownMember>` in a mixin body would falsely typecheck; correctness over perf.
+  Fine for realistic projects; re-check the curve with
+  `TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30,80,160,320 pnpm run bench:compile`.
+  **Superseded (kept for context):** this bullet originally attributed the growth to the
+  resolver's pairwise nominal comparisons walking base chains — the 320-corpus CPU profile
+  above refuted that attribution (6ms of a 3.2s delta); the bench numbers were correct, the
+  blamed subsystem was not.
 
 ## Source-view invariants
 

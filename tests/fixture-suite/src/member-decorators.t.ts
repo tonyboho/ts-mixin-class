@@ -6,8 +6,11 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 // MEMBER decorators (§2.8's member-level sibling). A consumer's decorated members are
 // preserved through the heritage rewrite and their decorators run ONCE; a MIXIN's member
 // decorators ride inside the factory's class declaration, so they run PER DISTINCT FACTUAL BASE.
-// The canonical declaration uses `Empty`; every base-less consumer applies over its own
-// `$empty extends Empty`, while the runtime cache still reuses truly identical bases. In the fixture corpus this file also feeds the stress sweep (navigation,
+// Base-less consumers seed the chain with the package `Empty` itself, so they all REUSE the
+// mixin's canonical application — the decorators run once, exactly like a hand-written
+// `extends`, and exactly like consumers of a required-base mixin sharing its base (the
+// 2026-07 design decision; the per-consumer `$empty` class survives as a TYPE-only scaffold).
+// In the fixture corpus this file also feeds the stress sweep (navigation,
 // quickinfo, rename over decorated members).
 //
 // Builds under BOTH decorator modes: the factory emits a named class DECLARATION
@@ -101,14 +104,14 @@ it("member decorators on consumers and mixins", async (t: Test) => {
 
     t.equal(consumerDecorated, 1, "a consumer member decorator runs ONCE (the member is preserved, not re-created)")
 
-    t.equal(mixinMethodDecorated, 3,
-        "a mixin METHOD decorator runs per application — canonical + one per base-less consumer")
-    t.equal(mixinFieldDecorated, 3, "…and the mixin FIELD decorator the same")
+    t.equal(mixinMethodDecorated, 1,
+        "a mixin METHOD decorator runs ONCE — base-less consumers reuse the canonical application")
+    t.equal(mixinFieldDecorated, 1, "…and the mixin FIELD decorator the same")
 })
 
 it("STATIC member decorators on consumers and mixins", async (t: Test) => {
-    t.equal(mixinStaticDecorated, 6,
-        "a mixin's STATIC decorators run per application too (2 decorated statics × 3 applications)")
+    t.equal(mixinStaticDecorated, 2,
+        "a mixin's STATIC decorators run once each (2 decorated statics × the one canonical application)")
     t.equal(consumerStaticDecorated, 1, "a consumer's static decorator runs ONCE")
 
     t.equal(Audited.describe(), "origin:audited", "the decorated static method stays callable on the mixin")
@@ -118,7 +121,7 @@ it("STATIC member decorators on consumers and mixins", async (t: Test) => {
 })
 
 it("an ACCESSOR decorator (on the getter of the pair) on a mixin", async (t: Test) => {
-    t.equal(mixinGetterDecorated, 3, "the getter decorator runs per application")
+    t.equal(mixinGetterDecorated, 1, "the getter decorator runs once — on the canonical application")
 
     const measured = new Clerk()
 
@@ -126,4 +129,67 @@ it("an ACCESSOR decorator (on the getter of the pair) on a mixin", async (t: Tes
 
     t.equal(measured.count, 21, "the decorated pair's SETTER still mutates through the consumer")
     t.equal(measured.doubled, 42, "…and the decorated GETTER computes")
+})
+
+// The canonical-application sharing itself: base-less consumers count decorator runs the
+// same as consumers of a required-base mixin (whose shared base always cache-hit — the
+// old per-consumer `$empty` roots made the two cases inconsistent), and an object-valued
+// static initializes once, so consumers see ONE object through static inheritance.
+let basedMixinDecorated = 0
+
+function auditBasedMixin(..._args: unknown[]): void {
+    basedMixinDecorated += 1
+}
+
+class Ground {
+    ground(): string {
+        return "ground"
+    }
+}
+
+@mixin()
+class BasedAudited extends Ground {
+    static registry: string[] = []
+
+    @auditBasedMixin
+    act(): string {
+        return "based-acted"
+    }
+}
+
+@mixin()
+class Registered {
+    static log: string[] = []
+}
+
+class BasedWorker implements BasedAudited {
+}
+
+class BasedClerk implements BasedAudited {
+}
+
+class LogWorker implements Registered {
+}
+
+class LogClerk implements Registered {
+}
+
+void new BasedWorker()
+void new BasedClerk()
+
+it("base-less and required-base consumers share the canonical application alike", async (t: Test) => {
+    t.equal(basedMixinDecorated, 1, "a required-base mixin's member decorator runs once for two consumers")
+    t.equal(mixinMethodDecorated, 1, "…and a base-less mixin's counts the same — no per-consumer applications")
+})
+
+it("an object-valued mixin static is ONE object across base-less consumers", async (t: Test) => {
+    const workerLog = (LogWorker as unknown as typeof Registered).log
+    const clerkLog  = (LogClerk as unknown as typeof Registered).log
+
+    t.isStrict(workerLog, clerkLog, "both consumers inherit the canonical application's static object")
+    t.isStrict(workerLog, Registered.log, "…which is the mixin value's own static")
+
+    workerLog.push("from-worker")
+
+    t.equal(clerkLog.length, 1, "a mutation through one consumer is visible through the other — plain inheritance semantics")
 })

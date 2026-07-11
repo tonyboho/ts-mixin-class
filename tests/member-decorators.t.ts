@@ -291,11 +291,11 @@ it("STANDARD accessor decorators on BOTH halves of a mixin's get/set pair", asyn
     const { emit, run } = await buildAndRun(source, false)
 
     t.equal(emit.exitCode, 0, `emit: decorated get AND set halves compile.\n${commandOutput(emit)}`)
-    // 2 factual bases (Empty + Meter$empty extends Empty) × (getter + setter).
+    // One factual base: the base-less consumer reuses the canonical Empty application.
     t.equal(
         run?.stdout.trim(),
-        "decorated=getter:value,setter:value,getter:value,setter:value value=42",
-        `both halves' decorators run per application; the accessor still works.\n${run === undefined ? "" : commandOutput(run)}`
+        "decorated=getter:value,setter:value value=42",
+        `both halves' decorators run once on the canonical application; the accessor still works.\n${run === undefined ? "" : commandOutput(run)}`
     )
 
     const sourceView = await build(source, { noEmit: true })
@@ -338,8 +338,8 @@ it("a STANDARD decorator on a mixin's AUTO-ACCESSOR (`@dec accessor x`)", async 
     t.equal(emit.exitCode, 0, `emit: the decorated auto-accessor compiles.\n${commandOutput(emit)}`)
     t.equal(
         run?.stdout.trim(),
-        "decorated=accessor:tag,accessor:tag tag=set",
-        `the accessor decorator runs per application; the backing slot still works.\n${run === undefined ? "" : commandOutput(run)}`
+        "decorated=accessor:tag tag=set",
+        `the accessor decorator runs once on the canonical application; the backing slot still works.\n${run === undefined ? "" : commandOutput(run)}`
     )
 
     const sourceView = await build(source, { noEmit: true })
@@ -374,11 +374,11 @@ it("LEGACY parameter decorators on a mixin method", async (t: Test) => {
     const { emit, run } = await buildAndRun(source, true)
 
     t.equal(emit.exitCode, 0, `emit: the parameter decorator compiles inside the factory.\n${commandOutput(emit)}`)
-    // Canonical Empty base + Handler$empty rooted in Empty.
+    // The base-less consumer reuses the canonical Empty application.
     t.equal(
         run?.stdout.trim(),
-        "params=handle:0,handle:0 out=handled:x",
-        `the parameter decorator runs per application; the method still works.\n${run === undefined ? "" : commandOutput(run)}`
+        "params=handle:0 out=handled:x",
+        `the parameter decorator runs once on the canonical application; the method still works.\n${run === undefined ? "" : commandOutput(run)}`
     )
 
     const sourceView = await build(source, { noEmit: true }, true)

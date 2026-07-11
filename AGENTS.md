@@ -109,20 +109,17 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   makes the index cross-file and cross-package safe.
 - `defineMixinClass` publishes the **effective transitive** base through `[base]`. With no
   constraint it publishes `Empty`, while the compile-time marker remains the lowercase `object`
-  top type. Do not regress this to the `Object` constructor. A base-less consumer emits its own
-  `__X$empty extends __Empty__` runtime class: `Empty` is the shared ZERO ROOT, while the generated
-  subclass is the distinct factual base used as the application-cache key. Source view keeps the
-  same `$empty` sibling as a compile-time scaffold without a visible runtime import.
-  **Superseded (kept for context):** the first base-plan implementation concluded that base-less
-  consumers should therefore reuse the mixin's canonical application over the single package
-  `Empty`. That confused a shared zero ROOT with a shared APPLICATION: it collapsed factory
-  evaluation, so mixin member decorators and static initializers stopped running for each
-  base-less `implements` site. **Superseded (kept for context):** the next attempted fix bypassed
-  the application cache for compiler-emitted chains. That restored decorator counts but broke the
-  invariant that applications are memoized by their factual base. The current fix keeps the cache
-  unchanged and restores distinct per-consumer `$empty` subclasses rooted in `Empty`. Consumers
-  with the SAME explicit/required factual base still reuse the cached application; duplicate
-  mixins inside one C3 chain still apply once.
+  top type. Do not regress this to the `Object` constructor. A base-less consumer SEEDS the
+  runtime chain with the shared package `Empty` (`undefined` seed + plan 0), so every base-less
+  `implements` site reuses the mixin's CANONICAL application: member decorators, static field
+  initializers and `static {}` blocks run once, and inherited static state is shared — exactly
+  a hand-written `extends`, and consistent with consumers of a required-base mixin sharing
+  their base's cached application. The generated `__X$empty extends __Empty__` class is still
+  emitted in BOTH planes but is a TYPE-only scaffold (the `$base` cast head, the construction
+  brand carrier, static-collision source, completions-filter target) — it must NEVER seed the
+  runtime chain (per-consumer roots would defeat the application cache and multiply factory
+  evaluations). Consumers with the SAME explicit/required factual base reuse the cached
+  application; duplicate mixins inside one C3 chain still apply once.
 - The original Program's checker supplies the nominal relations lazily (cached), including generic heritage
   and `RuntimeMixinClass<RequiredBase>` markers recovered from `.d.ts`. Type queries are guarded:
   a transient/incomplete source-view tree must degrade to an unknown constraint rather than throw

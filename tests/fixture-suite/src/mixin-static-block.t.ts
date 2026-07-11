@@ -10,8 +10,9 @@ import type { Test } from "@bryntum/siesta/nodejs.js"
 //
 // On a `@mixin` the class body becomes a class expression inside the runtime factory, so the
 // block runs once per DISTINCT FACTUAL BASE the mixin is applied over (memoized per base): once
-// for the canonical standalone class, once per base-less consumer's generated `$empty` subclass,
-// and once per explicit/required base — exactly the semantics static field initializers already have. NOTE: inside a mixin's
+// for the canonical standalone class and once per explicit/required base. Base-less consumers
+// seed the chain with the package `Empty` itself, so they all reuse the CANONICAL application
+// (2026-07 decision) — exactly the semantics static field initializers already have. NOTE: inside a mixin's
 // static block refer to the class as `this`, never by name — the canonical invocation happens
 // inside `defineMixinClass(...)`, before the class constant is initialized (TDZ).
 let trackedBlockRuns: number = 0
@@ -68,15 +69,15 @@ it("a static initialization block on a mixin consumer", async (t: Test) => {
 })
 
 it("a static initialization block on a mixin runs once per distinct factual base", async (t: Test) => {
-    // Canonical Empty application (1), the shared SomeBase application (2), and the generated
-    // NoBase$empty / Consumer$empty subclasses rooted in Empty (3, 4). The two based consumers
-    // share their factual base and therefore the cached application.
-    t.is(trackedBlockRuns, 4, "canonical Empty + SomeBase + two per-consumer Empty subclasses")
+    // Canonical Empty application (1) — reused by BOTH base-less consumers — and the shared
+    // SomeBase application (2). The two based consumers share their factual base and
+    // therefore the cached application.
+    t.is(trackedBlockRuns, 2, "canonical Empty (shared by the base-less consumers) + SomeBase")
 
     t.is(Tracked.blockRan, true, "the block ran on the canonical class with `this` = the class")
     t.is(WithBase.blockRan, true, "a based consumer inherits the static set by the block")
     t.is(AlsoWithBase.blockRan, true, "a second consumer over the same factual base shares the application")
-    t.is(NoBase.blockRan, true, "a base-less consumer applies over its own Empty subclass")
+    t.is(NoBase.blockRan, true, "a base-less consumer inherits it from the canonical application")
 
     t.equal(new WithBase().describe(), "described", "the mixin members are intact alongside the block")
 })

@@ -63,18 +63,24 @@ it("expands a consumer class without an explicit base", async (t: Test) => {
     t.match(
         printed,
         "class __Consumer$empty extends __Empty__",
-        "The consumer gets a distinct factual base rooted in the package Empty class"
+        "The consumer keeps the generated $empty class as the TYPE-side scaffold"
     )
     t.match(
         printed,
-        "class __Consumer$base<T> extends (__mixinChainLinearized__(__Consumer$empty, [SourceClass1], [[0, 0, 1]], \"verify\", 0) as unknown as " +
+        "class __Consumer$base<T> extends (__mixinChainLinearized__(undefined, [SourceClass1], [[0, 0, 1]], \"verify\", 0) as unknown as " +
             "typeof __Consumer$empty & Omit<typeof SourceClass1, \"prototype\" | \"new\" | \"mix\">)",
-        "Helper chain applies the mixin to the consumer's cached factual base and keeps mixin statics"
+        "Plan 0 rides the undefined seed — the runtime resolves the shared package Empty and " +
+            "reuses the mixin's canonical application"
     )
     t.notMatch(
         printed,
         "__mixinChainLinearized__(Object, [SourceClass1]",
         "Helper chain does not use Object as the implicit consumer base"
+    )
+    t.notMatch(
+        printed,
+        "__mixinChainLinearized__(__Consumer$empty",
+        "The $empty scaffold never seeds the runtime chain — that would defeat the application cache"
     )
 })
 
@@ -161,8 +167,8 @@ it("consumer transitively applies mixin dependencies", async (t: Test) => {
 
     t.match(
         printed,
-        "__mixinChainLinearized__(__Consumer$empty, [ChildMixin], [[0, 0, 2]], \"verify\", 0)",
-        "Consumer delegates transitive dependency application over its Empty-rooted factual base"
+        "__mixinChainLinearized__(undefined, [ChildMixin], [[0, 0, 2]], \"verify\", 0)",
+        "Consumer delegates transitive dependency application over the shared package Empty root"
     )
     t.match(
         printed,

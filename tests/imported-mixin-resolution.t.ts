@@ -98,7 +98,7 @@ async function assertApplied(t: Test, label: string, localName: string, files: T
     t.equal(result.exitCode, 0, `${label}: the consumer should compile (mixin resolved).\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        `__mixinChainLinearized__(__Service$empty, [${localName}], [[0, 0, 1]], "verify", 0)`,
+        `__mixinChainLinearized__(undefined, [${localName}], [[0, 0, 1]], "verify", 0)`,
         `${label}: the resolved mixin is applied over Service's Empty-rooted factual base.\n--- consumer.js ---\n${consumerJs}`
     )
 }
@@ -201,12 +201,12 @@ it("resolves two SAME-NAMED mixins from different files consumed in one file", a
     t.equal(result.exitCode, 0, `same-named mixins from two files compile.\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__UsesA$empty, [WidgetA]",
+        "__mixinChainLinearized__(undefined, [WidgetA]",
         `the first consumer applies the first file's mixin.\n--- consumer.js ---\n${consumerJs}`
     )
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__UsesB$empty, [WidgetB]",
+        "__mixinChainLinearized__(undefined, [WidgetB]",
         "the second consumer applies the second file's mixin"
     )
 })
@@ -255,7 +255,7 @@ it("resolves mixins across CIRCULARLY importing files", async (t: Test) => {
     t.equal(result.exitCode, 0, `circularly importing mixin files compile.\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__Service$empty, [Alpha, Beta]",
+        "__mixinChainLinearized__(undefined, [Alpha, Beta]",
         `the consumer applies both mixins from the circular pair.\n--- consumer.js ---\n${consumerJs}`
     )
 })
@@ -280,7 +280,7 @@ it("resolves a mixin referenced through a NAMESPACE import (implements lib.Logge
     t.equal(result.exitCode, 0, `namespace-qualified mixin reference compiles (mixin resolved).\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__Service$empty, [lib.Logger]",
+        "__mixinChainLinearized__(undefined, [lib.Logger]",
         `the qualified mixin is applied through the runtime chain.\n--- consumer.js ---\n${consumerJs}`
     )
 })
@@ -372,12 +372,12 @@ it("resolves two namespace imports exposing the SAME member name to their own mo
     t.equal(result.exitCode, 0, `same-named members from two namespaces compile.\n${commandOutput(result)}`)
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__UsesA$empty, [libA.Widget]",
+        "__mixinChainLinearized__(undefined, [libA.Widget]",
         `the first consumer applies libA's Widget.\n--- consumer.js ---\n${consumerJs}`
     )
     t.match(
         consumerJs,
-        "__mixinChainLinearized__(__UsesB$empty, [libB.Widget]",
+        "__mixinChainLinearized__(undefined, [libB.Widget]",
         "the second consumer applies libB's Widget"
     )
 })

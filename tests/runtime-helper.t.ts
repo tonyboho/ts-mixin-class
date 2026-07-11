@@ -533,6 +533,22 @@ it("the c3 escape mode ignores the required-base plan and rescans", async (t: Te
     t.isInstanceOf(new Consumer(), RealBase, "c3 mode rescans the required base instead of replaying the plan")
 })
 
+it("plan 0 with the undefined seed reuses the mixin's canonical application", async (t: Test) => {
+    // The emitted shape for a base-less consumer: `undefined` seed + plan 0 resolves to the
+    // shared package Empty, so the chain lands on the CANONICAL application (one factory
+    // evaluation total) — per-consumer roots would defeat the application cache (2026-07
+    // design decision: base-less `implements` behaves like a hand-written `extends`).
+    const bases: AnyConstructor[] = []
+    const Tracked                 = createTrackedMixin("TrackedCanonical", bases)
+
+    const first  = mixinChainLinearized(undefined, [ Tracked ], [ [ 0, 0, 1 ] ], "verify", 0)
+    const second = mixinChainLinearized(undefined, [ Tracked ], [ [ 0, 0, 1 ] ], "verify", 0)
+
+    t.isStrict(first, Tracked, "the chain IS the canonical application (the mixin value itself)")
+    t.isStrict(second, first, "every base-less consumer shares it")
+    t.equal(bases.length, 1, "the factory ran once — for the canonical application at define time")
+})
+
 it("a malformed required-base plan index throws instead of silently seeding Empty", async (t: Test) => {
     class RealBase {
         who(): string {

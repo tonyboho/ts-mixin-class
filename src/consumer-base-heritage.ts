@@ -15,6 +15,7 @@ import { type ResolvedMixinRef, type TransformOptions } from "./model.js"
 import {
     anyConstructorLocalName,
     classStaticsLocalName,
+    emptyLocalName,
     mixinChainLocalName,
     mixinChainLinearizedLocalName
 } from "./naming.js"
@@ -186,18 +187,27 @@ export function consumerBaseClassHeritage(
                         createMixinChainExpression(
                             tsInstance,
                             directMixinRefs,
-                            // A POSITIVE plan index supplies the base at runtime (no phantom
-                            // import); plan 0 always rides with the `$empty` root, and an
-                            // absent plan keeps the legacy base expression — the pair is
+                            // ANY plan index supplies the base at runtime: a positive index
+                            // selects the planned required base, plan 0 resolves to the shared
+                            // package `Empty` (no phantom import either way). An absent plan
+                            // keeps the legacy base expression — except the `$empty` scaffold,
+                            // which must NEVER seed the runtime chain: seeding per-consumer
+                            // roots defeats the application cache, so base-less consumers seed
+                            // the shared `Empty` itself and reuse the mixins' canonical
+                            // applications (base-less `implements` behaves like a hand-written
+                            // `extends` — the 2026-07 design decision). The base/plan pair is
                             // derived TOGETHER in consumer-expand (REVIEW finding 1), never
                             // re-derived from separate flags here.
-                            requiredBasePlan !== undefined && requiredBasePlan > 0
+                            requiredBasePlan !== undefined
                                 ? factory.createIdentifier("undefined")
-                                : deepCloneNode(
-                                    tsInstance,
-                                    consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
-                                        .expression
-                                ),
+                                : extendsType === undefined && implicitRequiredBase === undefined &&
+                                    emptyBaseName !== undefined
+                                    ? factory.createIdentifier(emptyLocalName)
+                                    : deepCloneNode(
+                                        tsInstance,
+                                        consumerRuntimeBaseType(tsInstance, extendsType, implicitRequiredBase, emptyBaseName)
+                                            .expression
+                                    ),
                             linearizationPlan,
                             linearizationMode(options),
                             requiredBasePlan

@@ -1,5 +1,34 @@
 # ts-mixin-class
 
+## 0.0.14 - 2026-07-11
+
+### Patch Changes
+
+- ed94e5c: Fixed generic required bases across package boundaries: a generic mixin consumed from a
+  published package (declarations only) previously broke its consumers with spurious errors
+  (`Generic type requires 1 type argument(s)` and related fallout) whenever the consumer had
+  no explicit base, and a valid explicit base could fail the build. The required-base
+  constraint is now recovered from the published interface (which retains the type-parameter
+  mapping), so such consumers compile, get the most specific base selected at compile time,
+  and mismatches are reported with the instantiated base named — same behavior as within one
+  project.
+- 1699964: Fixed generic required bases: a generic mixin's required base (`@mixin class M<T> extends
+Base<T>`) is now resolved at the use site (`implements M<U>` or `implements M<string>`),
+  transitively. Previously a consumer of such a mixin without an explicit base was rejected
+  with spurious errors (`Cannot find name 'T'`); now it compiles, picks the most specific
+  base across generic inheritance chains at compile time, mismatched explicit bases are
+  reported in both the build and the editor naming the instantiated requirement, and
+  incompatible concrete instantiations are rejected with a clear compile error.
+- 6cde379: Fixed required-base selection: the effective base class of a consumer is now the most
+  specific one among all required bases of its mixins, transitively. Previously the first
+  base found was used, so composing mixins whose required bases inherit from each other
+  could pick the wrong base; genuinely incompatible required bases are now rejected with
+  a clear compile error.
+- 9d03103: Fixed an editor crash: a half-typed `[` inside a class body (parsed as an incomplete index
+  signature) could crash a build that runs the transformer while a file with nested mixin
+  consumers was being edited; the transform now skips the malformed subtree for that
+  keystroke instead.
+
 ## 0.0.13 - 2026-07-08
 
 ### Patch Changes

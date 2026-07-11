@@ -178,7 +178,13 @@ export function expandMixinClass(
     const dependencyRefs         = localMixinRefs(tsInstance, context, dependencyHeritage)
     const linearizationConflict  = mixinLinearizationConflict(context, dependencyRefs)
     const declaredRequiredBase   = requiredBaseType(tsInstance, declaration)
-    const requiredBaseResolution = context.crossFile?.requiredBases.resolveRefs(sourceFile.fileName, [ ref ])
+    const requiredBaseResolution = context.crossFile?.requiredBases.resolveDirectRefs(
+        sourceFile.fileName,
+        // The mixin resolves its OWN ref with no use site: its type parameters stay
+        // symbolic, so a dependency's `Base<T>` constraint composed through
+        // `implements Dep<T>` compares equal to the mixin's own `extends Base<T>`.
+        [ { ref, heritage: undefined } ]
+    )
 
     if (linearizationConflict !== undefined && declaration.name !== undefined) {
         pushLinearizationConflictDiagnostic(
@@ -216,7 +222,7 @@ export function expandMixinClass(
             context,
             declaredRequiredBase,
             ref.className,
-            requiredBaseResolution.explicitMismatch.actual.baseName,
+            requiredBaseResolution.explicitMismatch.actual.baseDisplayName,
             requiredBaseResolution.explicitMismatch.required
         )
     }

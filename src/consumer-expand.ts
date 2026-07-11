@@ -33,7 +33,10 @@ import {
 import { buildImportedNameMap } from "./import-map.js"
 import {
     cloneExpressionWithTypeArguments,
-    MixinTransformError
+    MixinTransformError,
+    substituteTypeParameterReferences,
+    typeNodeReferencesTypeParameters,
+    useSiteTypeParameterSubstitutions
 } from "./expand-util.js"
 import { deriveLinearizationPlan, linearizeDependencies } from "./linearization.js"
 import {
@@ -55,6 +58,8 @@ import {
 import { consumerBaseSuffix, consumerEmptyBaseSuffix, emptyLocalName, generatedName } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
 import { generatedTextRange, preserveGeneratedDeclarationRange, preserveSourceViewGeneratedClassLikeRange, preserveTextRange } from "./text-range.js"
+import type { RequiredBaseInstantiation } from "./required-base-plan.js"
+import { deepCloneNode } from "./util.js"
 import type { TypeScript } from "./util.js"
 
 type ConsumerExpansionContext = {
@@ -112,10 +117,29 @@ export function expandConsumerClass(
 
     // Approach (B): the merge above succeeded, so the chain order can be precomputed as a
     // plan the runtime `mixinChainLinearized` replays instead of running C3 per consumer.
-    const linearizationPlan      = expansion.directMixinRefs.length === 0
+    const linearizationPlan = expansion.directMixinRefs.length === 0
         ? undefined
         : deriveLinearizationPlan(expansion.directMixinRefs.map((ref) => ref.key), context)
-    const requiredBaseResolution = context.crossFile?.requiredBases.resolveRefs(sourceFile.fileName, linearized)
+    // `localMixinRefs` maps the heritage list 1:1, so direct refs pair with their
+    // use-site `implements` entries by index. The use site supplies the type arguments
+    // that instantiate a generic mixin's constraint (`implements M<U>` -> `Base<U>`);
+    // each direct ref's resolution folds its transitive dependencies internally with
+    // the substitution composed along the chain.
+    const directHeritageByRef    = new Map(
+        expansion.directMixinRefs.map((directRef, index) => [ directRef, mixinHeritage[index]! ])
+    )
+    const requiredBaseResolution = context.crossFile?.requiredBases.resolveDirectRefs(
+        sourceFile.fileName,
+        expansion.directMixinRefs.map((ref, index) => ({ ref, heritage: mixinHeritage[index] }))
+    )
+    // The linearization is KEY-resolved, so for a NESTED mixin shadowing a same-named
+    // top-level one it holds the top-level ref. The resolution above is LEXICAL (it
+    // selected the nested twin's constraint), so plan matching and the implicit-base
+    // fallback must see the lexical direct refs, or the selected constraint misses its
+    // ref and the WRONG (top-level) base is materialized. Same-key substitution is exact:
+    // the emitted chain values are plain identifiers resolved lexically at runtime.
+    const directRefByKey    = new Map(expansion.directMixinRefs.map((directRef) => [ directRef.key, directRef ]))
+    const linearizedForPlan = linearized.map((ref) => directRefByKey.get(ref.key) ?? ref)
 
     if (requiredBaseResolution?.conflict !== undefined) {
         pushRequiredBaseConflictDiagnostic(
@@ -152,15 +176,15 @@ export function expandConsumerClass(
     //    resolution, or the resolver disagreeing with the syntactic side): the pre-plan
     //    emit — the implicit base expression (or `$empty`) with NO plan; the runtime
     //    required-base scan is the designed safety net.
-    const planSelection                 = expansion.extendsType === undefined && linearizationPlan !== undefined
-        ? context.crossFile?.requiredBases.planSelection(sourceFile.fileName, linearized, requiredBaseResolution)
+    const planSelection              = expansion.extendsType === undefined && linearizationPlan !== undefined
+        ? context.crossFile?.requiredBases.planSelection(sourceFile.fileName, linearizedForPlan, requiredBaseResolution)
         : undefined
-    const selectedRequiredBaseRef       = planSelection?.selectedRef
-    const selectedRequiredBaseImport    = selectedRequiredBaseRef?.requiredBase?.import
-    const selectedRequiredBaseFile      = selectedRequiredBaseImport === undefined || context.crossFile === undefined
+    const selectedRequiredBaseRef    = planSelection?.selectedRef
+    const selectedRequiredBaseImport = selectedRequiredBaseRef?.requiredBase?.import
+    const selectedRequiredBaseFile   = selectedRequiredBaseImport === undefined || context.crossFile === undefined
         ? undefined
         : context.crossFile.resolveModuleFileName(selectedRequiredBaseImport.specifier, sourceFile.fileName)
-    const canUseSelectedRequiredBase    = selectedRequiredBaseRef?.declaration !== undefined ||
+    const canUseSelectedRequiredBase = selectedRequiredBaseRef?.declaration !== undefined ||
         (selectedRequiredBaseRef?.requiredBase !== undefined && (
             selectedRequiredBaseImport === undefined ||
             (selectedRequiredBaseFile !== undefined && context.crossFile?.requiredBases.canImportBase(
@@ -168,11 +192,24 @@ export function expandConsumerClass(
                 selectedRequiredBaseImport.importedName
             ) === true)
         ))
+    // How the selected constraint spells its type arguments in THIS file: `raw` (no
+    // foreign parameters — clone/alias as-is), an instantiated argument list, or
+    // undefined (inexpressible → the TYPE-level base is dropped; the plan/value side
+    // and the members flowing through the mixin interfaces are unaffected).
+    const selectedInstantiation         = requiredBaseResolution?.selected === undefined
+        ? undefined
+        : context.crossFile?.requiredBases.instantiateBase(requiredBaseResolution.selected)
     const implicitRequiredBase          = expansion.extendsType !== undefined
         ? undefined
         : selectedRequiredBaseRef !== undefined
-            ? requiredBaseTypeOfRef(tsInstance, context, selectedRequiredBaseRef, canUseSelectedRequiredBase)
-            : firstRequiredBaseType(tsInstance, context, linearized)
+            ? instantiatedRequiredBaseTypeOfRef(
+                tsInstance,
+                context,
+                selectedRequiredBaseRef,
+                canUseSelectedRequiredBase,
+                selectedInstantiation
+            )
+            : firstRequiredBaseType(tsInstance, context, linearizedForPlan, directHeritageByRef)
     const emptyBaseName                 = expansion.extendsType === undefined &&
         implicitRequiredBase === undefined && selectedRequiredBaseRef === undefined
         ? generatedName(expansion.name, consumerEmptyBaseSuffix)
@@ -211,12 +248,10 @@ export function expandConsumerClass(
                 sourceFile,
                 declaration,
                 expansion.extendsType,
-                linearized,
+                linearizedForPlan,
                 expansion.generatedHeritageTypeRange,
                 options,
-                // `localMixinRefs` maps the heritage list 1:1, so direct refs pair with
-                // their use-site `implements` entries by index.
-                new Map(expansion.directMixinRefs.map((directRef, index) => [ directRef, mixinHeritage[index]! ]))
+                directHeritageByRef
             ),
             ...nominalRequiredBaseValidation
         ]
@@ -824,17 +859,77 @@ function createConsumerEmptyBaseClass(
     )
 }
 
+// The selected constraint's base as an heritage node for THIS file: the existing
+// clone/alias path when `instantiation` is `raw`, the use-site-instantiated argument
+// list otherwise, and NOTHING when the constraint is inexpressible here — dropping the
+// type-level base beats leaking a foreign type parameter (the members still flow through
+// each mixin's own generated interface; the plan/runtime side is untouched).
+function instantiatedRequiredBaseTypeOfRef(
+    tsInstance: TypeScript,
+    context: FileMixinContext,
+    ref: ResolvedMixinRef,
+    allowImportedBase: boolean,
+    instantiation: RequiredBaseInstantiation | undefined
+): ts.ExpressionWithTypeArguments | undefined {
+    if (instantiation === undefined) {
+        return undefined
+    }
+
+    const requiredBase = requiredBaseTypeOfRef(tsInstance, context, ref, allowImportedBase)
+
+    if (requiredBase === undefined || instantiation.raw) {
+        return requiredBase
+    }
+
+    return tsInstance.factory.createExpressionWithTypeArguments(
+        deepCloneNode(tsInstance, requiredBase.expression),
+        instantiation.typeArguments
+    )
+}
+
 function firstRequiredBaseType(
     tsInstance: TypeScript,
     context: FileMixinContext,
-    mixinRefs: ResolvedMixinRef[]
+    mixinRefs: ResolvedMixinRef[],
+    directHeritageByRef?: ReadonlyMap<ResolvedMixinRef, ts.ExpressionWithTypeArguments>
 ): ts.ExpressionWithTypeArguments | undefined {
     for (const ref of mixinRefs) {
         const requiredBase = requiredBaseTypeOfRef(tsInstance, context, ref)
 
-        if (requiredBase !== undefined) {
+        if (requiredBase === undefined) {
+            continue
+        }
+
+        // A generic mixin's declared base references ITS OWN type parameters, which do
+        // not exist in the consumer's scope — cloned as-is it fails with TS2304 on a
+        // generated line. Instantiate from the direct use site when the arguments are
+        // spelled out; otherwise skip the ref — the runtime scan owns the base anyway
+        // (this fallback only runs without a selected plan).
+        if (ref.declaration === undefined) {
             return requiredBase
         }
+
+        const ownParameterNames = new Set(
+            (ref.declaration.typeParameters ?? []).map((parameter) => parameter.name.text)
+        )
+
+        if (ownParameterNames.size === 0 ||
+            !typeNodeReferencesTypeParameters(tsInstance, requiredBase, ownParameterNames)
+        ) {
+            return requiredBase
+        }
+
+        const substitutions = useSiteTypeParameterSubstitutions(ref.declaration, directHeritageByRef?.get(ref))
+
+        if (substitutions === undefined) {
+            continue
+        }
+
+        return tsInstance.factory.createExpressionWithTypeArguments(
+            deepCloneNode(tsInstance, requiredBase.expression),
+            requiredBase.typeArguments?.map((argument) =>
+                substituteTypeParameterReferences(tsInstance, deepCloneNode(tsInstance, argument), substitutions))
+        )
     }
 
     return undefined

@@ -2,7 +2,10 @@ import type * as ts from "typescript"
 import {
     createDiagnosticLiteralType,
     heritageTypeText,
-    heritageTypeToTypeReference
+    heritageTypeToTypeReference,
+    substituteTypeParameterReferences,
+    typeNodeReferencesTypeParameters,
+    useSiteTypeParameterSubstitutions
 } from "./expand-util.js"
 import { entityNameText, dottedNameToEntityName } from "./entity-name.js"
 import {
@@ -19,7 +22,7 @@ import { metadataBaseLocalName, uniqueTypeParameterName } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
 import { cloneNode, deepCloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
-import type { RequiredBaseConflict, RequiredBaseConstraint } from "./required-base-plan.js"
+import type { RequiredBaseConflict, RequiredBaseInstance } from "./required-base-plan.js"
 import type { TypeScript } from "./util.js"
 
 // A set of mixins (a consumer's `implements`, or a mixin's own dependencies) that cannot be
@@ -69,8 +72,8 @@ export function pushRequiredBaseConflictDiagnostic(
 
 export function requiredBaseConflictDiagnosticMessage(conflict: RequiredBaseConflict): string {
     return "Incompatible mixin required bases. " +
-        `${conflict.left.mixinName} requires ${conflict.left.baseName}, while ` +
-        `${conflict.right.mixinName} requires ${conflict.right.baseName}; ` +
+        `${conflict.left.constraint.mixinName} requires ${conflict.left.baseDisplayName}, while ` +
+        `${conflict.right.constraint.mixinName} requires ${conflict.right.baseDisplayName}; ` +
         "neither required base inherits from the other. " +
         "Fix: make one required base extend the other, or do not compose these mixins."
 }
@@ -82,7 +85,7 @@ export function pushRequiredBaseMismatchDiagnostic(
     anchor: ts.Node,
     consumerName: string,
     actualBaseName: string,
-    required: RequiredBaseConstraint
+    required: RequiredBaseInstance
 ): void {
     if (anchor.pos < 0 || anchor.end < 0) {
         return
@@ -100,12 +103,12 @@ export function pushRequiredBaseMismatchDiagnostic(
 export function requiredBaseMismatchDiagnosticMessage(
     consumerName: string,
     actualBaseName: string,
-    required: RequiredBaseConstraint
+    required: RequiredBaseInstance
 ): string {
     return "Mixin required base mismatch. " +
         `${consumerName} declares base ${actualBaseName}, but ` +
-        `${required.mixinName} requires ${required.baseName}. ` +
-        `Fix: make ${consumerName}'s base equal to ${required.baseName} or inherit from it.`
+        `${required.constraint.mixinName} requires ${required.baseDisplayName}. ` +
+        `Fix: make ${consumerName}'s base equal to ${required.baseDisplayName} or inherit from it.`
 }
 
 export function createNominalRequiredBaseValidation(
@@ -367,6 +370,8 @@ function requiredBaseRequirementOfMixinRef(
             (ref.declaration.typeParameters ?? []).map((parameter) => parameter.name.text)
         )
 
+        let name = heritageTypeText(tsInstance, sourceFile, requiredBase)
+
         if (ownParameterNames.size > 0 &&
             typeNodeReferencesTypeParameters(tsInstance, typeNode, ownParameterNames)
         ) {
@@ -377,12 +382,14 @@ function requiredBaseRequirementOfMixinRef(
             }
 
             typeNode = substituteTypeParameterReferences(tsInstance, typeNode, substitutions)
+            // The requirement must be NAMED as instantiated too ("GenericBase<string>",
+            // not the declared "GenericBase<T>") — and tsc reports only the FIRST failing
+            // type argument of a reference, so this message cannot rely on the nominal
+            // validation to spell the instantiated name.
+            name = printedTypeNodeText(tsInstance, sourceFile, typeNode, name)
         }
 
-        return {
-            typeNode,
-            name : heritageTypeText(tsInstance, sourceFile, requiredBase)
-        }
+        return { typeNode, name }
     }
 
     if (ref.requiredBase !== undefined) {
@@ -463,6 +470,22 @@ function baseSatisfiesRequiredBaseSyntactically(
         : baseSatisfiesRequiredBaseSyntactically(tsInstance, sourceFile, nextBase, requiredBase, seen)
 }
 
+// Renders a (possibly synthetic) type node to user-facing text for a diagnostic message.
+// Falls back to `fallback` when printing fails (a malformed transient node).
+function printedTypeNodeText(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    typeNode: ts.TypeNode,
+    fallback: string
+): string {
+    try {
+        return tsInstance.createPrinter()
+            .printNode(tsInstance.EmitHint.Unspecified, typeNode, sourceFile)
+    } catch {
+        return fallback
+    }
+}
+
 function typeReferenceNameText(tsInstance: TypeScript, typeNode: ts.TypeNode): string | undefined {
     if (!tsInstance.isTypeReferenceNode(typeNode)) {
         return undefined
@@ -526,64 +549,3 @@ function runtimeMixinClassRequiredBaseInstanceType(
     ])
 }
 
-// Whether the type node references any of `names` as a bare type reference — the
-// detection side of the generic required-base instantiation above.
-function typeNodeReferencesTypeParameters(
-    tsInstance: TypeScript,
-    node: ts.Node,
-    names: ReadonlySet<string>
-): boolean {
-    if (tsInstance.isTypeReferenceNode(node) &&
-        tsInstance.isIdentifier(node.typeName) && names.has(node.typeName.text)
-    ) {
-        return true
-    }
-
-    return tsInstance.forEachChild(node, (child) =>
-        typeNodeReferencesTypeParameters(tsInstance, child, names) || undefined) === true
-}
-
-// The `implements M<U>` use-site arguments mapped onto M's declared type parameters —
-// undefined when the site spells no (or a mismatched number of) arguments, e.g. when
-// parameter defaults are relied on: those cases degrade to the nominal/runtime checks.
-function useSiteTypeParameterSubstitutions(
-    declaration: ts.ClassDeclaration,
-    useSiteHeritage: ts.ExpressionWithTypeArguments | undefined
-): Map<string, ts.TypeNode> | undefined {
-    const parameters = declaration.typeParameters ?? []
-    const args       = useSiteHeritage?.typeArguments
-
-    if (args === undefined || args.length !== parameters.length) {
-        return undefined
-    }
-
-    return new Map(parameters.map((parameter, index) => [ parameter.name.text, args[index]! ]))
-}
-
-function substituteTypeParameterReferences(
-    tsInstance: TypeScript,
-    typeNode: ts.TypeNode,
-    substitutions: ReadonlyMap<string, ts.TypeNode>
-): ts.TypeNode {
-    // `nullTransformationContext` is a real runtime export absent from the public typings
-    // (same access pattern as transform-source-file.ts).
-    const nullTransformationContext = (tsInstance as unknown as {
-        nullTransformationContext : ts.TransformationContext
-    }).nullTransformationContext
-
-    const visit = (node: ts.Node): ts.Node => {
-        if (tsInstance.isTypeReferenceNode(node) &&
-            tsInstance.isIdentifier(node.typeName) && node.typeArguments === undefined
-        ) {
-            const substitution = substitutions.get(node.typeName.text)
-
-            if (substitution !== undefined) {
-                return deepCloneNode(tsInstance, substitution)
-            }
-        }
-
-        return tsInstance.visitEachChild(node, visit, nullTransformationContext)
-    }
-
-    return visit(typeNode) as ts.TypeNode
-}

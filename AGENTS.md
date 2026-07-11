@@ -137,10 +137,23 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
 - **Degradation ladder (load-bearing).** Relations are TRI-STATE: nominal ancestry is compared
   under an identity-substitution environment (`checker.getBaseTypes` returns UNINSTANTIATED
   generic bases — substituting the reference's own type arguments while ascending is what keeps
-  `GenericMid<string>` a `GenericRoot<string[]>`), and a comparison that still reaches a FREE
-  type parameter (a generic mixin applied with the consumer's own parameter) is "unknown", which
+  `GenericMid<string>` a `GenericRoot<string[]>`). A generic mixin's constraint is interpreted
+  under its **use-site substitution**: `implements M<U>` maps the declared `T -> U`, composed
+  transitively along the dependency chain (each edge's arguments evaluated under the parent's
+  environment), so `implements M1<U>, M2<U>` orders `GenericMid<U>` under `GenericRoot<U[]>` and
+  `implements M1<string>, M2<number>` is a definite TS990013 naming the INSTANTIATED bases.
+  Type parameters compare **symbolically by parameter OBJECT identity** (never by name text —
+  same-named parameters of different declarations must not collide): the same parameter equals
+  itself (`Base<U>` extends `Base<U>` for any future `U`), while a parameter against anything
+  else — and `any`, which is what a published `.d.ts` marker erases forwarded parameters to —
+  taints a MISMATCH to "unknown", never "unrelated". A comparison that still ends "unknown"
   makes the whole resolution INDETERMINATE: no diagnostic, no plan — never a false TS990013 on
-  valid code. The emitted pair follows one rule, derived in ONE place per expander
+  valid code. **Superseded (kept for context):** before the use-site substitution, ANY free
+  parameter was immediately "unknown"; that never rejected valid code, but it also silently
+  degraded every generic composition to the runtime scan, and the raw declaration-site
+  `Base<T>` leaked into the consumer's generated heritage (TS2304 "Cannot find name 'T'" +
+  TS2320 on VALID code — the emitted implicit base is instantiated now, see below). The emitted
+  pair follows one rule, derived in ONE place per expander
   (`planSelection` on `RequiredBaseContext`): a positive index rides with the literal
   `undefined` base; **plan `0` ("known unconstrained") may only ever ride with the `$empty`
   root and only when the SYNTACTIC side also finds no base**; every other state (no cross-file
@@ -150,14 +163,29 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   constrained mixin and throws at import time of a compile-green build.
 - **The expanders hand the context CLONED nodes** (the compiler host clones per call): any
   checker query for an expander-supplied declaration must RE-ANCHOR by position into the
-  original program's file first (`explicitBaseTypeOf`) — querying the clone silently degrades
-  to "unknown" and the TS990014 validation vanishes. Explicit consumer bases are resolved this
-  way LAZILY, never from an eager file scan: the old `text.includes(packageName)` gate skipped
-  consumer files that import only their mixin module, silently disabling the mismatch check.
-  A generic mixin's declared base referencing its OWN type parameters is instantiated into the
-  checker-authored validation from the use-site arguments (`implements M<U>` → `Base<U>`);
-  with no spelled arguments it degrades to the nominal/runtime checks (cloned as-is it was
-  TS2304 on a generated line whenever the consumer's parameter names differed).
+  original program's file first (`explicitBaseTypeOf`, `originalHeritageNode` for use-site
+  `implements` arguments) — querying the clone silently degrades to "unknown" and the TS990014
+  validation vanishes. Explicit consumer bases are resolved this way LAZILY, never from an
+  eager file scan: the old `text.includes(packageName)` gate skipped consumer files that
+  import only their mixin module, silently disabling the mismatch check.
+- **A foreign type parameter must NEVER reach the consumer's generated heritage.** A generic
+  mixin's declared base referencing its OWN parameters is instantiated with use-site nodes
+  everywhere it is materialized: the checker-authored validation, the syntactic-tier message
+  NAME (tsc reports only the FIRST failing `extends never` type argument of a reference, so
+  the message cannot rely on the later nominal validation to spell `Base<string>`), and the
+  emitted implicit `$base` heritage (`instantiateBase` on the context; the plan/value side is
+  `undefined` + index and needs nothing). Substituted nodes are transplantable only when every
+  type reference in them is a bare substitutable parameter (a parent-file local or qualified
+  name would resolve in the WRONG scope) — otherwise the TYPE-level base is dropped entirely
+  (the members still flow through each mixin's own generated interface) rather than leaked.
+  The consumer-tier fallback (`firstRequiredBaseType`, runs only without a selected plan)
+  applies the same rule from the direct use site, skipping refs it cannot express.
+- Consumer-level resolution folds the DIRECT (lexical) refs — each ref's transitive subtree
+  composes inside its resolution — never the KEY-resolved linearization: for a NESTED mixin
+  shadowing a same-named top-level one the key tier holds the top-level twin, so plan
+  matching / the implicit-base fallback also substitute the lexical direct refs into the
+  linearized list (`linearizedForPlan`), or the selected nested constraint misses its ref and
+  the WRONG (top-level) base is materialized.
 - The context build is TWO-PHASE and mostly lazy: eager work is mixin discovery + own
   constraints only (zero constraints → an inert context, nothing per rebuild); dependency
   symbol-linking, explicit-base types, and export lookups (`canImportBase`, memoized) resolve

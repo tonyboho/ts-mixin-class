@@ -118,3 +118,88 @@ export function createDiagnosticLiteralType(
 ): ts.LiteralTypeNode {
     return tsInstance.factory.createLiteralTypeNode(tsInstance.factory.createStringLiteral(message))
 }
+
+// Whether the type node references any of `names` as a bare type reference — the
+// detection side of generic required-base instantiation.
+export function typeNodeReferencesTypeParameters(
+    tsInstance: TypeScript,
+    node: ts.Node,
+    names: ReadonlySet<string>
+): boolean {
+    if (tsInstance.isTypeReferenceNode(node) &&
+        tsInstance.isIdentifier(node.typeName) && names.has(node.typeName.text)
+    ) {
+        return true
+    }
+
+    return tsInstance.forEachChild(node, (child) =>
+        typeNodeReferencesTypeParameters(tsInstance, child, names) || undefined) === true
+}
+
+// Every type-reference NAME inside `node` — or undefined when a non-identifier type name
+// (a qualified `ns.Type`) appears, which callers treat as "cannot reason about the scope
+// this node needs". Used to decide whether a type node can be transplanted into another
+// scope after substituting the listed parameters.
+export function collectTypeReferenceNames(
+    tsInstance: TypeScript,
+    node: ts.Node,
+    names = new Set<string>()
+): Set<string> | undefined {
+    if (tsInstance.isTypeReferenceNode(node)) {
+        if (!tsInstance.isIdentifier(node.typeName)) {
+            return undefined
+        }
+
+        names.add(node.typeName.text)
+    }
+
+    const failed = tsInstance.forEachChild(node, (child) =>
+        collectTypeReferenceNames(tsInstance, child, names) === undefined || undefined)
+
+    return failed === true ? undefined : names
+}
+
+// The `implements M<U>` use-site arguments mapped onto M's declared type parameters —
+// undefined when the site spells no (or a mismatched number of) arguments, e.g. when
+// parameter defaults are relied on: those cases degrade to the nominal/runtime checks.
+export function useSiteTypeParameterSubstitutions(
+    declaration: ts.ClassDeclaration,
+    useSiteHeritage: ts.ExpressionWithTypeArguments | undefined
+): Map<string, ts.TypeNode> | undefined {
+    const parameters = declaration.typeParameters ?? []
+    const args       = useSiteHeritage?.typeArguments
+
+    if (args === undefined || args.length !== parameters.length) {
+        return undefined
+    }
+
+    return new Map(parameters.map((parameter, index) => [ parameter.name.text, args[index]! ]))
+}
+
+export function substituteTypeParameterReferences(
+    tsInstance: TypeScript,
+    typeNode: ts.TypeNode,
+    substitutions: ReadonlyMap<string, ts.TypeNode>
+): ts.TypeNode {
+    // `nullTransformationContext` is a real runtime export absent from the public typings
+    // (same access pattern as transform-source-file.ts).
+    const nullTransformationContext = (tsInstance as unknown as {
+        nullTransformationContext : ts.TransformationContext
+    }).nullTransformationContext
+
+    const visit = (node: ts.Node): ts.Node => {
+        if (tsInstance.isTypeReferenceNode(node) &&
+            tsInstance.isIdentifier(node.typeName) && node.typeArguments === undefined
+        ) {
+            const substitution = substitutions.get(node.typeName.text)
+
+            if (substitution !== undefined) {
+                return deepCloneNode(tsInstance, substitution)
+            }
+        }
+
+        return tsInstance.visitEachChild(node, visit, nullTransformationContext)
+    }
+
+    return visit(typeNode) as ts.TypeNode
+}

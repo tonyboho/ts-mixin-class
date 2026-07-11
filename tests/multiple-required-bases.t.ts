@@ -1,4 +1,5 @@
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 
 import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
@@ -11,7 +12,8 @@ const tscBinary = path.join(packageRoot, "node_modules", "typescript", "bin", "t
 type BuildResults = {
     emit       : CommandResult,
     sourceView : CommandResult,
-    runtime    : CommandResult | undefined
+    runtime    : CommandResult | undefined,
+    emittedJs  : string | undefined
 }
 
 async function buildBoth(source: string | TypeScriptFixtureSourceFile[], run = false): Promise<BuildResults> {
@@ -32,8 +34,11 @@ async function buildBoth(source: string | TypeScriptFixtureSourceFile[], run = f
         const runtime    = run && emit.exitCode === 0
             ? await runCommand("node", [ path.join("dist", "source.js") ], fixture.directory)
             : undefined
+        const emittedJs  = emit.exitCode === 0
+            ? await readFile(path.join(fixture.directory, "dist", "source.js"), "utf8")
+            : undefined
 
-        return { emit, sourceView, runtime }
+        return { emit, sourceView, runtime, emittedJs }
     } finally {
         await fixture.dispose()
     }
@@ -686,5 +691,219 @@ it("reports an explicit-base mismatch only on the mixin that declares it", async
             "GoodOuter declares base",
             `${plane}: GoodOuter (whose own base satisfies the requirement) is not re-flagged.\n${output}`
         )
+    }
+})
+
+// --- generic use-site resolution --------------------------------------------
+//
+// A generic mixin's constraint (`@mixin class M<T> extends Base<T>`) is declared in terms
+// of ITS OWN type parameter. The resolver must interpret it under the USE-SITE substitution
+// (`implements M<U>` maps T -> U) and compare type parameters SYMBOLICALLY (the same
+// parameter object equals itself; a parameter against anything else is "unknown", never a
+// conflict). Characterization probe (2026-07-11) showed the pre-fix state: the raw
+// declaration-site `Base<T>` leaked into the generated `$base` heritage (TS2304
+// "Cannot find name 'T'" + TS2320 on VALID code), and concrete use-site mismatches were
+// invisible in source view.
+
+const genericMixinPreamble = trimIndent(`
+    import { mixin } from "ts-mixin-class"
+
+    class GenericBase<T> {
+        value!: T
+
+        tag(): string {
+            return "base"
+        }
+    }
+
+    @mixin()
+    class GenericMixin<T> extends GenericBase<T> {
+        twice(): T[] {
+            return [ this.value, this.value ]
+        }
+    }
+`)
+
+it("plans a generic required base for a consumer without an explicit base", async (t: Test) => {
+    const results = await buildBoth(
+        `${genericMixinPreamble}\n` + trimIndent(`
+        class Consumer<U> implements GenericMixin<U> {
+        }
+
+        const consumer = new Consumer<string>()
+
+        if (!(consumer instanceof GenericBase)) throw new Error("the generic required base was not applied")
+        if (!(consumer instanceof GenericMixin)) throw new Error("the mixin was not applied")
+        if (consumer.tag() !== "base") throw new Error("the base layer is broken")
+    `),
+        true
+    )
+
+    assertBuildAndRuntime(t, results)
+    // The emit contract for a SELECTED base: the base expression is the literal
+    // `undefined` and the trailing one-based plan index supplies it at runtime —
+    // a plan index (not a missing argument) is what distinguishes "planned" from
+    // "runtime scan".
+    t.match(
+        results.emittedJs ?? "",
+        '__mixinChainLinearized__(undefined, [GenericMixin], [[0, 0, 1]], "verify", 1)',
+        "the generic required base is planned (one-based index, no runtime scan)"
+    )
+})
+
+it("selects the most-specific generic required base decidable only at the use site", async (t: Test) => {
+    const results = await buildBoth(
+        trimIndent(`
+        import { mixin } from "ts-mixin-class"
+
+        class GenericRoot<U> {
+            root!: U
+        }
+
+        class GenericMid<T> extends GenericRoot<T[]> {
+            mid!: T
+        }
+
+        @mixin()
+        class NeedsMid<T> extends GenericMid<T> {
+        }
+
+        @mixin()
+        class NeedsRoot<T> extends GenericRoot<T[]> {
+        }
+
+        class Consumer<U> implements NeedsMid<U>, NeedsRoot<U> {
+        }
+
+        const consumer = new Consumer<string>()
+
+        if (!(consumer instanceof GenericMid)) throw new Error("the most-specific generic base was not selected")
+        if (!(consumer instanceof GenericRoot)) throw new Error("the generic base ancestry was not preserved")
+    `),
+        true
+    )
+
+    assertBuildAndRuntime(t, results)
+    t.match(
+        results.emittedJs ?? "",
+        '"verify", 1)',
+        "the most-specific generic base (NeedsMid, index 1) is planned — no runtime scan"
+    )
+})
+
+it("rejects incompatible concrete instantiations reached through use-site arguments", async (t: Test) => {
+    const results = await buildBoth(`${genericMixinPreamble}\n` + trimIndent(`
+        @mixin()
+        class OtherMixin<T> extends GenericBase<T> {
+        }
+
+        class Broken implements GenericMixin<string>, OtherMixin<number> {
+        }
+
+        void Broken
+    `))
+
+    assertRequiredBaseConflict(t, results, [
+        "GenericBase<string>",
+        "GenericBase<number>",
+        "GenericMixin",
+        "OtherMixin"
+    ])
+})
+
+it("rejects a concrete explicit base mismatching the use-site instantiation in both planes", async (t: Test) => {
+    const results = await buildBoth(`${genericMixinPreamble}\n` + trimIndent(`
+        export class Bad extends GenericBase<number> implements GenericMixin<string> {
+        }
+    `))
+
+    for (const [ plane, result ] of [ [ "emit", results.emit ], [ "source view", results.sourceView ] ] as const) {
+        const output = commandOutput(result)
+
+        t.ne(result.exitCode, 0, `${plane}: the mismatched instantiation is rejected`)
+        t.match(output, "Mixin required base mismatch", `${plane}: reports the mismatch.\n${output}`)
+        t.match(output, "GenericBase<string>", `${plane}: names the use-site-instantiated requirement.\n${output}`)
+    }
+})
+
+it("reports a mixin's mismatched concrete explicit base as native TS990014", async (t: Test) => {
+    const results = await buildBoth(`${genericMixinPreamble}\n` + trimIndent(`
+        @mixin()
+        class BadComposite extends GenericBase<number> implements GenericMixin<string> {
+        }
+
+        void BadComposite
+    `))
+
+    for (const [ plane, result ] of [ [ "emit", results.emit ], [ "source view", results.sourceView ] ] as const) {
+        const output = commandOutput(result)
+
+        t.ne(result.exitCode, 0, `${plane}: the mixin's mismatched instantiation is rejected`)
+        t.match(output, "TS990014", `${plane}: reports the native mismatch code.\n${output}`)
+        t.match(output, "GenericBase<string>", `${plane}: names the use-site-instantiated requirement.\n${output}`)
+    }
+})
+
+it("composes use-site substitutions through a transitive generic mixin chain", async (t: Test) => {
+    const valid = await buildBoth(
+        `${genericMixinPreamble}\n` + trimIndent(`
+        @mixin()
+        class Outer<T> implements GenericMixin<T> {
+            outer(): T {
+                return this.value
+            }
+        }
+
+        class Consumer extends GenericBase<string> implements Outer<string> {
+        }
+
+        const consumer = new Consumer()
+
+        if (!(consumer instanceof GenericBase)) throw new Error("the transitive generic base was not applied")
+        if (!(consumer instanceof Outer)) throw new Error("Outer was not applied")
+    `),
+        true
+    )
+
+    assertBuildAndRuntime(t, valid)
+
+    const invalid = await buildBoth(`${genericMixinPreamble}\n` + trimIndent(`
+        @mixin()
+        class Outer<T> implements GenericMixin<T> {
+            outer(): T {
+                return this.value
+            }
+        }
+
+        export class Bad extends GenericBase<number> implements Outer<string> {
+        }
+    `))
+
+    for (const [ plane, result ] of [ [ "emit", invalid.emit ], [ "source view", invalid.sourceView ] ] as const) {
+        const output = commandOutput(result)
+
+        t.ne(result.exitCode, 0, `${plane}: the transitively-mismatched instantiation is rejected`)
+        t.match(output, "Mixin required base mismatch", `${plane}: reports the mismatch.\n${output}`)
+        t.match(output, "GenericBase<string>", `${plane}: names the composed requirement.\n${output}`)
+    }
+})
+
+// A genuinely undecidable combination (a free consumer parameter against a concrete
+// argument) may keep its structural checker errors — but the transform must never leak a
+// foreign type parameter into the generated heritage (the pre-fix TS2304 garbage).
+it("never leaks a mixin's own type parameter into the consumer's generated heritage", async (t: Test) => {
+    const results = await buildBoth(`${genericMixinPreamble}\n` + trimIndent(`
+        @mixin()
+        class OtherMixin<T> extends GenericBase<T> {
+        }
+
+        export class Undecidable<U> implements GenericMixin<U>, OtherMixin<string> {
+        }
+    `))
+
+    for (const [ plane, result ] of [ [ "emit", results.emit ], [ "source view", results.sourceView ] ] as const) {
+        const output = commandOutput(result)
+
+        t.notMatch(output, "Cannot find name", `${plane}: no foreign type parameter leaks out of scope.\n${output}`)
     }
 })

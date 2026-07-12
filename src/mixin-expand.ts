@@ -413,14 +413,14 @@ export function expandMixinClass(
         ) ]
         : []
 
-    const configAliasStatement = constructionNew?.configAlias === undefined
-        ? []
-        : [ positionConstructionConfigAlias(
+    const configAliasStatement = [ constructionNew?.configAlias, constructionNew?.configMeta ]
+        .filter((companion): companion is ts.TypeAliasDeclaration => companion !== undefined)
+        .map((companion) => positionConstructionConfigAlias(
             tsInstance,
-            constructionNew.configAlias,
+            companion,
             generatedTextRange(sourceFile, declaration.end),
             declaration
-        ) ]
+        ))
 
     return [
         interfaceDeclaration,

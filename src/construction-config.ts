@@ -26,7 +26,11 @@ import type { TypeScript } from "./util.js"
 
 type ConstructionConfig = {
     type              : ts.TypeNode,
-    optionalParameter : boolean
+    optionalParameter : boolean,
+    // The aggregated property list the config type was built from — the single source the
+    // `<Name>ConfigMeta` companion derives its literal unions from, so meta ↔ config
+    // coherence holds by construction.
+    properties        : ConfigProperty[]
 }
 
 // A short, improbable marker placed as the first statement of the generated `static new`
@@ -46,7 +50,10 @@ export const generatedStaticNewMarker = "$tmc$"
 // class is not a construction base.
 export type ConstructionMembers = {
     members     : ts.ClassElement[],
-    configAlias : ts.TypeAliasDeclaration | undefined
+    configAlias : ts.TypeAliasDeclaration | undefined,
+    // The `<ClassName>ConfigMeta` companion — emit plane only (undefined in source view,
+    // when the class is not a construction base, and in the reserved-name error state).
+    configMeta  : ts.TypeAliasDeclaration | undefined
 }
 
 export function createConstructionMembers(
@@ -87,7 +94,7 @@ export function createConstructionMembers(
             )
         )
     ) {
-        return { members: [], configAlias: undefined }
+        return { members: [], configAlias: undefined, configMeta: undefined }
     }
 
     const factory        = tsInstance.factory
@@ -113,8 +120,8 @@ export function createConstructionMembers(
     // `initialize` is all-optional; see the README.) The companion names are RESERVED: a
     // colliding user declaration is a TS990015 error, and the alias statement is then
     // skipped (its config inlines into the overload) so no raw TS2300 stacks on top.
-    const aliasName      = constructionConfigAliasName(declaration)
-    const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
+    const aliasName                        = constructionConfigAliasName(declaration)
+    const { configCollides, metaCollides } = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
 
     banDefaultExportConstruction(tsInstance, sourceFile, declaration, nativeDiagnostics)
 
@@ -122,6 +129,14 @@ export function createConstructionMembers(
     const configReference = configCollides
         ? inlineConfigTypeClone(tsInstance, config.type)
         : createConfigAliasReference(tsInstance, declaration, aliasName)
+    // The meta companion is EMIT-PLANE-ONLY (decision 4 of the pure-type-composition epic):
+    // cross-package readers meet it in the emitted `.d.ts` (which both planes read as-is),
+    // while same-program composition works from facts — so source view never carries it,
+    // and a NON-exported class gets none either (nothing can import it, and the unused
+    // module-local alias would be a TS6196 under `noUnusedLocals`).
+    const configMeta = options.sourceView || metaCollides
+        ? undefined
+        : createConstructionConfigMeta(tsInstance, declaration, config, facts)
 
     // The checker validates overload adjacency by position (subsequent.pos ===
     // node.end), so source-view overloads get consecutive non-zero-width ranges:
@@ -257,7 +272,7 @@ export function createConstructionMembers(
         )
     ]
 
-    return { members, configAlias }
+    return { members, configAlias, configMeta }
 }
 
 // Positions the generated `<ClassName>Config` alias, a sibling top-level statement the
@@ -294,7 +309,10 @@ export type MixinConstructionNew = {
     newType     : ts.TypeNode,
     // Undefined when the reserved `<MixinName>Config` name collides with a user
     // declaration (TS990015): the `new` signature then inlines the config instead.
-    configAlias : ts.TypeAliasDeclaration | undefined
+    configAlias : ts.TypeAliasDeclaration | undefined,
+    // The `<MixinName>ConfigMeta` companion (this is the emit path — always generated
+    // unless the reserved meta name collides).
+    configMeta  : ts.TypeAliasDeclaration | undefined
 }
 
 // Construction `new` for a mixin's value type. A mixin that extends the package
@@ -340,8 +358,8 @@ export function createMixinConstructionNewType(
     // A construction-base mixin is just a class for config purposes, so it gets the
     // same exported `<MixinName>Config` alias - emitted in both the value-cast (emit)
     // and the `static new` (source view) forms so the symbol exists in both.
-    const aliasName      = constructionConfigAliasName(declaration)
-    const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
+    const aliasName                        = constructionConfigAliasName(declaration)
+    const { configCollides, metaCollides } = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
 
     banDefaultExportConstruction(tsInstance, sourceFile, declaration, nativeDiagnostics)
 
@@ -378,7 +396,10 @@ export function createMixinConstructionNewType(
         ]),
         configAlias : configCollides
             ? undefined
-            : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+            : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type),
+        configMeta : options.sourceView || metaCollides
+            ? undefined
+            : createConstructionConfigMeta(tsInstance, declaration, config, facts)
     }
 }
 
@@ -486,7 +507,8 @@ function createConstructionConfig(
                     factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
                 ])
             ]),
-            optionalParameter : true
+            optionalParameter : true,
+            properties        : []
         }
     }
 
@@ -495,7 +517,8 @@ function createConstructionConfig(
         // A `.d.ts` contributor whose PUBLISHED `.new` parameter is required may owe that
         // requiredness to keys the fact transport cannot respell (computed/symbol) — the
         // opaque flag keeps this `.new`'s parameter required in that case.
-        optionalParameter : requiredType === undefined && !opaque.requiresArgument
+        optionalParameter : requiredType === undefined && !opaque.requiresArgument,
+        properties
     }
 }
 
@@ -725,33 +748,27 @@ function constructionConfigAliasName(declaration: ts.ClassDeclaration): string {
 // The reserved companion-type names of a construction class — `<ClassName>Config` (the
 // config alias) and `<ClassName>ConfigMeta` (the emit-plane metadata alias): a top-level
 // user declaration or import binding colliding with either is a native TS990015 (the
-// `static mix` reservation, §11.12, applied to the config type namespace). Returns true
-// when the CONFIG alias name itself collides — the caller then skips the alias statement
-// and inlines the config type into the `static new` signature, so the only surfaced
-// problem is the reservation diagnostic (emitting the alias anyway would stack a raw
-// TS2300 duplicate on top). Detection is unconditional (both planes must agree on the
-// skipped alias); only the push needs the sink.
+// `static mix` reservation, §11.12, applied to the config type namespace). Reports which
+// companion collided — the caller then skips that generated statement (the config alias
+// inlines its type into the `static new` signature instead), so the only surfaced problem
+// is the reservation diagnostic (emitting anyway would stack a raw TS2300 duplicate on
+// top). Detection is unconditional (both planes must agree on the skipped statements);
+// only the push needs the sink.
 function reserveConfigCompanionNames(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
     declaration: ts.ClassDeclaration,
     aliasName: string,
     nativeDiagnostics: NativeMixinDiagnostic[] | undefined
-): boolean {
+): { configCollides: boolean, metaCollides: boolean } {
     const declared  = collectTopLevelDeclaredNameNodes(tsInstance, sourceFile)
     const className = declaration.name?.text ?? ""
 
-    let configCollides = false
-
-    for (const reservedName of [ aliasName, `${className}ConfigMeta` ]) {
+    const collides = (reservedName: string): boolean => {
         const collision = declared.get(reservedName)
 
         if (collision === undefined) {
-            continue
-        }
-
-        if (reservedName === aliasName) {
-            configCollides = true
+            return false
         }
 
         nativeDiagnostics?.push(nativeDiagnosticOn(
@@ -763,9 +780,14 @@ function reserveConfigCompanionNames(
                 `ts-mixin-class generates a '${reservedName}' companion type next to the construction class '${className}'. ` +
                 "Rename the colliding declaration."
         ))
+
+        return true
     }
 
-    return configCollides
+    return {
+        configCollides : collides(aliasName),
+        metaCollides   : collides(`${className}ConfigMeta`)
+    }
 }
 
 // A DEFAULT-exported construction value is BANNED (pure-type-composition epic, decision 2):
@@ -871,6 +893,74 @@ function collectImportNameNodes(
     for (const element of namedBindings.elements) {
         record(element.name.text, element.name)
     }
+}
+
+// The `<ClassName>ConfigMeta` companion (pure-type-composition epic, decision 4): an
+// exported, EMIT-PLANE-ONLY alias of LITERAL fields carrying the residual construction
+// facts a downstream transform cannot re-derive from the config TYPE alone. Machine-
+// readable by a trivial field/literal reader AND checker-addressable — the literal key
+// unions plug straight into `Required<Pick<…>>` (the composition's re-require step).
+// Derived from the SAME aggregated property list as the config type, so meta ↔ config
+// coherence holds by construction. No type parameters: key sets and requiredness never
+// depend on the class's generics.
+function createConstructionConfigMeta(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    config: ConstructionConfig,
+    facts: SourceFileFacts
+): ts.TypeAliasDeclaration | undefined {
+    const factory = tsInstance.factory
+
+    // Only an EXPORTED class gets the meta: its sole consumer is a downstream package
+    // reading the emitted `.d.ts`. A module-local (or default-exported — banned anyway)
+    // class's meta could never be imported, and the dangling local alias would be a
+    // TS6196 under `noUnusedLocals`.
+    const exported = hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword)
+        && !hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+
+    if (!exported) {
+        return undefined
+    }
+
+    const requiredKeys = config.properties.filter((property) => !property.optional)
+        .map((property) => configKeyType(tsInstance, property))
+    const keys         = config.properties.map((property) => configKeyType(tsInstance, property))
+    // The index-signature KINDS (not keys): a downstream Omit gate must know a layer has a
+    // `string`/`number`/`symbol` index signature, because `keyof`-based subtraction over
+    // such a layer would erase deeper concrete keys (pre-probe 1's hazard).
+    const indexKinds = (facts.classesByDeclaration.get(declaration)?.indexSignatures ?? [])
+        .map((signature) => signature.parameters[0]?.type)
+        .filter((type): type is ts.TypeNode => type !== undefined)
+        .map((type) => factory.createLiteralTypeNode(factory.createStringLiteral(
+            type.kind === tsInstance.SyntaxKind.NumberKeyword ? "number"
+                : type.kind === tsInstance.SyntaxKind.SymbolKeyword ? "symbol"
+                    : "string"
+        )))
+
+    const unionOrNever = (types: ts.TypeNode[]): ts.TypeNode => types.length === 0
+        ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
+        : keyUnionType(tsInstance, types)
+
+    const literalField = (name: string, type: ts.TypeNode): ts.PropertySignature => factory.createPropertySignature(
+        [ factory.createToken(tsInstance.SyntaxKind.ReadonlyKeyword) ],
+        name,
+        undefined,
+        type
+    )
+
+    return factory.createTypeAliasDeclaration(
+        [ factory.createToken(tsInstance.SyntaxKind.ExportKeyword) ],
+        factory.createIdentifier(`${declaration.name?.text ?? ""}ConfigMeta`),
+        undefined,
+        factory.createTypeLiteralNode([
+            literalField("requiresArgument", factory.createLiteralTypeNode(
+                config.optionalParameter ? factory.createFalse() : factory.createTrue()
+            )),
+            literalField("requiredKeys", unionOrNever(requiredKeys)),
+            literalField("keys", unionOrNever(keys)),
+            literalField("indexKinds", unionOrNever(indexKinds))
+        ])
+    )
 }
 
 // The inline replacement for the alias reference in the RESERVED-name error state: a

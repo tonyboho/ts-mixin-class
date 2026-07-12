@@ -370,16 +370,17 @@ export function expandConsumerClass(
     const hasEntityNameBase = expansion.extendsType !== undefined &&
         isSupportedBaseExpression(tsInstance, expansion.extendsType.expression)
 
-    // The config alias goes AFTER the consumer: its anchor is just past the closing brace,
-    // so listing it last keeps the statement ranges ordered and non-overlapping.
-    const configAliasStatement = construction.configAlias === undefined
-        ? []
-        : [ positionConstructionConfigAlias(
+    // The config alias (and the emit-only meta companion) go AFTER the consumer: their
+    // anchor is just past the closing brace, so listing them last keeps the statement
+    // ranges ordered and non-overlapping.
+    const configAliasStatement = [ construction.configAlias, construction.configMeta ]
+        .filter((companion): companion is ts.TypeAliasDeclaration => companion !== undefined)
+        .map((companion) => positionConstructionConfigAlias(
             tsInstance,
-            construction.configAlias,
+            companion,
             generatedTextRange(sourceFile, declaration.end),
             declaration
-        ) ]
+        ))
 
     if (options.sourceView &&
         consumerValidations.length === 0 &&

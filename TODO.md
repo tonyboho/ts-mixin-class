@@ -49,7 +49,38 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### EPIC: config transport as PURE TYPE composition (designed 2026-07 — decisions locked, not started)
+### EPIC: config transport as PURE TYPE composition (designed 2026-07 — decisions locked, IN PROGRESS)
+
+**Progress (2026-07-12):** pre-probes 1–3 done (results below). Decision 5 SHIPPED
+(TS990015 name reservation, `_`-suffix machinery deleted — `reserved-config-names.t.ts`,
+§7.13 flipped). Decision 2 SHIPPED (TS990016 default-export construction ban, §13.9
+reversed incl. the registry read-side `"default"` aliasing —
+`source-transform-cross-file-construction.t.ts`). Decision 4 SHIPPED (`<Name>ConfigMeta`
+generation, §7.30 — `construction-config-meta.t.ts`; refinements: EXPORTED classes only
+(a module-local companion is unimportable and a TS6196 under `noUnusedLocals`), fields
+`requiresArgument`/`requiredKeys`/`keys`/`indexKinds`, the latter two per pre-probe 2's
+overlap/index gates). Next: the composition itself (alias-route + overlap-gated Omit —
+decision 1), then the legacy-transport deletion (decision 3's wholesale `.d.ts` shape
+change happens there).
+
+**One mechanism, four wins:** (1) the config becomes a TREE — each level spells only its
+own keys and references ancestors by alias, killing the O(D²) name re-flattening (the
+instantiation-count quadratic; wall time was bench-neutral, the win is structural); (2) the
+respelling/recovery machinery is DELETED — `transplantableConfigProperties` strips, the
+`.d.ts` Pick-grammar reader, the value-route part and its registry plumbing; (3) EXOTIC
+keys (computed/symbol/index) become native everywhere — no strip rule, no cross-file
+asymmetry, because keys are never respelled at all; (4) GENERIC contributors are carried
+natively (`BoxedConfig<string>` instantiates at the use site — the erosion gap below
+dissolves).
+
+Supersedes-in-plan: the value-route hybrid (§13.8), the fact respelling/strip rules
+(§10.25's cross-file asymmetry), the `.d.ts` Pick-grammar recovery, and the
+generic-contributor gap below. The "Tree (incremental) config" section further down studied
+this family earlier and verdicted "keep flat" — that was a PERF verdict (tree ≈ flat), and
+the blockers were the moving parts; the calculus changed: generated cross-module imports are
+now shipped, battle-tested machinery (the required-base imports), and the motivation is
+ARCHITECTURAL (delete the respelling/recovery layer, full exotic-key + generics support),
+not speed.
 
 **Decisions (locked with the user, 2026-07-11):**
 

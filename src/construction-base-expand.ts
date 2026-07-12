@@ -67,16 +67,16 @@ export function expandConstructionBaseClass(
             rewritten.members
         )
     )
-    const configAliasStatement = construction.configAlias === undefined
-        ? []
-        : [ positionConstructionConfigAlias(
+    const configAliasStatement = [ construction.configAlias, construction.configMeta ]
+        .filter((companion): companion is ts.TypeAliasDeclaration => companion !== undefined)
+        .map((companion) => positionConstructionConfigAlias(
             tsInstance,
-            construction.configAlias,
+            companion,
             // Anchor just past the closing brace, OUTSIDE the class body, so the alias
             // overlaps no sibling; both modes share that real position (stress parity).
             generatedTextRange(sourceFile, declaration.end),
             declaration
-        ) ]
+        ))
 
     return [ updatedClass, ...configAliasStatement ]
 }

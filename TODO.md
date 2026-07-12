@@ -49,156 +49,29 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### EPIC: config transport as PURE TYPE composition (designed 2026-07 — decisions locked, IN PROGRESS)
+### Pure-type config composition — residual refinements (epic shipped 2026-07-12)
 
-**Progress (2026-07-12):** pre-probes 1–3 done (results below). Decision 5 SHIPPED
-(TS990015 name reservation, `_`-suffix machinery deleted — `reserved-config-names.t.ts`,
-§7.13 flipped). Decision 2 SHIPPED (TS990016 default-export construction ban, §13.9
-reversed incl. the registry read-side `"default"` aliasing —
-`source-transform-cross-file-construction.t.ts`). Decision 4 SHIPPED (`<Name>ConfigMeta`
-generation, §7.30 — `construction-config-meta.t.ts`; refinements: EXPORTED classes only
-(a module-local companion is unimportable and a TS6196 under `noUnusedLocals`), fields
-`requiresArgument`/`requiredKeys`/`keys`/`indexKinds`, the latter two per pre-probe 2's
-overlap/index gates). Decision 1 stage 1 SHIPPED (SAME-FILE
-composition — `source-transform-config-composition.t.ts`): a consumer/subclass/mixin
-config references its LOCAL contributors' `<Name>Config<args>` aliases (top-level,
-construction-enabled, no user `static new`, no reserved-name collision — everything else
-flattens through facts as before); the Omit and the re-require are overlap-gated with
-LITERAL subtractions (never `keyof`), a fully-overlapped alias layer drops entirely, and
-the merged nearest-first fact list remains the single source for meta/requiredness/winner
-representation. Decision 1 stage 2 SHIPPED (CROSS-FILE
-alias-route): imported contributors with an importable `<Name>Config` (registry flags
-`configAliasAvailable`/`generic`, `.d.ts` side detected by exported-alias presence) join
-by a generated TYPE-ONLY import (`import type { XConfig as __X$config }` on the factory
-import rails) — computed keys keep identity/requiredness across files (§10.25 flipped),
-GENERIC `.d.ts` contributors instantiate at the use site (the known gap dissolved), and a
-routed contributor skips its §13.8 value part. Named re-export barrels and transitive
-generic dependencies keep the fact route (declaring-module + use-site-arguments gates).
-A fully-overridden reference layer drops only when its fact inventory is COMPLETE (local,
-no index signatures) — an imported alias may carry cargo facts cannot see. Stage 3 SHIPPED (legacy-transport
-deletion): the §13.8 VALUE ROUTE is deleted (only the `.new`-parameter requiredness flag
-sweep remains), and the `.d.ts` Pick-grammar reader is replaced by the `<Name>ConfigMeta`
-literal reader (computed keys enter the registry inventory with their declaring-scope
-entity names; a meta-less older emit falls back to the interface shape). RETAINED, contra
-the original "what gets deleted" list: `transplantableConfigProperties` strips and the
-fact transport — they still feed the CORRECT fallback paths behind the routing gates
-(named re-export barrels, transitive generic dependencies, namespace members, nested
-contributors) and the merged list that renders own keys and derives each consumer's meta.
-Residual refinements (not started): meta-coherence of a consumer that inherits a `.d.ts`
-contributor's computed keys (its own published meta under-reports them — the alias chain
-still types them correctly downstream); alias-routing through `export *` barrels; a bench
-pass (`bench:compile` / tsserver scenarios) with the tree active.
+The tree-form config EPIC itself is SHIPPED (decisions 1–5, three stages, §7.13/§7.30/
+§7.31/§10.25/§13.8/§13.9 — see USE-CASES and the `pure-type-config-composition`
+changeset; a bench pass with the tree active measured compile + tsserver on the
+construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within noise).
+What remains are refinements, none started:
 
-**One mechanism, four wins:** (1) the config becomes a TREE — each level spells only its
-own keys and references ancestors by alias, killing the O(D²) name re-flattening (the
-instantiation-count quadratic; wall time was bench-neutral, the win is structural); (2) the
-respelling/recovery machinery is DELETED — `transplantableConfigProperties` strips, the
-`.d.ts` Pick-grammar reader, the value-route part and its registry plumbing; (3) EXOTIC
-keys (computed/symbol/index) become native everywhere — no strip rule, no cross-file
-asymmetry, because keys are never respelled at all; (4) GENERIC contributors are carried
-natively (`BoxedConfig<string>` instantiates at the use site — the erosion gap below
-dissolves).
-
-Supersedes-in-plan: the value-route hybrid (§13.8), the fact respelling/strip rules
-(§10.25's cross-file asymmetry), the `.d.ts` Pick-grammar recovery, and the
-generic-contributor gap below. The "Tree (incremental) config" section further down studied
-this family earlier and verdicted "keep flat" — that was a PERF verdict (tree ≈ flat), and
-the blockers were the moving parts; the calculus changed: generated cross-module imports are
-now shipped, battle-tested machinery (the required-base imports), and the motivation is
-ARCHITECTURAL (delete the respelling/recovery layer, full exotic-key + generics support),
-not speed.
-
-**Decisions (locked with the user, 2026-07-11):**
-
-1. **ALIAS-ROUTE ONLY.** Every contributor's config is referenced as its named generic
-   alias, instantiated with the use-site arguments (`BoxedConfig<string>`) — full generics
-   support, cheap for the checker (declared alias + args; no `Parameters<>` infer), and
-   human-readable in hover. The value route (`NonNullable<Parameters<(typeof V)["new"]>[0]>`)
-   is DELETED, not kept as a fallback.
-2. **Default-exported construction values are BANNED** (a native TS9900xx diagnostic): their
-   config alias cannot be exported (§7.15), which was the only structural hole in alias
-   nameability. This REVERSES §13.9 (default-export construction-base support, added
-   2026-07-11) — its test flips to expecting the diagnostic.
-3. **No compatibility layer.** Pre-1.0: no `schemaVersion`, no dual-path reader; the `.d.ts`
-   shape changes wholesale in one release.
-4. **Residual facts ride a phantom metadata type** — `<Name>ConfigMeta`, an exported
-   emit-plane-only alias of LITERAL fields (`{ readonly requiresArgument: true, readonly
-   requiredKeys: … }`). Machine-readable by a trivial field/literal reader (replaces the
-   Pick-grammar recovery AND the registry flags at package boundaries); also
-   checker-addressable (literal types) if ever needed. Never appended in source view
-   (`.d.ts` files are not transformed, so the meta only needs to exist in declaration
-   emit). Coherence `meta ↔ config` is generator-asserted — pin it with a
-   declaration-suite test.
-5. **The `<ClassName>Config` (and `<ClassName>ConfigMeta`) names are RESERVED** — a user
-   declaration colliding with the generated alias name is a native TS9900xx diagnostic,
-   the `static mix` convention (§11.12) applied to the config namespace. This deletes the
-   `_`-collision-suffix machinery (§7.13): the alias name is always DERIVABLE from the
-   class name, so cross-file/alias-route resolution never needs name discovery.
-
-**Composition shape.** Per consumer/subclass, nearest-first Omit chain + re-require —
-GENERAL form below; per pre-probe 2 both the Omit and the re-require are emitted
-OVERLAP-GATED (an overlap-free layer joins as a bare `& LayerConfig`):
-
-    type ChildConfig<T> = Flatten<
-        OwnPick
-        & Omit<M1Config<args>, keyof OwnPick>
-        & Omit<M2Config<args>, keyof OwnPick | keyof M1Config<args>>
-        & …
-    >  // & re-required: Required<Pick<…, DeepRequiredKeys & OverriddenKeys>>
-
-- `keyof Own` is a TYPE expression — computed/symbol keys Omit without being spellable
-  (§7.29 nearest-wins purely at type level).
-- Omit drops the deeper layer's REQUIREDNESS for overridden keys, violating §7.28's
-  monotonicity — the re-require step re-imposes it: required keys extract type-level
-  (`{[K in keyof T]-?: {} extends Pick<T, K> ? never : K}[keyof T]`), or cheaper, come
-  precomputed from `<Name>ConfigMeta.requiredKeys` (a stable literal union — no per-level
-  mapped-filter work).
-- Alias names resolve via the EXISTING generated-import machinery (`import type {
-  BoxedConfig as __BoxedConfig__ } from "<spec>"` — same rails as the required-base
-  imports, incl. pruning and collision-safe local names). The alias name is always
-  `<ClassName>Config` — reserved by decision 5, so no discovery step exists.
-- Same-PROGRAM cross-file contributors go alias-route too — §10.25's "deliberately
-  omitted" strip rule dissolves.
-
-**What gets deleted:** `transplantableConfigProperties` strips; the
-`configPropertiesFromConstructionNewParam` grammar reader; the §13.8 value-route part and
-its `configRequiresArgument` registry plumbing (folds into meta); the cross-file
-`ConfigProperty[]` transport (shrinks to own-file facts + meta).
-
-**Pre-probes — DONE (2026-07-12), results below; they REFINE the emission (same locked
-decisions):**
-1. ✅ Bare-tsc prototype (Omit chain + re-require over generic/exotic shapes): §7.29
-   nearest-first types, §7.28 monotonic requiredness through nearer-optional redeclarations
-   (own layer included), §7.24 exotic keys and use-site-instantiated generics ALL hold.
-   One semantic trap found: `Omit<Deep, keyof Nearer>` where the NEARER layer has an INDEX
-   SIGNATURE degrades every deeper concrete string/numeric key to `unknown` (`keyof`
-   includes the index). Guard: an index-signature-free key set (`KnownKeys`-style `as`-filter,
-   or the layer's key list from meta) — with it the composed type matches shipped semantics
-   exactly (`string | undefined`, optionality preserved).
-2. ✅ Bench (`bench:config-shape`, +3 shapes; 15 chains × depth sweep ×6 props, depth-32
-   counters): **a naive per-level Omit chain is the quadratic it was meant to kill** — its
-   `Exclude` distributes over the whole accumulated key union at every level: 141k
-   instantiations vs flat's 1.9k (75×), assignability cache 26×, check 0.19→0.33s. Flatten
-   per level is cheap and linear (6.7k). The always-on mapped-filter re-require
-   (`RequiredKeysOf<Parent>` per level) is DISQUALIFIED (899ms vs 599ms wall at depth 32) —
-   requiredness must come precomputed from meta. Consequences for the emission:
-   - **Omit is OVERLAP-GATED**: emitted only where facts/meta prove a key overlap with a
-     deeper layer (rare); an overlap-free layer contributes as a bare `& LayerConfig`.
-     Common case ≈ tree-import + cheap flatten (linear instantiations).
-   - **Re-require is overlap-gated too** (only when the overlapped deeper key is required
-     and the nearer redeclaration is optional), with the key set from
-     `<Name>ConfigMeta.requiredKeys` — never the mapped-filter idiom.
-   - **Meta must also carry the layer's KEY LIST** (`keys`), so downstream transforms can
-     compute overlap/index-signature gates for `.d.ts` layers at transform time (same-program
-     layers use facts).
-3. ✅ Elaboration naming: the flatten must stay the INLINE mapped type
-   (`{ [K in keyof (…) ]: (…)[K] }`, today's idiom) — errors then speak `<Name>Config`
-   (TS2345/TS2353 verified). A named `Flatten<T>` helper leaks the whole expansion into
-   every message (aliasSymbol goes to the helper). Full hover arbitration remains with
-   stress-quickinfo + the `tsserver-diagnostics` naming block once implemented.
-
-**Test churn to expect:** every multi-part config text pin; §13.8/§13.9 rows and tests;
-`.d.ts` fixture snapshots; the declaration-suite gains the meta-coherence pin.
+- **Consumer meta-coherence for inherited `.d.ts` computed keys.** A consumer that
+  inherits a `.d.ts` contributor's computed keys publishes its own meta WITHOUT them
+  (the fact inventory carries them as unspellable entity names of the declaring scope) —
+  the alias chain still types them correctly downstream; only the consumer's own
+  `keys`/`requiredKeys` literals under-report.
+- **`<Name>ConfigMeta.indexKinds` is OWN-ONLY.** A `.d.ts` class whose ANCESTOR is
+  index-signature-only reads as provably empty (`keys: never, indexKinds: never`) and a
+  downstream composition then drops its alias (§7.31), losing the ancestor's bag-key
+  constraint — typing degradation, not poisoning. Fix: accumulate contributors' index
+  kinds into the meta (needs index-signature transport beside `ConfigProperty[]`).
+- **Alias-routing through `export *` barrels.** Named re-export barrels deliberately
+  keep the fact route (the barrel forwards the class value but not the alias); an
+  `export *` barrel could route (the alias IS re-exported) — needs the registry to
+  resolve the barrel specifier to the declaring module for the generated type-only
+  import.
 
 ### Phantom "ancestors-only" interfaces to flatten the required-base checker cost (idea, 2026-07)
 
@@ -402,80 +275,3 @@ also at every consumer.
     - *Maybe a separate opt-in base.* This could live behind an alternative base (e.g. `Base2`)
       tuned specifically for this instantiation shape — fast but knowingly fragile — rather than
       changing the default `Base` contract.
-
-- **Tree (incremental) config instead of the flat `Pick<Self, all-ancestor-names>`?**
-  *Superseded in plan (2026-07): the pure-type-composition EPIC under "To implement" IS the
-  tree form — alias-route references with a nearest-first Omit chain, flat at every
-  observation point through the flatten wrapper. The "keep flat" verdict below was a PERF
-  verdict (tree ≈ flat); the epic's motivation is architectural. Kept for the benchmark
-  data and the variant analysis.* Today every
-  construction class emits its config as one flat `Pick<Self, "n1" | … | "nN">` over its own
-  instance type, where the name union is the *recursively accumulated* set (own + the whole
-  `extends` chain + mixins + transitive mixin deps). This scales **perfectly by width** but
-  **super-linearly by depth**: each level in a chain re-flattens *all* ancestor names, so the
-  total config member-work over a depth-`D` chain is `P·(1+2+…+D)` = **O(D²)**.
-  - *Measured.* 100 classes × {10,50,100} flat props → check `0.09→0.10→0.14s`, ~3 instantiations
-    per extra property (linear, trivial). Depth chains (50 leaves, 5 props/level) at accumulated
-    {25,50,100} → check `0.12→0.18→0.39s`, instantiations `18.9k→63.4k→227k` (≈O(D²)). Absolute
-    cost is still small (a depth-20 / 100-prop hierarchy ≈ 8 ms check), so this is a "if deep
-    config hierarchies ever get hot" optimization, not urgent.
-  - *The fix.* Make each level reference the parent/mixin config by name instead of re-expanding:
-    `type ChildConfig = Pick<Self, own-names> & <base config> & <each mixin config>` → each level is
-    O(own), the chain O(D).
-  - *Referencing the parent config WITHOUT a phantom import.* The base and mixins are already in
-    scope as **values** (imported for `extends` / runtime), so derive the config from the value:
-    `NonNullable<Parameters<typeof Base.new>[0]>` (the `NonNullable` strips the `| undefined` an
-    optional `new` param adds). Verified: it resolves to exactly the base config — required /
-    optional / excess-key / wrong-type all check correctly. This avoids generating imports, avoids
-    the `export default` gap (a default-exported class has a **non-exported** `<Name>Config` per
-    §7.15, but `typeof DefaultBase.new` still works through the value), and adds no synthetic
-    `import` node to position in source view.
-  - *Phantom imports are also possible* (the transform already generates imports; module specifiers
-    are tracked in `baseImportMap.resolvedFileName`), i.e. `import type { BaseConfig } from "<spec>"`
-    — but heavier (collision/aliasing, the default-export gap, a synthetic import to range in source
-    view).
-  - *Generics are the catch (for the value route).* `Parameters<typeof Base.new>[0]` cannot thread a
-    child's type argument into a generic base's config (`class Child<U> extends Base<U>` wants
-    `BaseConfig<U>`, but the value route gives the uninstantiated form). Generic bases would need the
-    **imported** `BaseConfig<U>`, or stay flat (`Pick<Child<U>, names>` threads `U` itself).
-  - ***Best variant — a symbol-keyed config carrier on the INSTANCE type.*** Brand each construction
-    class's instance type (via the generated interface / declaration merging — type-only, no runtime,
-    no init) with a phantom member under one shared package-level `unique symbol`:
-    `interface X<T> { readonly [CFG]: <its config> }`. Then reference the config by indexed access:
-    `type ChildCfg<U> = Pick<Child<U>, own-names> & Base<U>[typeof CFG] & Mixin<U>[typeof CFG]`.
-    **Verified** (clean typecheck, all `@ts-expect-error` fired): `Base<U>[typeof CFG]` **threads the
-    type argument** (the instance type is already parameterized — solving the generic catch above), a
-    string-name `Pick` does **not** pick up the symbol key (no config recursion), and the tree
-    composition is generic-correct. Advantages over both other routes: threads generics with **no**
-    per-config imports (one shared symbol, exported like `Base`, written only by the generator — users
-    keep referencing the named `<Name>Config` alias), no `NonNullable`, and cross-file it rides in the
-    `.d.ts` with the instance type (a library-exported `unique symbol` keeps identity across files).
-  - ***Benchmarked*** (`bench:config-shape`, 30 chains × depth 12 × 8 props = 96 accumulated), check
-    time: `baseline` 60ms / `flat` 90ms / `tree-import` 80ms / **`tree-symbol` 170ms** (instance
-    carrier — ~1.9× flat, Assignability cache size ~5×) / **`tree-static-symbol` 120ms** (static
-    carrier). The instance `[CFG]` is the expensive one: it lives on the **instance** type, so it is
-    dragged into every structural instance comparison (upcasts, passing instances to typed params).
-  - *A symbol carrier on the STATIC side dodges most of that* (`tree-static-symbol`, 170→120ms):
-    `class X { declare static readonly [CFG]: <config> }`, config = `(typeof X)[typeof CFG]` — off the
-    instance, so instance comparisons don't touch it. **But** (a) a static member **cannot reference
-    class type parameters** (`static [CFG]: Cfg<T>` → **TS2302**), so the static carrier can't carry
-    generics either (same hole as `Parameters<>`); and (b) it is still pricier than `flat`/`tree-import`
-    because each level's static `[CFG]` (`= parent[CFG] & {own}`) is checked against the inherited one
-    as a static-member override down the chain. So it beats the instance carrier but does **not** beat
-    `tree-import`.
-  - ***Depth sweep — `flat` vs `tree-import` is a wash*** (`bench:config-shape` sweeps depth 4,8,16,32;
-    a deeper 8,16,32,64 run isolates it). The deep hierarchy + the upcast workload is ITSELF ~O(D²)
-    (baseline check climbs 30→40→80→**340ms** over depth 8→64 — D upcasts × O(D) members per leaf), and
-    `flat` and `tree-import` add only a small, near-equal increment on top (≈ +60ms each at depth 64).
-    So `flat`'s O(D²) config cost — real in the **Instantiations** count — is **swamped** in wall/check
-    time by the inherent quadratic of deep classes + instance comparisons. `tree-import` does **not**
-    meaningfully pull ahead. The symbol carriers are the only shapes that move the needle, and the
-    wrong way (`tree-symbol` reaches ~490ms at depth 32 vs flat 180 — `[CFG]` rides inside every
-    already-quadratic comparison).
-  - *Realistic plan (post-benchmark).* **Keep `flat`.** The benchmark says the config representation
-    barely matters between `flat` and `tree-import` (both dominated by the hierarchy's own cost), so the
-    O(D²)→O(D) rewrite buys no measurable win — not worth its moving parts (intersection → reopens the
-    nested-diagnostic naming, needs the flatten wrapper; `.new`/config only on `Base`-derived
-    contributors; generics special-case). Revisit only if a future profile shows config-type resolution
-    (not the surrounding hierarchy) actually dominating. The symbol carriers are off the table for
-    perf: instance costs ~2×, static loses generics (TS2302).

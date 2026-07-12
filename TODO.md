@@ -49,7 +49,105 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
+### EPIC: config transport as PURE TYPE composition (designed 2026-07 — decisions locked, not started)
+
+**Decisions (locked with the user, 2026-07-11):**
+
+1. **ALIAS-ROUTE ONLY.** Every contributor's config is referenced as its named generic
+   alias, instantiated with the use-site arguments (`BoxedConfig<string>`) — full generics
+   support, cheap for the checker (declared alias + args; no `Parameters<>` infer), and
+   human-readable in hover. The value route (`NonNullable<Parameters<(typeof V)["new"]>[0]>`)
+   is DELETED, not kept as a fallback.
+2. **Default-exported construction values are BANNED** (a native TS9900xx diagnostic): their
+   config alias cannot be exported (§7.15), which was the only structural hole in alias
+   nameability. This REVERSES §13.9 (default-export construction-base support, added
+   2026-07-11) — its test flips to expecting the diagnostic.
+3. **No compatibility layer.** Pre-1.0: no `schemaVersion`, no dual-path reader; the `.d.ts`
+   shape changes wholesale in one release.
+4. **Residual facts ride a phantom metadata type** — `<Name>ConfigMeta`, an exported
+   emit-plane-only alias of LITERAL fields (`{ readonly requiresArgument: true, readonly
+   requiredKeys: … }`). Machine-readable by a trivial field/literal reader (replaces the
+   Pick-grammar recovery AND the registry flags at package boundaries); also
+   checker-addressable (literal types) if ever needed. Never appended in source view
+   (`.d.ts` files are not transformed, so the meta only needs to exist in declaration
+   emit). Coherence `meta ↔ config` is generator-asserted — pin it with a
+   declaration-suite test.
+5. **The `<ClassName>Config` (and `<ClassName>ConfigMeta`) names are RESERVED** — a user
+   declaration colliding with the generated alias name is a native TS9900xx diagnostic,
+   the `static mix` convention (§11.12) applied to the config namespace. This deletes the
+   `_`-collision-suffix machinery (§7.13): the alias name is always DERIVABLE from the
+   class name, so cross-file/alias-route resolution never needs name discovery.
+
+**Composition shape.** Per consumer/subclass, nearest-first Omit chain + re-require —
+GENERAL form below; per pre-probe 2 both the Omit and the re-require are emitted
+OVERLAP-GATED (an overlap-free layer joins as a bare `& LayerConfig`):
+
+    type ChildConfig<T> = Flatten<
+        OwnPick
+        & Omit<M1Config<args>, keyof OwnPick>
+        & Omit<M2Config<args>, keyof OwnPick | keyof M1Config<args>>
+        & …
+    >  // & re-required: Required<Pick<…, DeepRequiredKeys & OverriddenKeys>>
+
+- `keyof Own` is a TYPE expression — computed/symbol keys Omit without being spellable
+  (§7.29 nearest-wins purely at type level).
+- Omit drops the deeper layer's REQUIREDNESS for overridden keys, violating §7.28's
+  monotonicity — the re-require step re-imposes it: required keys extract type-level
+  (`{[K in keyof T]-?: {} extends Pick<T, K> ? never : K}[keyof T]`), or cheaper, come
+  precomputed from `<Name>ConfigMeta.requiredKeys` (a stable literal union — no per-level
+  mapped-filter work).
+- Alias names resolve via the EXISTING generated-import machinery (`import type {
+  BoxedConfig as __BoxedConfig__ } from "<spec>"` — same rails as the required-base
+  imports, incl. pruning and collision-safe local names). The alias name is always
+  `<ClassName>Config` — reserved by decision 5, so no discovery step exists.
+- Same-PROGRAM cross-file contributors go alias-route too — §10.25's "deliberately
+  omitted" strip rule dissolves.
+
+**What gets deleted:** `transplantableConfigProperties` strips; the
+`configPropertiesFromConstructionNewParam` grammar reader; the §13.8 value-route part and
+its `configRequiresArgument` registry plumbing (folds into meta); the cross-file
+`ConfigProperty[]` transport (shrinks to own-file facts + meta).
+
+**Pre-probes — DONE (2026-07-12), results below; they REFINE the emission (same locked
+decisions):**
+1. ✅ Bare-tsc prototype (Omit chain + re-require over generic/exotic shapes): §7.29
+   nearest-first types, §7.28 monotonic requiredness through nearer-optional redeclarations
+   (own layer included), §7.24 exotic keys and use-site-instantiated generics ALL hold.
+   One semantic trap found: `Omit<Deep, keyof Nearer>` where the NEARER layer has an INDEX
+   SIGNATURE degrades every deeper concrete string/numeric key to `unknown` (`keyof`
+   includes the index). Guard: an index-signature-free key set (`KnownKeys`-style `as`-filter,
+   or the layer's key list from meta) — with it the composed type matches shipped semantics
+   exactly (`string | undefined`, optionality preserved).
+2. ✅ Bench (`bench:config-shape`, +3 shapes; 15 chains × depth sweep ×6 props, depth-32
+   counters): **a naive per-level Omit chain is the quadratic it was meant to kill** — its
+   `Exclude` distributes over the whole accumulated key union at every level: 141k
+   instantiations vs flat's 1.9k (75×), assignability cache 26×, check 0.19→0.33s. Flatten
+   per level is cheap and linear (6.7k). The always-on mapped-filter re-require
+   (`RequiredKeysOf<Parent>` per level) is DISQUALIFIED (899ms vs 599ms wall at depth 32) —
+   requiredness must come precomputed from meta. Consequences for the emission:
+   - **Omit is OVERLAP-GATED**: emitted only where facts/meta prove a key overlap with a
+     deeper layer (rare); an overlap-free layer contributes as a bare `& LayerConfig`.
+     Common case ≈ tree-import + cheap flatten (linear instantiations).
+   - **Re-require is overlap-gated too** (only when the overlapped deeper key is required
+     and the nearer redeclaration is optional), with the key set from
+     `<Name>ConfigMeta.requiredKeys` — never the mapped-filter idiom.
+   - **Meta must also carry the layer's KEY LIST** (`keys`), so downstream transforms can
+     compute overlap/index-signature gates for `.d.ts` layers at transform time (same-program
+     layers use facts).
+3. ✅ Elaboration naming: the flatten must stay the INLINE mapped type
+   (`{ [K in keyof (…) ]: (…)[K] }`, today's idiom) — errors then speak `<Name>Config`
+   (TS2345/TS2353 verified). A named `Flatten<T>` helper leaks the whole expansion into
+   every message (aliasSymbol goes to the helper). Full hover arbitration remains with
+   stress-quickinfo + the `tsserver-diagnostics` naming block once implemented.
+
+**Test churn to expect:** every multi-part config text pin; §13.8/§13.9 rows and tests;
+`.d.ts` fixture snapshots; the declaration-suite gains the meta-coherence pin.
+
 ### Exotic config keys of a GENERIC-instantiated `.d.ts` contributor don't reach downstream configs (known gap, 2026-07)
+
+*Superseded in plan by the pure-type-composition EPIC above (alias-route carries generics
+natively); kept for context while the epic is unstarted — this section describes the
+SHIPPED behavior.*
 
 **The gap.** The §13.8 value-route transport (`NonNullable<Parameters<(typeof V)["new"]>[0]>`
 intersected into the downstream config) is SKIPPED when the `.d.ts` construction
@@ -285,7 +383,12 @@ also at every consumer.
       tuned specifically for this instantiation shape — fast but knowingly fragile — rather than
       changing the default `Base` contract.
 
-- **Tree (incremental) config instead of the flat `Pick<Self, all-ancestor-names>`?** Today every
+- **Tree (incremental) config instead of the flat `Pick<Self, all-ancestor-names>`?**
+  *Superseded in plan (2026-07): the pure-type-composition EPIC under "To implement" IS the
+  tree form — alias-route references with a nearest-first Omit chain, flat at every
+  observation point through the flatten wrapper. The "keep flat" verdict below was a PERF
+  verdict (tree ≈ flat); the epic's motivation is architectural. Kept for the benchmark
+  data and the variant analysis.* Today every
   construction class emits its config as one flat `Pick<Self, "n1" | … | "nN">` over its own
   instance type, where the name union is the *recursively accumulated* set (own + the whole
   `extends` chain + mixins + transitive mixin deps). This scales **perfectly by width** but

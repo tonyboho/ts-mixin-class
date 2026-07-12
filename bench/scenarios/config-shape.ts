@@ -19,6 +19,14 @@ import type { BenchReport, BenchRow } from "../lib/report.js"
 //   - tree-static-symbol : the same carrier on the STATIC side; `CiConfig = (typeof Ci)[typeof CFG]`
 //                          (off the instance, so it dodges instance comparisons — but a static member
 //                          cannot reference class type parameters (TS2302), so it can't carry generics).
+//   - omit-chain         : the pure-type-composition EPIC shape, re-require gated OFF (no overridden
+//                          keys — the common case): `Flatten<Pick<Ci, own> & Omit<C(i-1)Config, own>>`.
+//   - omit-chain-refilter: the same plus an ALWAYS-ON re-require whose required-key set is extracted
+//                          with the mapped-filter idiom over the whole parent config at every level
+//                          (`RequiredKeysOf<C(i-1)Config> & own` — the O(accumulated)-per-level way).
+//   - omit-chain-meta    : the same re-require, but the required-key union comes PRECOMPUTED as a
+//                          tree-composed literal alias (`Ci_Req = C(i-1)_Req | own` — the
+//                          `<Name>ConfigMeta.requiredKeys` way, O(own) per level).
 //
 // Each shape gets the SAME workload: declare the chain, force-resolve every config, and upcast each
 // leaf to every ancestor (structural assignability — this is where an instance-side `[CFG]` is
@@ -26,7 +34,9 @@ import type { BenchReport, BenchRow } from "../lib/report.js"
 // visible (flat ~O(depth^2), tree-import ~O(depth)). Tune with TS_MIXIN_BENCH_CONFIG_DEPTHS (a
 // comma list, default `4,8,16,32`), TS_MIXIN_BENCH_CONFIG_CHAINS, TS_MIXIN_BENCH_CONFIG_PROPS.
 
-type ShapeName = "baseline" | "flat" | "tree-import" | "tree-symbol" | "tree-static-symbol"
+type ShapeName =
+    "baseline" | "flat" | "tree-import" | "tree-symbol" | "tree-static-symbol"
+    | "omit-chain" | "omit-chain-refilter" | "omit-chain-meta"
 
 type Dimensions = {
     chains : number,
@@ -34,7 +44,10 @@ type Dimensions = {
     props  : number
 }
 
-const SHAPES: ShapeName[] = [ "baseline", "flat", "tree-import", "tree-symbol", "tree-static-symbol" ]
+const SHAPES: ShapeName[] = [
+    "baseline", "flat", "tree-import", "tree-symbol", "tree-static-symbol",
+    "omit-chain", "omit-chain-refilter", "omit-chain-meta"
+]
 
 export async function runConfigShape(config: BenchConfig): Promise<BenchReport> {
     const sweep            = readSweep()
@@ -140,10 +153,19 @@ function upcasts(depth: number, c: number): string {
 const forceConfig = (c: number, i: number): string =>
     `const _cfg${c}_${i}: C${c}_${i}Config = null as any; void _cfg${c}_${i}\n`
 
+// The generated-helper preamble the EPIC shapes share: the flatten wrapper (one alias name in
+// hover/elaborations) and, for the refilter variant, the mapped-filter required-key extractor.
+const OMIT_CHAIN_HELPERS = [
+    "type Flatten<T> = { [K in keyof T]: T[K] }\n",
+    "type RequiredKeysOf<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T]\n"
+].join("")
+
 function generateShape(shape: ShapeName, dimensions: Dimensions): string {
     const { chains, depth, props } = dimensions
     const needsSymbol              = shape === "tree-symbol" || shape === "tree-static-symbol"
     let   text                     = needsSymbol ? "declare const CFG: unique symbol\n" : ""
+
+    if (shape.startsWith("omit-chain")) text += OMIT_CHAIN_HELPERS
 
     for (let c = 0; c < chains; c++) {
         for (let i = 0; i < depth; i++) {
@@ -169,6 +191,28 @@ function generateShape(shape: ShapeName, dimensions: Dimensions): string {
                 text += `type C${c}_${i}Config = C${c}_${i}[typeof CFG]\n${forceConfig(c, i)}`
             } else if (shape === "tree-static-symbol") {
                 text += `type C${c}_${i}Config = (typeof C${c}_${i})[typeof CFG]\n${forceConfig(c, i)}`
+            } else if (shape === "omit-chain") {
+                const composed = i > 0
+                    ? `Pick<C${c}_${i}, ${ownNames(props, c, i)}> & Omit<C${c}_${i - 1}Config, ${ownNames(props, c, i)}>`
+                    : `Pick<C${c}_${i}, ${ownNames(props, c, i)}>`
+
+                text += `type C${c}_${i}Config = Flatten<${composed}>\n${forceConfig(c, i)}`
+            } else if (shape === "omit-chain-refilter" || shape === "omit-chain-meta") {
+                const own = ownNames(props, c, i)
+
+                if (shape === "omit-chain-meta")
+                    text += `type C${c}_${i}Req = ${i > 0 ? `C${c}_${i - 1}Req | ` : ""}${own}\n`
+
+                if (i === 0) {
+                    text += `type C${c}_${i}Config = Flatten<Pick<C${c}_${i}, ${own}>>\n${forceConfig(c, i)}`
+                } else {
+                    const requiredSet = shape === "omit-chain-meta"
+                        ? `C${c}_${i - 1}Req`
+                        : `RequiredKeysOf<C${c}_${i - 1}Config>`
+
+                    text += `type C${c}_${i}Composed = Pick<C${c}_${i}, ${own}> & Omit<C${c}_${i - 1}Config, ${own}>\n`
+                    text += `type C${c}_${i}Config = Flatten<C${c}_${i}Composed & Required<Pick<C${c}_${i}Composed, ${requiredSet} & (${own})>>>\n${forceConfig(c, i)}`
+                }
             }
         }
 

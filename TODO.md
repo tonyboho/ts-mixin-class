@@ -66,9 +66,11 @@ inventory stays exact across package generations). What remains, none started:
 - **Non-exported / meta-less contributors still under-report index kinds.** The meta
   composition can only reference a PUBLISHED meta: a non-exported same-file contributor
   with an index signature (no meta exists) and a meta-less older `.d.ts` emit keep the
-  consumer's `indexKinds` own-only. Downstream completeness gates stay conservative
-  there (the alias is never wrongly dropped), so this costs only inventory precision,
-  not typing.
+  consumer's `indexKinds` own-only. Mostly this costs inventory precision, but in the
+  corner where such a consumer is ALSO key-free its published meta reads provably empty
+  and a further downstream package wrongly drops its alias (§7.31) — losing the bag-key
+  constraint's typing. Fix: spell LOCAL contributors' index kinds as literals from facts
+  (a recursion over local levels), and accept the meta-less `.d.ts` case as permanent.
 
 ### Phantom "ancestors-only" interfaces to flatten the required-base checker cost (idea, 2026-07)
 

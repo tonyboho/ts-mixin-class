@@ -1516,3 +1516,66 @@ it("a consumer's meta COMPOSES its contributors' metas — the inherited exotic 
         await app.dispose()
     }
 })
+
+it("an index-only declaration ancestor's bag constraint survives a keyless middle package", async (t: Test) => {
+    // The residual §7.31 hazard: the keyless middle's meta used to read `keys: never,
+    // indexKinds: never` (own-only) — a FALSE emptiness proof, dropping the alias and the
+    // ancestor's index-signature constraint with it. The composed meta references the
+    // ancestor's `indexKinds` instead, so the middle never reads provably empty.
+    const firstGeneration = await buildDeclarationPackage(t, "bag-gen-one", [ {
+        fileName : "baggy.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
+
+            export class Baggy extends Base {
+                [bag: string]: number | Base["initialize"] | undefined
+            }
+        `
+    } ])
+
+    const secondGeneration = await buildDeclarationPackage(t, "bag-gen-two", [ {
+        fileName : "mid.ts",
+        text     : `
+            import { Baggy } from "bag-gen-one/baggy"
+
+            export class Mid extends Baggy {
+            }
+        `
+    } ], firstGeneration)
+
+    const midDeclaration = secondGeneration.find((file) => file.fileName.endsWith("mid.d.ts"))!.text
+
+    t.match(midDeclaration, '$configMeta["indexKinds"]', "the middle's meta composes the ancestor's index kinds by reference")
+
+    const app = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : [ ...firstGeneration, ...secondGeneration ],
+        sourceFiles            : [ {
+            fileName : "leaf.ts",
+            text     : `
+                import { Mid } from "bag-gen-two/mid"
+
+                export class Leaf extends Mid {
+                    public own!: number
+                }
+
+                const leaf = Leaf.new({ own: 1, extra: 2 })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error bag keys stay constrained by the ancestor's index signature
+                    Leaf.new({ own: 1, extra: "wrong" })
+                }
+
+                void [ leaf, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", app.tsconfigFile ], app.directory)
+
+        t.isStrict(result.exitCode, 0, `the index-signature constraint survives the keyless middle package:\n${commandOutput(result)}`)
+    } finally {
+        await app.dispose()
+    }
+})

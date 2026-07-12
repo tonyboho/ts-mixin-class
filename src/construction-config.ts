@@ -450,7 +450,7 @@ function createConstructionConfig(
     // for the meta companion, the `.new` parameter's requiredness, and each key's WINNING
     // representation; only the TYPE rendering below switched from re-spelling it to the
     // layered composition.
-    const merged        = staticConstructionConfigProperties(
+    const merged                = staticConstructionConfigProperties(
         tsInstance,
         sourceFile,
         declaration,
@@ -461,25 +461,21 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
-    const routedRefKeys = new Set<string>()
-
     const layers: ConfigLayer[] = [
         { reference: undefined, properties: facts.classesByDeclaration.get(declaration)?.configProperties ?? [] },
-        ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap, usedImports, routedRefKeys)),
-        ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap, usedImports, routedRefKeys)
+        ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap, usedImports)),
+        ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap, usedImports)
     ]
 
-    // Value-route parts are skipped for contributors the alias route already carries —
-    // the alias IS the full published config, so the opaque duplicate would only bloat
-    // the intersection (the `requiresArgument` flag is still read for them).
-    const opaque = declarationFileConfigParts(
+    // A `.d.ts` contributor's published `.new` parameter may be REQUIRED for keys the fact
+    // inventory misses (an older emit without the meta) — the registry flag keeps this
+    // `.new`'s parameter required regardless of the carrier.
+    const declarationRequiresArgument = declarationFileRequiresArgument(
         tsInstance,
-        declaration,
         extendsType ?? implicitRequiredBase,
         mixinRefs,
         crossFile,
-        baseImportMap,
-        routedRefKeys
+        baseImportMap
     )
 
     // Nearest-first winners: the FIRST layer declaring a key owns its rendering. A later
@@ -587,7 +583,7 @@ function createConstructionConfig(
 
     flushFactsGroup(!ownGroupFlushed)
 
-    const allParts = [ ...parts, ...opaque.types ]
+    const allParts = parts
 
     // An EMPTY config must stay EXACT: `Partial<Pick<C, never>>` reduces to `{}`, which
     // accepts EVERY object (excess-property checking has nothing to check against), so an
@@ -615,7 +611,7 @@ function createConstructionConfig(
         // transport cannot respell (computed/symbol) — the opaque flag keeps this `.new`'s
         // parameter required in that case.
         optionalParameter : !merged.some((property) => property.valueType === undefined && !property.optional)
-            && !opaque.requiresArgument,
+            && !declarationRequiresArgument,
         properties : merged
     }
 }
@@ -697,8 +693,7 @@ function mixinConfigLayer(
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
     baseImportMap: ImportMap | undefined,
-    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined,
-    routedRefKeys: Set<string>
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined
 ): ConfigLayer {
     const mixinFacts = ref.declaration === undefined
         ? undefined
@@ -715,8 +710,6 @@ function mixinConfigLayer(
             const localName = generatedName(ref.className, "$config")
 
             if (registerConfigAliasImport(usedImports, ref.configAliasImport.specifier, ref.configAliasImport.importedName, localName)) {
-                routedRefKeys.add(ref.key)
-
                 return {
                     reference : {
                         aliasName     : localName,
@@ -761,8 +754,7 @@ function baseConfigLayer(
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
     baseImportMap: ImportMap | undefined,
-    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined,
-    routedRefKeys: Set<string>
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined
 ): ConfigLayer[] {
     if (baseType === undefined) {
         return []
@@ -798,8 +790,6 @@ function baseConfigLayer(
             const localName = generatedName(baseEntry.name, "$config")
 
             if (registerConfigAliasImport(usedImports, specifier, `${baseEntry.name}Config`, localName)) {
-                routedRefKeys.add(`base:${baseName}`)
-
                 return [ {
                     reference : {
                         aliasName     : localName,
@@ -967,97 +957,45 @@ function aliasReferenceTypeArguments(
     })
 }
 
-// §13.8 — the VALUE-ROUTE config carrier for DECLARATION-file contributors. A published
-// construction mixin/base carries its FULL config type on its `"new"(props: <Name>Config)`
-// member — including COMPUTED const-string / unique-symbol keys and INDEX signatures, which
-// the fact-based transport cannot respell in the consuming file (they are stripped by
-// `transplantableConfigProperties`). The contributor's VALUE is already imported (it appears
-// in the heritage), so `NonNullable<Parameters<(typeof V)["new"]>[0]>` names its exact
-// published config with NO generated import — default exports included. It rides the config
-// intersection alongside the respelled flat parts: duplicate keys intersect to the same
-// types, and requiredness stays monotonic through the intersection. Boundaries: same-PROGRAM
-// cross-file contributors stay fact-only (§10.25 — their transformed `"new"` is not a stable
-// published surface), and a GENERIC use (`implements M<T>` / `extends B<T>`) is skipped —
-// the value route cannot thread an instantiation.
-function declarationFileConfigParts(
+// The `.d.ts` parameter-requiredness sweep — all that remains of the §13.8 VALUE ROUTE
+// (`NonNullable<Parameters<(typeof V)["new"]>[0]>`), which the pure-type composition's
+// alias route replaced wholesale (epic decision 1; the alias carries the FULL published
+// config, generics included). A published contributor's `.new` parameter may be REQUIRED
+// for keys the downstream fact inventory misses (an older emit without the meta), so the
+// registry flag is still honored for every `.d.ts` contributor, routed or not.
+function declarationFileRequiresArgument(
     tsInstance: TypeScript,
-    declaration: ts.ClassDeclaration,
     baseType: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
     crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined,
-    routedRefKeys: Set<string> = new Set()
-): { types: ts.TypeNode[], requiresArgument: boolean } {
-    const factory              = tsInstance.factory
-    const types: ts.TypeNode[] = []
-    let requiresArgument       = false
-
-    const valueRouteConfigType = (entityName: ts.EntityName): ts.TypeNode =>
-        factory.createTypeReferenceNode("NonNullable", [
-            factory.createIndexedAccessTypeNode(
-                factory.createTypeReferenceNode("Parameters", [
-                    factory.createIndexedAccessTypeNode(
-                        factory.createParenthesizedType(factory.createTypeQueryNode(entityName)),
-                        factory.createLiteralTypeNode(factory.createStringLiteral("new"))
-                    )
-                ]),
-                factory.createLiteralTypeNode(factory.createNumericLiteral("0"))
-            )
-        ])
-
+    baseImportMap: ImportMap | undefined
+): boolean {
     for (const ref of mixinRefs) {
-        if (ref.declaration !== undefined ||
-            ref.localValueName === undefined ||
-            ref.requiredBase?.isPackageBase !== true ||
-            !registryKeyFileName(ref.key).endsWith(".d.ts") ||
-            mixinImplementsTypeArguments(tsInstance, declaration, ref) !== undefined
+        if (ref.declaration === undefined &&
+            registryKeyFileName(ref.key).endsWith(".d.ts") &&
+            crossFile?.registry.get(ref.key)?.configRequiresArgument === true
         ) {
-            continue
-        }
-
-        // The alias route already carries this contributor's FULL published config; only
-        // the requiredness flag is still read from the registry.
-        if (routedRefKeys.has(ref.key)) {
-            if (crossFile?.registry.get(ref.key)?.configRequiresArgument === true) {
-                requiresArgument = true
-            }
-            continue
-        }
-
-        // A dependency's computed keys ride the DEPENDENT's published config (the emitted
-        // `.new` param aggregates transitive dependencies), so only directly-referenced
-        // (value-carrying) mixins contribute a part.
-        types.push(valueRouteConfigType(dottedNameToEntityName(tsInstance, ref.localValueName)))
-
-        if (crossFile?.registry.get(ref.key)?.configRequiresArgument === true) {
-            requiresArgument = true
+            return true
         }
     }
 
-    if (baseType !== undefined) {
-        const baseName  = tsInstance.isIdentifier(baseType.expression)
-            ? baseType.expression.text
-            : dottedExpressionText(tsInstance, baseType.expression)
-        const baseEntry = baseName === undefined
-            ? undefined
-            : resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)
-
-        if (baseEntry?.isBaseDescendant === true && baseEntry.fileName.endsWith(".d.ts")) {
-            // The published parameter-requiredness flag holds regardless of the carrier —
-            // value part, alias route, or a generic use neither can express it.
-            if (baseEntry.configRequiresArgument === true) {
-                requiresArgument = true
-            }
-
-            if (baseType.typeArguments === undefined && !routedRefKeys.has(`base:${baseName as string}`)) {
-                types.push(valueRouteConfigType(
-                    dottedNameToEntityName(tsInstance, baseName as string)
-                ))
-            }
-        }
+    if (baseType === undefined) {
+        return false
     }
 
-    return { types, requiresArgument }
+    const baseName = tsInstance.isIdentifier(baseType.expression)
+        ? baseType.expression.text
+        : dottedExpressionText(tsInstance, baseType.expression)
+
+    if (baseName === undefined) {
+        return false
+    }
+
+    const baseEntry = resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)
+
+    return baseEntry?.isBaseDescendant === true &&
+        baseEntry.fileName.endsWith(".d.ts") &&
+        baseEntry.configRequiresArgument === true
 }
 
 // A config that combines constituents (required `Pick`, optional `Partial<Pick>`, explicit

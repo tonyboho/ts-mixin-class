@@ -75,9 +75,19 @@ GENERIC `.d.ts` contributors instantiate at the use site (the known gap dissolve
 routed contributor skips its §13.8 value part. Named re-export barrels and transitive
 generic dependencies keep the fact route (declaring-module + use-site-arguments gates).
 A fully-overridden reference layer drops only when its fact inventory is COMPLETE (local,
-no index signatures) — an imported alias may carry cargo facts cannot see. Next: the
-legacy-transport deletion (decision 3's wholesale `.d.ts` shape change happens there) and
-the `.d.ts` meta reader replacing the Pick-grammar reader.
+no index signatures) — an imported alias may carry cargo facts cannot see. Stage 3 SHIPPED (legacy-transport
+deletion): the §13.8 VALUE ROUTE is deleted (only the `.new`-parameter requiredness flag
+sweep remains), and the `.d.ts` Pick-grammar reader is replaced by the `<Name>ConfigMeta`
+literal reader (computed keys enter the registry inventory with their declaring-scope
+entity names; a meta-less older emit falls back to the interface shape). RETAINED, contra
+the original "what gets deleted" list: `transplantableConfigProperties` strips and the
+fact transport — they still feed the CORRECT fallback paths behind the routing gates
+(named re-export barrels, transitive generic dependencies, namespace members, nested
+contributors) and the merged list that renders own keys and derives each consumer's meta.
+Residual refinements (not started): meta-coherence of a consumer that inherits a `.d.ts`
+contributor's computed keys (its own published meta under-reports them — the alias chain
+still types them correctly downstream); alias-routing through `export *` barrels; a bench
+pass (`bench:compile` / tsserver scenarios) with the tree active.
 
 **One mechanism, four wins:** (1) the config becomes a TREE — each level spells only its
 own keys and references ancestors by alias, killing the O(D²) name re-flattening (the

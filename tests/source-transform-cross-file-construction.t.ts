@@ -1117,6 +1117,11 @@ it("an imported construction mixin's config joins by alias — computed keys and
         t.match(consumerDeclaration, "SortableConfig", "the consumer's config references the imported alias by name")
         t.match(consumerDeclaration, "BoxedConfig", "the generic contributor's alias is referenced")
         t.match(consumerDeclaration, "<string>", "…instantiated with the use-site argument")
+        t.notMatch(
+            consumerDeclaration,
+            "NonNullable<Parameters<",
+            "the §13.8 value-route carrier is gone — the alias route replaced it wholesale"
+        )
     } finally {
         await fixture.dispose()
     }

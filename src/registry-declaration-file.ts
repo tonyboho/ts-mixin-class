@@ -36,12 +36,8 @@ export function collectDeclarationFileConstructionBases(
         configRequiresArgument : boolean,
         configAliasAvailable   : boolean
     }> = []
-    // The generated `static new(props: <Name>Config)` references an exported config
-    // alias declared alongside it in the same `.d.ts`; map alias name -> body so the
-    // reader can resolve the reference back to its `Pick<...> & Partial<...>` shape.
     // (No default-export detection: a default-exported construction value is banned at
     // its own build — TS990016, the epic's decision 2 reversed §13.9.)
-    const configAliases = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
 
     for (const statement of sourceFile.statements) {
         if (!tsInstance.isClassDeclaration(statement) || statement.name === undefined) {
@@ -62,7 +58,7 @@ export function collectDeclarationFileConstructionBases(
 
         bases.push({
             name                   : statement.name.text,
-            configProperties       : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set()),
+            configProperties       : configPropertiesFromConfigMeta(tsInstance, sourceFile, statement.name.text) ?? [],
             configRequiresArgument : staticNew.parameters[0].questionToken === undefined,
             configAliasAvailable   : declarationFileExportsConfigAlias(tsInstance, sourceFile, statement.name.text)
         })
@@ -89,115 +85,91 @@ function declarationFileExportsConfigAlias(
         hasModifier(tsInstance, statement, tsInstance.SyntaxKind.ExportKeyword))
 }
 
-function collectDeclarationFileTypeAliases(
+// The `<Name>ConfigMeta` literal reader — the pure-type composition's replacement for
+// the Pick-grammar recovery: the meta's `keys` / `requiredKeys` unions ARE the published
+// key inventory, computed (const-string / unique-symbol) keys included as `typeof
+// <entity>` queries spelled in the declaring file's own scope. Coherence with the config
+// holds by construction (both derive from the same merged fact list at emit time).
+// Returns undefined when the `.d.ts` carries no meta (an older emit, or a
+// non-construction class) — the alias route still carries the config TYPE for typing;
+// only the fact inventory degrades.
+function configPropertiesFromConfigMeta(
     tsInstance: TypeScript,
-    sourceFile: ts.SourceFile
-): Map<string, ts.TypeNode> {
-    const aliases = new Map<string, ts.TypeNode>()
+    sourceFile: ts.SourceFile,
+    className: string
+): ConfigProperty[] | undefined {
+    const metaName = `${className}ConfigMeta`
+    const meta     = sourceFile.statements.find((statement): statement is ts.TypeAliasDeclaration =>
+        tsInstance.isTypeAliasDeclaration(statement) &&
+        statement.name.text === metaName &&
+        hasModifier(tsInstance, statement, tsInstance.SyntaxKind.ExportKeyword))
 
-    for (const statement of sourceFile.statements) {
-        if (tsInstance.isTypeAliasDeclaration(statement)) {
-            aliases.set(statement.name.text, statement.type)
-        }
+    const metaType = meta?.type
+
+    if (metaType === undefined || !tsInstance.isTypeLiteralNode(metaType)) {
+        return undefined
     }
 
-    return aliases
+    const fieldType = (fieldName: string): ts.TypeNode | undefined => metaType.members.find(
+        (member): member is ts.PropertySignature =>
+            tsInstance.isPropertySignature(member) &&
+            propertyNameText(tsInstance, member.name) === fieldName
+    )?.type
+
+    const keys = fieldType("keys")
+
+    if (keys === undefined) {
+        return undefined
+    }
+
+    const requiredNames = new Set(metaKeyEntries(tsInstance, fieldType("requiredKeys")).map((entry) => entry.name))
+
+    return metaKeyEntries(tsInstance, keys).map((entry) => ({
+        name            : entry.name,
+        optional        : !requiredNames.has(entry.name),
+        computedKeyName : entry.computedKeyName
+    }))
 }
 
-// Names (with optionality) carried by a generated construction config type:
-// `Pick<Self, "a" | "b">` (required), `Partial<Pick<Self, "c">>` (optional),
-// intersections of those, and a reference to a `<Name>Config` alias declared in the
-// same `.d.ts` (resolved through `configAliases`). Type arguments on a generic alias
-// are irrelevant - the config field names are string literals inside its `Pick`.
-// Anything else contributes nothing.
-function configPropertiesFromConstructionNewParam(
+// One meta key union decomposed: string/numeric literal types name respellable keys;
+// `typeof <entity>` queries name computed keys by their declaring-scope entity (the
+// downstream transform treats them as unspellable identity — `transplantableConfigProperties`
+// keeps them out of re-spelled renderings, while the alias route carries them natively).
+function metaKeyEntries(
     tsInstance: TypeScript,
-    typeNode: ts.TypeNode,
-    optional: boolean,
-    configAliases: Map<string, ts.TypeNode>,
-    seenAliases: Set<string>
-): ConfigProperty[] {
-    if (tsInstance.isIntersectionTypeNode(typeNode)) {
-        return uniqueConfigProperties(typeNode.types.flatMap((type) =>
-            configPropertiesFromConstructionNewParam(tsInstance, type, optional, configAliases, seenAliases)))
-    }
-
-    if (tsInstance.isParenthesizedTypeNode(typeNode)) {
-        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.type, optional, configAliases, seenAliases)
-    }
-
-    // A published config's EXPLICIT members (`{ scale?: number | string }` — the emit spells
-    // settable-accessor keys out so the SETTER type survives, see construction-config).
-    // Generated explicit members are always optional; the value type is carried only when
-    // self-contained (no named type references), since the node transplants verbatim into
-    // the consuming file — a referencing type degrades to the name-only `Pick` typing.
-    if (tsInstance.isTypeLiteralNode(typeNode)) {
-        return uniqueConfigProperties(typeNode.members.flatMap((member) => {
-            if (!tsInstance.isPropertySignature(member)) {
-                return []
-            }
-
-            const name = propertyNameText(tsInstance, member.name)
-
-            if (name === undefined) {
-                return []
-            }
-
-            const memberOptional = optional || member.questionToken !== undefined
-            const references     = member.type === undefined
-                ? undefined
-                : collectTypeReferenceNames(tsInstance, member.type)
-
-            return [ {
-                name,
-                optional  : memberOptional,
-                valueType : memberOptional && references !== undefined && references.size === 0
-                    ? member.type
-                    : undefined
-            } ]
-        }))
-    }
-
-    if (!tsInstance.isTypeReferenceNode(typeNode) || !tsInstance.isIdentifier(typeNode.typeName)) {
+    typeNode: ts.TypeNode | undefined
+): Array<{ name: string, computedKeyName?: string }> {
+    if (typeNode === undefined || typeNode.kind === tsInstance.SyntaxKind.NeverKeyword) {
         return []
     }
 
-    if (typeNode.typeName.text === "Partial" && typeNode.typeArguments?.[0] !== undefined) {
-        return configPropertiesFromConstructionNewParam(tsInstance, typeNode.typeArguments[0], true, configAliases, seenAliases)
+    if (tsInstance.isUnionTypeNode(typeNode)) {
+        return typeNode.types.flatMap((type) => metaKeyEntries(tsInstance, type))
     }
 
-    if (typeNode.typeName.text === "Pick" && typeNode.typeArguments?.[1] !== undefined) {
-        return literalStringNames(tsInstance, typeNode.typeArguments[1]).map((name) => ({ name, optional }))
+    if (tsInstance.isLiteralTypeNode(typeNode) &&
+        (tsInstance.isStringLiteral(typeNode.literal) || tsInstance.isNumericLiteral(typeNode.literal))
+    ) {
+        return [ { name: typeNode.literal.text } ]
     }
 
-    const aliasBody = configAliases.get(typeNode.typeName.text)
+    if (tsInstance.isTypeQueryNode(typeNode)) {
+        const dotted = entityNameDottedText(tsInstance, typeNode.exprName)
 
-    if (aliasBody !== undefined && !seenAliases.has(typeNode.typeName.text)) {
-        seenAliases.add(typeNode.typeName.text)
-
-        return configPropertiesFromConstructionNewParam(tsInstance, aliasBody, optional, configAliases, seenAliases)
+        return dotted === undefined ? [] : [ { name: dotted, computedKeyName: dotted } ]
     }
 
     return []
 }
 
-// String AND numeric literal keys: a published `Pick<Exotic, 0 | "dash-name">` spells a
-// numeric field's key as a NUMERIC literal type (see `configKeyType`), which names the same
-// property as its string text — recovered as "0" and re-emitted numeric downstream. `typeof
-// const`/`typeof symbol` keys are deliberately NOT recovered here: a computed key cannot be
-// spelled outside its declaring file (same rule as `transplantableConfigProperties`).
-function literalStringNames(tsInstance: TypeScript, typeNode: ts.TypeNode): string[] {
-    if (tsInstance.isLiteralTypeNode(typeNode) &&
-        (tsInstance.isStringLiteral(typeNode.literal) || tsInstance.isNumericLiteral(typeNode.literal))
-    ) {
-        return [ typeNode.literal.text ]
+function entityNameDottedText(tsInstance: TypeScript, entityName: ts.EntityName): string | undefined {
+    if (tsInstance.isIdentifier(entityName)) {
+        return entityName.text
     }
 
-    if (tsInstance.isUnionTypeNode(typeNode)) {
-        return typeNode.types.flatMap((type) => literalStringNames(tsInstance, type))
-    }
+    const left = entityNameDottedText(tsInstance, entityName.left)
 
-    return []
+    return left === undefined ? undefined : `${left}.${entityName.right.text}`
 }
 
 export function collectDeclarationFileMixinCandidates(
@@ -213,7 +185,6 @@ export function collectDeclarationFileMixinCandidates(
     const candidates: Candidate[] = []
     const interfaces              = new Map<string, ts.InterfaceDeclaration>()
     const defaultExportNames      = new Set<string>()
-    const configAliases           = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
 
     for (const statement of sourceFile.statements) {
         if (tsInstance.isInterfaceDeclaration(statement)) {
@@ -257,13 +228,13 @@ export function collectDeclarationFileMixinCandidates(
             const requiredBaseIsPackageBase = requiredBaseIdentifier !== undefined &&
                 isPackageBaseExpression(tsInstance, requiredBaseIdentifier, options, facts)
             const extendsNames              = interfaceExtendsNames(tsInstance, interfaces.get(declaration.name.text))
-            // A construction mixin's published value carries its EXACT config through the
-            // generated `"new"(props?: <Name>Config)` member — names, optionality AND the
-            // spelled-out setter types. The interface is the fallback only: it erases both
-            // the explicit-`public` convention and initializer-implied optionality (every
-            // bare property signature would read as a required key).
+            // A construction mixin's published key inventory comes from its `<Name>ConfigMeta`
+            // literal (names, optionality, computed keys — `configPropertiesFromConfigMeta`).
+            // The interface is the fallback only (a non-construction mixin, or an older emit
+            // without the meta): it erases both the explicit-`public` convention and
+            // initializer-implied optionality (every bare property signature reads required).
             const newParamConfig = requiredBaseIsPackageBase
-                ? mixinValueNewConfigProperties(tsInstance, declaration.type, configAliases)
+                ? configPropertiesFromConfigMeta(tsInstance, sourceFile, declaration.name.text)
                 : undefined
 
             candidates.push({
@@ -290,21 +261,6 @@ export function collectDeclarationFileMixinCandidates(
     return candidates
 }
 
-// The exact config of a published construction mixin, read off the generated
-// `"new"(props?: <Name>Config)` member of its declared value type — undefined when no
-// such member exists (a non-construction mixin, or an older emit shape).
-function mixinValueNewConfigProperties(
-    tsInstance: TypeScript,
-    typeNode: ts.TypeNode,
-    configAliases: Map<string, ts.TypeNode>
-): ConfigProperty[] | undefined {
-    const configType = mixinValueNewConfigType(tsInstance, typeNode)
-
-    return configType === undefined
-        ? undefined
-        : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set())
-}
-
 // TRUE when the published `"new"(props: …)` parameter is required — the flag that keeps a
 // downstream `.new` argument required even though the respelled fact transport loses the
 // computed/symbol keys carrying the requirement (§13.8). Undefined-shaped values (no `"new"`
@@ -315,10 +271,6 @@ function mixinValueNewRequiresArgument(tsInstance: TypeScript, typeNode: ts.Type
     return newMember !== undefined &&
         newMember.parameters[0] !== undefined &&
         newMember.parameters[0].questionToken === undefined
-}
-
-function mixinValueNewConfigType(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.TypeNode | undefined {
-    return mixinValueNewMember(tsInstance, typeNode)?.parameters[0]?.type
 }
 
 function mixinValueNewMember(tsInstance: TypeScript, typeNode: ts.TypeNode): ts.MethodSignature | undefined {

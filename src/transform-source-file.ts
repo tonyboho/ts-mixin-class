@@ -182,7 +182,8 @@ export function transformSourceFile(
                     classFacts.declaration,
                     resolvedOptions,
                     crossFile,
-                    getBaseImportMap()
+                    getBaseImportMap(),
+                    context.nativeDiagnostics
                 )
 
                 if (expandedStatements.length !== 1 || expandedStatements[0] !== statement) {

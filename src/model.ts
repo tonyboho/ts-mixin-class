@@ -120,20 +120,21 @@ export type NativeMixinDiagnostic = {
 // Native diagnostic codes — outside TypeScript's own numeric range so they are unmistakably ours
 // and stable across versions (they surface as `TS990001`, …).
 export const mixinDiagnosticCode = {
-    MixinExtendsMixin            : 990001,
-    AnonymousDefaultMixin        : 990002,
-    AnonymousMixinConsumer       : 990003,
-    MixinInvalidDeclaration      : 990004,
-    MixinUnsupportedBase         : 990005,
-    MixinMissingRuntime          : 990006,
-    MixinLinearizationConflict   : 990007,
-    MixinUsedBeforeDeclaration   : 990008,
-    MixinNamespaceMerge          : 990009,
-    MixinMemberKindOverride      : 990010,
-    MixinPartialAccessorOverride : 990011,
-    MixinManualApplication       : 990012,
-    MixinRequiredBaseConflict    : 990013,
-    MixinRequiredBaseMismatch    : 990014
+    MixinExtendsMixin              : 990001,
+    AnonymousDefaultMixin          : 990002,
+    AnonymousMixinConsumer         : 990003,
+    MixinInvalidDeclaration        : 990004,
+    MixinUnsupportedBase           : 990005,
+    MixinMissingRuntime            : 990006,
+    MixinLinearizationConflict     : 990007,
+    MixinUsedBeforeDeclaration     : 990008,
+    MixinNamespaceMerge            : 990009,
+    MixinMemberKindOverride        : 990010,
+    MixinPartialAccessorOverride   : 990011,
+    MixinManualApplication         : 990012,
+    MixinRequiredBaseConflict      : 990013,
+    MixinRequiredBaseMismatch      : 990014,
+    ConstructionConfigNameReserved : 990015
 } as const
 
 // The one shared constructor for a transformer-authored error: spans `node`'s own

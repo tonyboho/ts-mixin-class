@@ -320,7 +320,8 @@ export function expandMixinClass(
         options,
         facts,
         context.crossFile,
-        baseImportMap
+        baseImportMap,
+        context.nativeDiagnostics
     )
 
     const interfaceDeclaration = preserveTextRange(
@@ -412,7 +413,7 @@ export function expandMixinClass(
         ) ]
         : []
 
-    const configAliasStatement = constructionNew === undefined
+    const configAliasStatement = constructionNew?.configAlias === undefined
         ? []
         : [ positionConstructionConfigAlias(
             tsInstance,

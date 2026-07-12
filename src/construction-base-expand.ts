@@ -7,7 +7,7 @@ import {
 } from "./construction-config.js"
 import { heritageTypeToTypeReference } from "./expand-util.js"
 import { expressionToEntityName } from "./entity-name.js"
-import type { CrossFileContext, ImportMap, TransformOptions } from "./model.js"
+import type { CrossFileContext, ImportMap, NativeMixinDiagnostic, TransformOptions } from "./model.js"
 import { generatedTextRange, preserveTextRange } from "./text-range.js"
 import { cloneNode } from "./util.js"
 import type { TypeScript } from "./util.js"
@@ -23,7 +23,8 @@ export function expandConstructionBaseClass(
     declaration: ts.ClassDeclaration,
     options: TransformOptions,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined
+    baseImportMap: ImportMap | undefined,
+    nativeDiagnostics?: NativeMixinDiagnostic[]
 ): ts.Statement[] {
     const factory      = tsInstance.factory
     const extendsType  = declaration.heritageClauses?.find((clause) => {
@@ -45,7 +46,9 @@ export function expandConstructionBaseClass(
         // source-view position. `members.end` keeps it inside this class (parity).
         generatedTextRange(sourceFile, declaration.members.end),
         crossFile,
-        baseImportMap
+        baseImportMap,
+        false,
+        nativeDiagnostics
     )
 
     if (construction.members.length === 0) {

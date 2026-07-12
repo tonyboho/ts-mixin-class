@@ -7,11 +7,14 @@ import {
 import { dottedExpressionText, dottedNameToEntityName, dottedNameToExpression } from "./entity-name.js"
 import {
     type ImportMap,
+    mixinDiagnosticCode,
+    nativeDiagnosticOn,
     registryKeyFileName,
     transplantableConfigProperties,
     uniqueConfigProperties,
     type ConfigProperty,
     type CrossFileContext,
+    type NativeMixinDiagnostic,
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
@@ -57,7 +60,8 @@ export function createConstructionMembers(
     generatedRange: ts.TextRange,
     crossFile?: CrossFileContext,
     baseImportMap?: ImportMap,
-    requiredBaseIsConstructionBase = false
+    requiredBaseIsConstructionBase = false,
+    nativeDiagnostics?: NativeMixinDiagnostic[]
 ): ConstructionMembers {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
 
@@ -103,14 +107,19 @@ export function createConstructionMembers(
     const consumerType   = createConsumerInstanceType(tsInstance, declaration)
 
     // Expose the config as an exported, named `<ClassName>Config` alias (carrying the
-    // class's own type parameters). In EMIT the `new` param references it, so `.new(...)`
-    // type errors read the clean alias name; in SOURCE VIEW the param inlines the structural
-    // config (the synthetic alias name cannot render — see `constructionConfigParamType`).
-    // Either way the alias is reusable as a factory-parameter / annotation type. (It is NOT a
-    // valid `initialize` override type - the base `initialize` is all-optional; see the README.)
-    const aliasName       = constructionConfigAliasName(tsInstance, sourceFile, declaration)
-    const configAlias     = createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
-    const configReference = createConfigAliasReference(tsInstance, declaration, aliasName)
+    // class's own type parameters); the `new` param references it, so `.new(...)` type
+    // errors read the clean alias name. The alias is reusable as a factory-parameter /
+    // annotation type. (It is NOT a valid `initialize` override type - the base
+    // `initialize` is all-optional; see the README.) The companion names are RESERVED: a
+    // colliding user declaration is a TS990015 error, and the alias statement is then
+    // skipped (its config inlines into the overload) so no raw TS2300 stacks on top.
+    const aliasName      = constructionConfigAliasName(declaration)
+    const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
+
+    const configAlias     = configCollides ? undefined : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+    const configReference = configCollides
+        ? inlineConfigTypeClone(tsInstance, config.type)
+        : createConfigAliasReference(tsInstance, declaration, aliasName)
 
     // The checker validates overload adjacency by position (subsequent.pos ===
     // node.end), so source-view overloads get consecutive non-zero-width ranges:
@@ -281,7 +290,9 @@ export function positionConstructionConfigAlias(
 // is a sibling top-level statement the caller positions and emits.
 export type MixinConstructionNew = {
     newType     : ts.TypeNode,
-    configAlias : ts.TypeAliasDeclaration
+    // Undefined when the reserved `<MixinName>Config` name collides with a user
+    // declaration (TS990015): the `new` signature then inlines the config instead.
+    configAlias : ts.TypeAliasDeclaration | undefined
 }
 
 // Construction `new` for a mixin's value type. A mixin that extends the package
@@ -301,7 +312,8 @@ export function createMixinConstructionNewType(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
-    baseImportMap?: ImportMap
+    baseImportMap?: ImportMap,
+    nativeDiagnostics?: NativeMixinDiagnostic[]
 ): MixinConstructionNew | undefined {
     if (declaration.name === undefined ||
         facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
@@ -326,7 +338,8 @@ export function createMixinConstructionNewType(
     // A construction-base mixin is just a class for config purposes, so it gets the
     // same exported `<MixinName>Config` alias - emitted in both the value-cast (emit)
     // and the `static new` (source view) forms so the symbol exists in both.
-    const aliasName = constructionConfigAliasName(tsInstance, sourceFile, declaration)
+    const aliasName      = constructionConfigAliasName(declaration)
+    const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
 
     // A method signature with a STRING-LITERAL name (`"new"(props?): Instance`), not a
     // property (`new: (props?) => Instance`): a method's parameters are checked
@@ -352,12 +365,16 @@ export function createMixinConstructionNewType(
                     undefined,
                     "props",
                     config.optionalParameter ? factory.createToken(tsInstance.SyntaxKind.QuestionToken) : undefined,
-                    createConfigAliasReference(tsInstance, declaration, aliasName)
+                    configCollides
+                        ? inlineConfigTypeClone(tsInstance, config.type)
+                        : createConfigAliasReference(tsInstance, declaration, aliasName)
                 ) ],
                 createConsumerInstanceType(tsInstance, declaration)
             )
         ]),
-        configAlias : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
+        configAlias : configCollides
+            ? undefined
+            : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
     }
 }
 
@@ -692,33 +709,82 @@ function createConsumerInstanceType(
     )
 }
 
-// The generated, exported config-alias name for a construction class: `<ClassName>Config`,
-// suffixed with `_` until it no longer collides with a name already declared or imported
-// at the top level of the file. Falling back to a suffix (rather than to an inline `Pick`)
-// keeps a single code path: the build always exposes a named alias.
-function constructionConfigAliasName(
-    tsInstance: TypeScript,
-    sourceFile: ts.SourceFile,
-    declaration: ts.ClassDeclaration
-): string {
-    const taken = collectTopLevelDeclaredNames(tsInstance, sourceFile)
-
-    let name = `${declaration.name?.text ?? ""}Config`
-
-    while (taken.has(name)) {
-        name += "_"
-    }
-
-    return name
+// The generated, exported config-alias name for a construction class: always the plain
+// `<ClassName>Config`. The companion names are RESERVED (see `reserveConfigCompanionNames`)
+// so the name stays DERIVABLE from the class name alone — cross-file alias-route
+// resolution never needs a discovery step. (Pre-epic behavior suffixed `_` until free —
+// deleted with the reservation.)
+function constructionConfigAliasName(declaration: ts.ClassDeclaration): string {
+    return `${declaration.name?.text ?? ""}Config`
 }
 
-function collectTopLevelDeclaredNames(
+// The reserved companion-type names of a construction class — `<ClassName>Config` (the
+// config alias) and `<ClassName>ConfigMeta` (the emit-plane metadata alias): a top-level
+// user declaration or import binding colliding with either is a native TS990015 (the
+// `static mix` reservation, §11.12, applied to the config type namespace). Returns true
+// when the CONFIG alias name itself collides — the caller then skips the alias statement
+// and inlines the config type into the `static new` signature, so the only surfaced
+// problem is the reservation diagnostic (emitting the alias anyway would stack a raw
+// TS2300 duplicate on top). Detection is unconditional (both planes must agree on the
+// skipped alias); only the push needs the sink.
+function reserveConfigCompanionNames(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    aliasName: string,
+    nativeDiagnostics: NativeMixinDiagnostic[] | undefined
+): boolean {
+    const declared  = collectTopLevelDeclaredNameNodes(tsInstance, sourceFile)
+    const className = declaration.name?.text ?? ""
+
+    let configCollides = false
+
+    for (const reservedName of [ aliasName, `${className}ConfigMeta` ]) {
+        const collision = declared.get(reservedName)
+
+        if (collision === undefined) {
+            continue
+        }
+
+        if (reservedName === aliasName) {
+            configCollides = true
+        }
+
+        nativeDiagnostics?.push(nativeDiagnosticOn(
+            tsInstance,
+            sourceFile,
+            collision,
+            mixinDiagnosticCode.ConstructionConfigNameReserved,
+            `The name '${reservedName}' is reserved. ` +
+                `ts-mixin-class generates a '${reservedName}' companion type next to the construction class '${className}'. ` +
+                "Rename the colliding declaration."
+        ))
+    }
+
+    return configCollides
+}
+
+function collectTopLevelDeclaredNameNodes(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
-): Set<string> {
-    const names = new Set<string>()
+): Map<string, ts.Node> {
+    const names = new Map<string, ts.Node>()
+
+    // `set` only when unseen: the FIRST declaration is the diagnostic anchor. Generated
+    // statements are skipped — a re-transform may see a previously generated alias
+    // (synthetic positions, or a real-text appendee whose `.original` is the class) and
+    // must not report the transform's own output as a user collision.
+    const record = (name: string, node: ts.Node): void => {
+        if (!names.has(name)) {
+            names.set(name, node)
+        }
+    }
 
     for (const statement of sourceFile.statements) {
+        if (statement.pos < 0 || tsInstance.isClassDeclaration(tsInstance.getOriginalNode(statement))) {
+            continue
+        }
+
         if ((tsInstance.isClassDeclaration(statement) ||
             tsInstance.isInterfaceDeclaration(statement) ||
             tsInstance.isTypeAliasDeclaration(statement) ||
@@ -726,32 +792,32 @@ function collectTopLevelDeclaredNames(
             tsInstance.isFunctionDeclaration(statement)) &&
             statement.name !== undefined
         ) {
-            names.add(statement.name.text)
+            record(statement.name.text, statement.name)
         } else if (tsInstance.isVariableStatement(statement)) {
             for (const variable of statement.declarationList.declarations) {
                 if (tsInstance.isIdentifier(variable.name)) {
-                    names.add(variable.name.text)
+                    record(variable.name.text, variable.name)
                 }
             }
         } else if (tsInstance.isImportDeclaration(statement)) {
-            collectImportNames(tsInstance, statement.importClause, names)
+            collectImportNameNodes(tsInstance, statement.importClause, record)
         }
     }
 
     return names
 }
 
-function collectImportNames(
+function collectImportNameNodes(
     tsInstance: TypeScript,
     importClause: ts.ImportClause | undefined,
-    names: Set<string>
+    record: (name: string, node: ts.Node) => void
 ): void {
     if (importClause === undefined) {
         return
     }
 
     if (importClause.name !== undefined) {
-        names.add(importClause.name.text)
+        record(importClause.name.text, importClause.name)
     }
 
     const namedBindings = importClause.namedBindings
@@ -761,13 +827,26 @@ function collectImportNames(
     }
 
     if (tsInstance.isNamespaceImport(namedBindings)) {
-        names.add(namedBindings.name.text)
+        record(namedBindings.name.text, namedBindings.name)
         return
     }
 
     for (const element of namedBindings.elements) {
-        names.add(element.name.text)
+        record(element.name.text, element.name)
     }
+}
+
+// The inline replacement for the alias reference in the RESERVED-name error state: a
+// fresh, fully synthetic clone of the config type. Cloning detaches the (possibly
+// real-positioned, setter-cloned) member type nodes, and the `-1` collapse both keeps
+// source view free of stranded real positions inside the synthetic overload (invariant
+// #5) and keeps the emit printer off source-slice reads for literals (invariant #10a).
+function inlineConfigTypeClone(tsInstance: TypeScript, configType: ts.TypeNode): ts.TypeNode {
+    const clone = deepCloneNode(tsInstance, configType)
+
+    collapseSubtreeTextRange(tsInstance, clone, { pos: -1, end: -1 })
+
+    return clone
 }
 
 // The typed `static new` overload's `props` parameter type. EMIT references the named

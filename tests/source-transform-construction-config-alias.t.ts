@@ -167,7 +167,12 @@ it("rejects a missing required field when the alias is used as a factory paramet
     t.match(messages, "ModelConfig", "A missing required field is reported against the named alias")
 })
 
-it("falls back to a suffixed alias name when the class name is already taken", async (t: Test) => {
+// The `<ClassName>Config` name is RESERVED (TS990015, pinned in reserved-config-names.t.ts —
+// the native diagnostic rides the program, invisible to the in-process typecheck here). This
+// pins the EMIT SHAPE of the error state: no `_`-suffix fallback (deleted), no generated
+// alias statement (skipping it keeps a raw TS2300 duplicate out of the output), and the
+// `static new` overload inlines the config type instead of referencing the alias.
+it("skips the generated alias when the reserved config name is taken by the user", async (t: Test) => {
     const transformedFile = transformSourceFile(ts, createSourceFile(`
         import { Base } from "ts-mixin-class/base"
 
@@ -183,7 +188,8 @@ it("falls back to a suffixed alias name when the class name is already taken", a
     const printed         = printSourceFile(ts, transformedFile)
     const messages        = typecheckText(printed).join("\n")
 
-    t.match(printed, "export type ModelConfig_ =", "Collision with a user type appends an underscore")
-    t.match(printed, "static new(props: ModelConfig_): Model;", "The static new references the suffixed alias")
-    t.notMatch(messages, "TS2300", "The generated alias does not duplicate the user's identifier")
+    t.notMatch(printed, "ModelConfig_", "The pre-reservation underscore fallback is gone")
+    t.notMatch(printed, "export type ModelConfig =", "No generated alias statement in the collision error state")
+    t.match(printed, "static new(props:", "The static new overload survives with an inline config type")
+    t.notMatch(messages, "TS2300", "The generated members do not duplicate the user's identifier")
 })

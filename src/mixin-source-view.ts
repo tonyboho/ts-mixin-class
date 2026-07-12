@@ -204,7 +204,9 @@ export function expandSourceViewMixinClass(
         options,
         generatedTextRange(sourceFile, declaration.members.end),
         context.crossFile,
-        baseImportMap
+        baseImportMap,
+        false,
+        context.nativeDiagnostics
     )
     const constructionMembers = construction.members
     const updatedMembers      = fillMissedInitializers(tsInstance, addSyntheticSuperCallToConstructors(tsInstance, sourceFile, declaration.members, true), options)

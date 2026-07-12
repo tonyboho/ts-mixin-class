@@ -866,8 +866,14 @@ instance type) has its own rules:
    class (consumer, plain `Base` descendant, and construction-base mixin — emit *and* source view)
    emits an exported `type <Name>Config<TParams> = <the config>` and the `static new` references it
    (`static new(props: <Name>Config)`), so `.new(...)` errors name the alias instead of a verbose
-   `Pick<…>`. The alias name is `<ClassName>Config`, suffixed with `_` on collision with a file-local
-   name (`constructionConfigAliasName`).
+   `Pick<…>`. The alias name is always the plain `<ClassName>Config` — the companion names
+   (`<ClassName>Config` / `<ClassName>ConfigMeta`) are RESERVED, and a colliding top-level user
+   declaration or import is a native TS990015 (`reserveConfigCompanionNames`); in that error state the
+   alias statement is skipped and the `static new` inlines a fully synthetic clone of the config type
+   (`inlineConfigTypeClone`) so no raw TS2300 stacks on the reservation diagnostic. *(Superseded, kept
+   for context: pre-epic the name was silently suffixed with `_` until free — replaced by the
+   reservation so the alias name stays derivable from the class name for cross-file alias-route
+   resolution.)*
    *Displaying the alias name in source view (current realization of source-view invariant #10).* A
    synthetic alias has no real `<Name>Config` text, so the editor would print `parameter of type '}'`
    (it reads the name node's source position — the class' `}`); emit is immune (it reprints). So in

@@ -54,24 +54,21 @@ investigation live in the pass-9 session scratchpad.
 The tree-form config EPIC itself is SHIPPED (decisions 1–5, three stages, §7.13/§7.30/
 §7.31/§10.25/§13.8/§13.9 — see USE-CASES and the `pure-type-config-composition`
 changeset; a bench pass with the tree active measured compile + tsserver on the
-construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within noise).
-What remains are refinements, none started:
+construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within noise;
+the meta is COMPOSITIONAL — contributor metas join by reference, so the published
+inventory stays exact across package generations). What remains, none started:
 
-- **Consumer meta-coherence for inherited `.d.ts` computed keys.** A consumer that
-  inherits a `.d.ts` contributor's computed keys publishes its own meta WITHOUT them
-  (the fact inventory carries them as unspellable entity names of the declaring scope) —
-  the alias chain still types them correctly downstream; only the consumer's own
-  `keys`/`requiredKeys` literals under-report.
-- **`<Name>ConfigMeta.indexKinds` is OWN-ONLY.** A `.d.ts` class whose ANCESTOR is
-  index-signature-only reads as provably empty (`keys: never, indexKinds: never`) and a
-  downstream composition then drops its alias (§7.31), losing the ancestor's bag-key
-  constraint — typing degradation, not poisoning. Fix: accumulate contributors' index
-  kinds into the meta (needs index-signature transport beside `ConfigProperty[]`).
 - **Alias-routing through `export *` barrels.** Named re-export barrels deliberately
   keep the fact route (the barrel forwards the class value but not the alias); an
   `export *` barrel could route (the alias IS re-exported) — needs the registry to
   resolve the barrel specifier to the declaring module for the generated type-only
   import.
+- **Non-exported / meta-less contributors still under-report index kinds.** The meta
+  composition can only reference a PUBLISHED meta: a non-exported same-file contributor
+  with an index signature (no meta exists) and a meta-less older `.d.ts` emit keep the
+  consumer's `indexKinds` own-only. Downstream completeness gates stay conservative
+  there (the alias is never wrongly dropped), so this costs only inventory precision,
+  not typing.
 
 ### Phantom "ancestors-only" interfaces to flatten the required-base checker cost (idea, 2026-07)
 

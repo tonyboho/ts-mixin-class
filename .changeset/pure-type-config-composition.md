@@ -32,3 +32,10 @@ A provably EMPTY contributor (no config keys, no index signatures) contributes n
 instead of its alias: its own alias is the exact-empty shape, which must never join a
 composition, and a required-config subclass of such a parent no longer trips the
 static-side `new` compatibility check.
+
+The `<Name>ConfigMeta` companion is compositional too — inventory a class cannot
+respell (an upstream package's computed keys, index kinds) references the
+contributor's own meta instead of silently vanishing, so the published inventory stays
+exact across any number of package generations. Second-generation packages (built on
+top of another construction package, never mentioning the transformer themselves) are
+now recognized as construction bases.

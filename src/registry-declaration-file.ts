@@ -140,8 +140,25 @@ function configMetaProvesInventoryComplete(
     className: string
 ): boolean {
     const metaType = configMetaLiteral(tsInstance, sourceFile, className)
+    const keys     = metaType === undefined ? undefined : metaFieldType(tsInstance, metaType, "keys")
 
-    if (metaType === undefined || metaFieldType(tsInstance, metaType, "keys") === undefined) {
+    if (metaType === undefined || keys === undefined) {
+        return false
+    }
+
+    // `requiresArgument: true` with NO nameable required key means the requiredness is
+    // owed to keys the meta could not spell — a consumer that INHERITS a `.d.ts`
+    // contributor's computed keys publishes them as neither `keys` nor `requiredKeys`
+    // (they are entity names of the contributor's own scope). Such a meta visibly
+    // under-reports, so it proves nothing.
+    const requiresArgument = metaFieldType(tsInstance, metaType, "requiresArgument")
+    const requiredKeys     = metaFieldType(tsInstance, metaType, "requiredKeys")
+
+    if (requiresArgument !== undefined &&
+        tsInstance.isLiteralTypeNode(requiresArgument) &&
+        requiresArgument.literal.kind === tsInstance.SyntaxKind.TrueKeyword &&
+        (requiredKeys === undefined || requiredKeys.kind === tsInstance.SyntaxKind.NeverKeyword)
+    ) {
         return false
     }
 

@@ -9,6 +9,12 @@ import type { TypeScript } from "./util.js"
 // manual-constructor parameter branding all reuse the one signature builder, so the
 // disabled-`new` message and behaviour stay identical everywhere.
 
+// The brand parameter's name doubles as the TEXTUAL MARKER of a published construction
+// class: a SECOND-generation `.d.ts` (a package built on top of another construction
+// package) may never mention the transformer package itself, so the registry's cheap
+// text prefilter admits declaration files by this generated invariant too.
+export const constructionBrandParameterName = "use_the_static_new_factory"
+
 // Describes the construct signature a construction consumer's `$base` cast head should
 // carry. `branded` consumers (the cooperative `initialize` pattern, no own constructor)
 // get a poisoned construct so `new Consumer(...)` is a type error; an unbranded
@@ -117,7 +123,7 @@ function constructionConstructSignatureType(
         ? factory.createParameterDeclaration(
             undefined,
             undefined,
-            "use_the_static_new_factory",
+            constructionBrandParameterName,
             undefined,
             constructorBrandType(tsInstance, construction.consumerName)
         )
@@ -177,7 +183,7 @@ export function brandConstructorParameter(
                 factory.createParameterDeclaration(
                     undefined,
                     undefined,
-                    "use_the_static_new_factory",
+                    constructionBrandParameterName,
                     undefined,
                     constructorBrandType(tsInstance, className)
                 ),

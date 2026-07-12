@@ -1,4 +1,5 @@
 import type * as ts from "typescript"
+import { constructionBrandParameterName } from "./construction-brand.js"
 import {
     isPackageBaseExpression,
     qualifiedConstructionChainExit,
@@ -596,9 +597,16 @@ export function buildConstructionBaseRegistry(
     // new(props: Pick<Self, …>)`, so it is registered directly (no recursion needed) and
     // a subclass in another package can read its inherited config from the registry.
     for (const sourceFile of program.getSourceFiles()) {
+        // The prefilter accepts the generated brand-parameter marker besides the package
+        // name: a SECOND-generation `.d.ts` (built on top of another construction
+        // package) imports only that package and never mentions the transformer itself —
+        // its construction classes still carry the brand.
         if (!sourceFile.isDeclarationFile ||
             shouldSkipRegistrySourceFile(sourceFile) ||
-            !sourceFile.text.includes(resolvedOptions.packageName)
+            !(
+                sourceFile.text.includes(resolvedOptions.packageName) ||
+                sourceFile.text.includes(constructionBrandParameterName)
+            )
         ) {
             continue
         }

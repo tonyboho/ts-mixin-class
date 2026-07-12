@@ -16,11 +16,15 @@ const tscBinary = path.join(packageRoot, "node_modules", "typescript", "bin", "t
 async function buildDeclarationPackage(
     t: Test,
     packageName: string,
-    libraryFiles: TypeScriptFixtureSourceFile[]
+    libraryFiles: TypeScriptFixtureSourceFile[],
+    // Dependency packages (previously built declaration packages) the library itself
+    // consumes — a SECOND-generation package builds on top of a first-generation one.
+    dependencyFiles: TypeScriptFixtureSourceFile[] = []
 ): Promise<TypeScriptFixtureSourceFile[]> {
     const library = await createTypeScriptFixture({
         experimentalDecorators : false,
         compilerOptions        : { declaration: true },
+        extraFiles             : dependencyFiles,
         sourceFiles            : libraryFiles
     })
 
@@ -1335,5 +1339,79 @@ it("a declaration-package EMPTY contributor is dropped through its meta inventor
         t.isStrict(result.exitCode, 0, `construction over a declaration-package empty parent typechecks:\n${commandOutput(result)}`)
     } finally {
         await consumer.dispose()
+    }
+})
+
+it("a SECOND-generation declaration package stays construction-enabled and keeps its inherited exotic config", async (t: Test) => {
+    // Generation 1: a construction base with computed keys (a REQUIRED unique symbol and
+    // an optional const-string key). Its own emit is exact: config, meta, everything.
+    const firstGeneration = await buildDeclarationPackage(t, "gen-one", [ {
+        fileName : "tagged.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
+
+            export const priority = Symbol("priority")
+            export const kind = "meta-kind"
+
+            export class Tagged extends Base {
+                public [priority]!: number
+                public [kind]: string = ""
+            }
+        `
+    } ])
+
+    // Generation 2: a keyless subclass published as its own package. Its `.d.ts` does not
+    // mention the transformer package anywhere (it only imports gen-one), and its meta
+    // cannot respell gen-one's computed keys — both traps at once.
+    const secondGeneration = await buildDeclarationPackage(
+        t,
+        "gen-two",
+        [ {
+            fileName : "middle.ts",
+            text     : `
+            import { Tagged } from "gen-one/tagged"
+
+            export class Middle extends Tagged {
+            }
+        `
+        } ],
+        firstGeneration
+    )
+
+    const middleDeclaration = secondGeneration.find((file) => file.fileName.endsWith("middle.d.ts"))!.text
+
+    t.match(middleDeclaration, "static new", "the second generation IS construction-expanded")
+
+    const app = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : [ ...firstGeneration, ...secondGeneration ],
+        sourceFiles            : [ {
+            fileName : "leaf.ts",
+            text     : `
+                import { Middle } from "gen-two/middle"
+                import { priority } from "gen-one/tagged"
+
+                export class Leaf extends Middle {
+                    public own!: string
+                }
+
+                const leaf = Leaf.new({ own: "x", [priority]: 1 })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error the symbol key stays REQUIRED two package generations up
+                    Leaf.new({ own: "x" })
+                }
+
+                void [ leaf, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", app.tsconfigFile ], app.directory)
+
+        t.isStrict(result.exitCode, 0, `construction typing survives two declaration-package generations:\n${commandOutput(result)}`)
+    } finally {
+        await app.dispose()
     }
 })

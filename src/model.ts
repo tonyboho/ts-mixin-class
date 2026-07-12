@@ -89,7 +89,13 @@ export type RegisteredMixin = {
     // The `<Name>ConfigMeta` companion is importable from the declaring module — a
     // downstream meta may then COMPOSE it by reference (`__X$configMeta["keys"]`) instead
     // of under-reporting keys it cannot respell (foreign computed keys, index kinds).
-    configMetaAvailable?      : boolean
+    configMetaAvailable?      : boolean,
+    // Set ONLY on a re-export alias key's entry (a clone of the declaring entry): the
+    // barrel this key names provably forwards the `<Name>Config` alias (an `export *`
+    // chain down to the declaring module, or an explicit un-renamed listing), so the
+    // alias route may import it from the BARREL's own specifier. `configMetaAvailable`
+    // on such a clone is trimmed to what the barrel forwards too.
+    configAliasReExported?    : boolean
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -112,7 +118,9 @@ export type ConstructionBaseEntry = {
     // inventory (own + every ancestor and consumed mixin up to `Base`).
     configInventoryComplete? : boolean,
     // See `RegisteredMixin.configMetaAvailable`.
-    configMetaAvailable?     : boolean
+    configMetaAvailable?     : boolean,
+    // See `RegisteredMixin.configAliasReExported`.
+    configAliasReExported?   : boolean
 }
 
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>

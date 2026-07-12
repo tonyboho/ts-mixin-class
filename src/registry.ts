@@ -76,9 +76,12 @@ export function buildMixinRegistry(
     // Register re-export aliases so a mixin imported through a barrel resolves: each
     // `export ... from "<module>"` (named, aliased, `export *`, default passthrough,
     // nested) makes the mixin reachable under `registryKey(barrelFile, exportedName)`,
-    // pointing at the same entry as its declaring file. Done before dependency resolution
-    // so a mixin DEPENDENCY imported via a barrel resolves too.
-    addReExportAliasKeys(tsInstance, program, registry)
+    // pointing at its declaring file's entry. Done before dependency resolution so a
+    // mixin DEPENDENCY imported via a barrel resolves too. A barrel that provably
+    // forwards the `<Name>Config` alias gets a CLONE flagged `configAliasReExported`
+    // (meta availability trimmed to what it forwards), so the alias route may import
+    // from the barrel's own specifier; otherwise the shared entry keeps the fact route.
+    addReExportAliasKeys(tsInstance, program, registry, barrelForwardingClone)
 
     const importMaps            = new Map<string, ImportMap>()
     const dependencyNamesByFile = new Map<string, Set<string>>()
@@ -155,19 +158,27 @@ export function buildMixinRegistry(
     return registry
 }
 
-// Walks every module's `export ... from` re-exports and, for each re-exported class the
+// Walks every module's `export ... from` re-exports and, for each re-exported symbol the
 // map already registers under its DECLARING file, adds an alias key
 // `registryKey(reExportingFile, exportedName) -> entry`. Uses the type-checker
 // (original-program symbols) to follow alias chains — so named, aliased (`as`),
-// `export *`, default-passthrough, and nested barrels all resolve uniformly. Serves
-// both class registries (mixins AND construction bases — the map only needs
+// `export *`, default-passthrough, and nested barrels all resolve uniformly. The match
+// is by declaring file + symbol name, not by class declaration: a `.d.ts` mixin
+// declares as an interface + const pair, and the registry lookup is the filter anyway.
+// Serves both class registries (mixins AND construction bases — the map only needs
 // `registryKey`-shaped keys) and the construction-base CANDIDATE map. The checker is
 // fetched lazily and only files that actually re-export are inspected, so a project of
 // direct imports pays effectively nothing.
+//
+// `barrelAliasEntry`, when given, decides the VALUE stored under the alias key from the
+// declaring entry and what the barrel provably forwards besides the class — the config
+// alias / meta companions (see `reExportForwardsName`). The final registries clone the
+// entry with `configAliasReExported` there; the candidate map shares the entry as is.
 function addReExportAliasKeys<Entry>(
     tsInstance: TypeScript,
     program: ts.Program,
-    registry: Map<string, Entry>
+    registry: Map<string, Entry>,
+    barrelAliasEntry?: (entry: Entry, forwards: { config: boolean, meta: boolean }) => Entry
 ): void {
     let checker: ts.TypeChecker | undefined
 
@@ -192,36 +203,114 @@ function addReExportAliasKeys<Entry>(
             // A named/aliased/default re-export is an alias symbol (follow it); a `export *`
             // re-export surfaces the ORIGINAL symbol directly (not an alias), so resolve the
             // alias only when there is one.
-            const target      = (exported.flags & tsInstance.SymbolFlags.Alias) === 0
+            const target = (exported.flags & tsInstance.SymbolFlags.Alias) === 0
                 ? exported
                 : checker.getAliasedSymbol(exported)
-            const declaration = target.declarations?.find((node) => tsInstance.isClassDeclaration(node))
 
-            if (declaration === undefined || !tsInstance.isClassDeclaration(declaration) || declaration.name === undefined) {
-                continue
-            }
+            for (const declaration of target.declarations ?? []) {
+                const declaringFileName = declaration.getSourceFile().fileName
 
-            const declaringFileName = declaration.getSourceFile().fileName
+                // Only a symbol declared in ANOTHER file is a re-export; a locally-declared
+                // export is already registered under its own key.
+                if (declaringFileName === sourceFile.fileName) {
+                    continue
+                }
 
-            // Only a mixin declared in ANOTHER file is a re-export; a locally-declared
-            // export is already registered under its own key.
-            if (declaringFileName === sourceFile.fileName) {
-                continue
-            }
+                const entry = registry.get(registryKey(declaringFileName, target.name))
 
-            const entry = registry.get(registryKey(declaringFileName, declaration.name.text))
+                if (entry === undefined) {
+                    continue
+                }
 
-            if (entry === undefined) {
-                continue
-            }
+                const aliasKey = registryKey(sourceFile.fileName, exported.name)
 
-            const aliasKey = registryKey(sourceFile.fileName, exported.name)
+                if (!registry.has(aliasKey)) {
+                    registry.set(aliasKey, barrelAliasEntry === undefined ? entry : barrelAliasEntry(entry, {
+                        config : reExportForwardsName(tsInstance, checker, sourceFile, `${target.name}Config`, declaringFileName, new Set()),
+                        meta   : reExportForwardsName(tsInstance, checker, sourceFile, `${target.name}ConfigMeta`, declaringFileName, new Set())
+                    }))
+                }
 
-            if (!registry.has(aliasKey)) {
-                registry.set(aliasKey, entry)
+                break
             }
         }
     }
+}
+
+// The alias-key VALUE for the final registries: a barrel that provably forwards the
+// declaring `<Name>Config` alias yields a CLONE routed through the barrel (see
+// `configAliasReExported` in model.ts), any other barrel shares the declaring entry —
+// its fileName mismatch keeps the alias-route gates on the fact route.
+function barrelForwardingClone<Entry extends {
+    configAliasAvailable?  : boolean,
+    configMetaAvailable?   : boolean,
+    configAliasReExported? : boolean
+}>(entry: Entry, forwards: { config: boolean, meta: boolean }): Entry {
+    return forwards.config && entry.configAliasAvailable === true
+        ? {
+            ...entry,
+            configAliasReExported : true,
+            configMetaAvailable   : entry.configMetaAvailable === true && forwards.meta
+        }
+        : entry
+}
+
+// Whether `barrel` makes `name` importable by re-export alone: a full `export *` chain
+// down to the declaring module, or explicit un-renamed `export { name } from` listings
+// along the way. SYNTACTIC on purpose: a generated `<Name>Config` does not exist in the
+// original program (it appears when the declaring file transforms), so the checker
+// cannot resolve it — but an `export *` forwards whatever the declaring module exports
+// once the transform has run. Whether the declaring module actually EXPORTS the name is
+// the caller's judgement (`configAliasAvailable` / `configMetaAvailable`).
+function reExportForwardsName(
+    tsInstance: TypeScript,
+    checker: ts.TypeChecker,
+    barrel: ts.SourceFile,
+    name: string,
+    declaringFileName: string,
+    seen: Set<string>
+): boolean {
+    if (seen.has(barrel.fileName)) {
+        return false
+    }
+
+    seen.add(barrel.fileName)
+
+    for (const statement of barrel.statements) {
+        if (!tsInstance.isExportDeclaration(statement) || statement.moduleSpecifier === undefined) {
+            continue
+        }
+
+        // `export * as ns from` wraps the exports in a namespace — `name` is not
+        // importable bare through it.
+        if (statement.exportClause !== undefined && tsInstance.isNamespaceExport(statement.exportClause)) {
+            continue
+        }
+
+        // A NAMED clause forwards only what it lists, and only UN-RENAMED (the generated
+        // import spells the declaring `<Name>Config` name).
+        if (statement.exportClause !== undefined &&
+            !statement.exportClause.elements.some((element) =>
+                element.name.text === name && (element.propertyName?.text ?? element.name.text) === name)
+        ) {
+            continue
+        }
+
+        const targetSymbol = checker.getSymbolAtLocation(statement.moduleSpecifier)
+        const targetFile   = targetSymbol?.declarations?.find((declaration) => tsInstance.isSourceFile(declaration))
+
+        if (targetFile === undefined || !tsInstance.isSourceFile(targetFile)) {
+            continue
+        }
+
+        if (normalizePath(targetFile.fileName) === normalizePath(declaringFileName) ||
+            reExportForwardsName(tsInstance, checker, targetFile, name, declaringFileName, seen)
+        ) {
+            return true
+        }
+    }
+
+    return false
 }
 
 export type Candidate = {
@@ -653,8 +742,10 @@ export function buildConstructionBaseRegistry(
     // Re-export aliases for the transform-time lookups (`resolveCrossFileConstructionBase`
     // keys by the file an import RESOLVES to): a construction base subclassed through a
     // barrel — a source one or a package's `export *` entry-point `.d.ts` — must resolve
-    // to its declaring file's entry, or the subclass is silently never expanded.
-    addReExportAliasKeys(tsInstance, program, registry)
+    // to its declaring file's entry, or the subclass is silently never expanded. Barrels
+    // that forward the config alias route it through their own specifier (see the mixin
+    // registry's call above).
+    addReExportAliasKeys(tsInstance, program, registry, barrelForwardingClone)
 
     return registry
 }

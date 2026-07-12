@@ -892,10 +892,14 @@ function baseConfigLayer(
             return []
         }
 
-        // The declaring-module check mirrors the mixin route: a named re-export barrel
-        // forwards the class value but not its `<Name>Config` alias.
+        // The declaring-module-or-forwarding-barrel check mirrors the mixin route: a
+        // named re-export barrel forwards the class value but not its `<Name>Config`
+        // alias — unless the registry flagged it as forwarding (`configAliasReExported`).
         if (baseEntry?.configAliasAvailable === true && specifier !== undefined && usedImports !== undefined &&
-            binding !== undefined && normalizePath(binding.resolvedFileName) === normalizePath(baseEntry.fileName)
+            binding !== undefined && (
+                normalizePath(binding.resolvedFileName) === normalizePath(baseEntry.fileName) ||
+                baseEntry.configAliasReExported === true
+            )
         ) {
             const localName = generatedName(baseEntry.name, "$config")
 

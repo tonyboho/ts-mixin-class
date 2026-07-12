@@ -291,11 +291,16 @@ function addImportedMixinRefs(
                 dependencies      : registered.dependencies,
                 declaration       : undefined,
                 configProperties  : registered.configProperties,
-                // Route only when the import resolves to the DECLARING module: a named
-                // re-export barrel forwards the mixin value but not its `<Name>Config`
-                // alias, so the alias must be imported from where it is declared.
+                // Route when the import resolves to the DECLARING module, or to a barrel
+                // the registry flagged as forwarding the `<Name>Config` alias (an
+                // `export *` chain / explicit listing — `configAliasReExported`); a named
+                // re-export barrel forwards the mixin value but not its alias, so it
+                // stays on the fact route.
                 configAliasImport : registered.configAliasAvailable === true &&
-                    normalizePath(imported.resolvedFileName) === normalizePath(registered.fileName)
+                    (
+                        normalizePath(imported.resolvedFileName) === normalizePath(registered.fileName) ||
+                        registered.configAliasReExported === true
+                    )
                     ? {
                         specifier         : importFacts.specifier,
                         importedName      : `${registered.name}Config`,
@@ -416,9 +421,12 @@ function addQualifiedMixinRefs(
             dependencies      : registered.dependencies,
             declaration       : undefined,
             configProperties  : registered.configProperties,
-            // Declaring-module check — see the named-import site above.
+            // Declaring-module-or-forwarding-barrel check — see the named-import site above.
             configAliasImport : registered.configAliasAvailable === true &&
-                normalizePath(binding.resolvedFileName) === normalizePath(registered.fileName)
+                (
+                    normalizePath(binding.resolvedFileName) === normalizePath(registered.fileName) ||
+                    registered.configAliasReExported === true
+                )
                 ? {
                     specifier,
                     importedName      : `${registered.name}Config`,

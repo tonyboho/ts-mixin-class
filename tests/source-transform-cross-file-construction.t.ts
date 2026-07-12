@@ -1341,6 +1341,273 @@ it("a subclass of an imported construction base joins the parent's config by ali
     }
 })
 
+// The alias route THROUGH A BARREL: an `export *` re-export forwards everything the
+// declaring module exports — including the generated `<Name>Config` — so the consumer's
+// composed config may reference the alias through its OWN barrel import (the barrel is
+// the addressable specifier; the declaring module may not even be reachable through the
+// package's `exports`). Computed keys are the payload that makes the route matter: the
+// fact-route fallback strips them (§10.25), leaving a required symbol key unconstructible.
+it("an imported mixin's computed config keys ride the alias through an `export *` barrel", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "provider.ts",
+                text     : `
+                    import { Base, mixin } from "ts-mixin-class"
+
+                    export const prioKey: unique symbol = Symbol("prioKey")
+
+                    @mixin()
+                    export class Sortable extends Base {
+                        public order!: number
+                        public [prioKey]!: number
+                    }
+                `
+            },
+            { fileName: "barrel.ts", text: `export * from "./provider.js"` },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { prioKey, Sortable } from "./barrel.js"
+
+                    export class Widget implements Sortable {
+                        public label!: string
+                    }
+
+                    const widget = Widget.new({ label: "l", order: 1, [prioKey]: 2 })
+
+                    const readPrio: number = widget[prioKey]
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the REQUIRED computed key stays required through the barrel
+                        Widget.new({ label: "l", order: 1 })
+                    }
+
+                    void [ widget, readPrio, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `computed keys ride the composed alias through the barrel:\n${commandOutput(result)}`
+        )
+
+        const consumerDeclaration = await readFile(path.join(fixture.directory, "dist", "consumer.d.ts"), "utf8")
+
+        t.match(
+            consumerDeclaration,
+            /import [^\n]*SortableConfig[^\n]* from "\.\/barrel\.js"/,
+            "the generated alias import uses the consumer's own barrel specifier"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("a subclass's composed config references the parent's alias through an `export *` barrel", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "parent.ts",
+                text     : `
+                    import { Base } from "ts-mixin-class/base"
+
+                    export const appKey: unique symbol = Symbol("appKey")
+
+                    export class AppBase extends Base {
+                        public appValue!: string
+                        public [appKey]!: number
+                    }
+                `
+            },
+            { fileName: "barrel.ts", text: `export * from "./parent.js"` },
+            {
+                fileName : "child.ts",
+                text     : `
+                    import { AppBase, appKey } from "./barrel.js"
+
+                    export class Child extends AppBase {
+                        public ownValue!: number
+                    }
+
+                    const child = Child.new({ appValue: "a", ownValue: 1, [appKey]: 2 })
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the parent's required computed key rides the alias through the barrel
+                        Child.new({ appValue: "a", ownValue: 1 })
+                    }
+
+                    void [ child, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(result.exitCode, 0, `the subclass composes over the barrel-imported parent alias:\n${commandOutput(result)}`)
+
+        const childDeclaration = await readFile(path.join(fixture.directory, "dist", "child.d.ts"), "utf8")
+
+        t.match(
+            childDeclaration,
+            /import [^\n]*AppBaseConfig[^\n]* from "\.\/barrel\.js"/,
+            "the generated alias import uses the child's own barrel specifier"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// A NAMED barrel forwards only what it lists: the class alone keeps the fact route
+// (covered by the aliased-re-export test above), but a barrel that ALSO lists the
+// `<Name>Config` alias un-renamed makes the alias route available through it.
+it("a named barrel listing the `<Name>Config` alias explicitly routes the composition through it", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "parent.ts",
+                text     : `
+                    import { Base } from "ts-mixin-class/base"
+
+                    export const appKey: unique symbol = Symbol("appKey")
+
+                    export class AppBase extends Base {
+                        public appValue!: string
+                        public [appKey]!: number
+                    }
+                `
+            },
+            {
+                fileName : "barrel.ts",
+                text     : `
+                    export { AppBase, appKey } from "./parent.js"
+                    export type { AppBaseConfig } from "./parent.js"
+                `
+            },
+            {
+                fileName : "child.ts",
+                text     : `
+                    import { AppBase, appKey } from "./barrel.js"
+
+                    export class Child extends AppBase {
+                        public ownValue!: number
+                    }
+
+                    const child = Child.new({ appValue: "a", ownValue: 1, [appKey]: 2 })
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the parent's required computed key rides the explicitly listed alias
+                        Child.new({ appValue: "a", ownValue: 1 })
+                    }
+
+                    void [ child, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(result.exitCode, 0, `the explicitly listed alias routes the composition:\n${commandOutput(result)}`)
+
+        const childDeclaration = await readFile(path.join(fixture.directory, "dist", "child.d.ts"), "utf8")
+
+        t.match(
+            childDeclaration,
+            /import [^\n]*AppBaseConfig[^\n]* from "\.\/barrel\.js"/,
+            "the generated alias import uses the named barrel specifier"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("a declaration package's `export *` entry-point barrel carries computed config keys by alias", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "exotic-barrel-lib", [
+        {
+            fileName : "ranked.ts",
+            text     : `
+                import { Base, mixin } from "ts-mixin-class"
+
+                export const rankKey: unique symbol = Symbol("rankKey")
+
+                @mixin()
+                export class Ranked extends Base {
+                    public [rankKey]!: number
+                }
+            `
+        },
+        {
+            fileName : "index.ts",
+            text     : `export * from "./ranked.js"`
+        }
+    ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { Ranked, rankKey } from "exotic-barrel-lib/index"
+
+                    export class Widget implements Ranked {
+                        public label!: string
+                    }
+
+                    const widget = Widget.new({ label: "l", [rankKey]: 2 })
+
+                    const readRank: number = widget[rankKey]
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the package's REQUIRED computed key stays required through the barrel
+                        Widget.new({ label: "l" })
+                    }
+
+                    void [ widget, readRank, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `computed keys ride the alias through the package barrel:\n${commandOutput(result)}`
+        )
+
+        const consumerDeclaration = await readFile(path.join(fixture.directory, "dist", "consumer.d.ts"), "utf8")
+
+        t.match(
+            consumerDeclaration,
+            /import [^\n]*RankedConfig[^\n]* from "exotic-barrel-lib\/index"/,
+            "the generated alias import uses the package's barrel specifier"
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
 it("a GENERIC declaration-package contributor's exotic config keys reach the downstream config through the alias", async (t: Test) => {
     const packageFiles = await buildDeclarationPackage(t, "generic-exotic-lib", [ {
         fileName : "boxed.ts",

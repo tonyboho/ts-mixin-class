@@ -58,22 +58,6 @@ construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within
 the meta is COMPOSITIONAL — contributor metas join by reference, so the published
 inventory stays exact across package generations). What remains, none started:
 
-- **Barrels (probed 2026-07-12 — three distinct severities).** (a) `extends` a
-  construction base THROUGH a barrel silently loses construction entirely — the
-  construction-base registry has no barrel alias keys (the mixin registry's
-  `addReExportAliasKeys` walk has no twin there), so the subclass never expands and
-  `.new` falls back to the parent's. WORST, fix first. (b) `implements` a mixin through
-  a barrel works on the fact route, but a computed-key mixin keeps the §10.25 hole
-  there: the strip drops the key from the respelled config, so it cannot be passed at
-  all (a REQUIRED computed key makes the consumer effectively unconstructible). (c) The
-  alias route itself: the declaring-module gate compares the binding's resolved file
-  with the entry's — a barrel never matches. Fix: at the re-export scan, record per
-  barrel key whether the barrel ALSO exports `<Name>Config`/`<Name>ConfigMeta`
-  (checker exports include type aliases — `export *` always does, a named barrel only
-  if the author listed them); the generated type-only import then uses the consumer's
-  own barrel specifier (no new module edges, no package-exports addressing problems).
-  Closing (c) also closes (b) for `export *` barrels; named barrels close it by
-  re-exporting the alias.
 - **Non-exported / meta-less contributors still under-report index kinds.** The meta
   composition can only reference a PUBLISHED meta: a non-exported same-file contributor
   with an index signature (no meta exists) and a meta-less older `.d.ts` emit keep the

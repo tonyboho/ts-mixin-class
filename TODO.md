@@ -58,6 +58,23 @@ construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within
 the meta is COMPOSITIONAL — contributor metas join by reference, so the published
 inventory stays exact across package generations). What remains, none started:
 
+- **Source-view false required-base mismatch over an imported base (found 2026-07-12
+  by the construction-barrel fixture; PRE-EXISTING — reproduced at v0.0.13 with a
+  DIRECT import, no barrel involved).** A consumer combining `extends <imported Base
+  descendant>` with `implements <package-Base-required mixin>` gets a false
+  TS990014-encoded TS2344 ("can only be applied to Base or a subclass") plus an unused
+  generated `<Mixin>$requiredBase` import (TS6133) in the SOURCE-VIEW plane only; the
+  emit plane accepts the same program. The combination was simply uncovered: §10.2
+  fixtures use local bases or the package `Base` itself. Also breaks stress
+  find-all-references on the `extends` identifier of such a consumer (error-state
+  knock-on, same repro). Pinned by the skipped test "an imported-base consumer of a
+  package-Base-required mixin passes the source-view required-base check"
+  (`source-transform-cross-file-construction.t.ts`); the `construction-barrel` fixture
+  deliberately splits the subclass and the mixin consumer into separate classes until
+  this is fixed. Suspect: the source-view branch of the required-base validation
+  (`consumer-diagnostics.ts` — the conditional's requirement side resolves differently
+  from emit; the unused generated import says the emitted conditional references a
+  DIFFERENT requirement node there).
 - **Non-exported / meta-less contributors still under-report index kinds.** The meta
   composition can only reference a PUBLISHED meta: a non-exported same-file contributor
   with an index signature (no meta exists) and a meta-less older `.d.ts` emit keep the

@@ -705,7 +705,12 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
     }
 })
 
-it("keeps literal/index config keys but deliberately drops computed keys across source files", async (t: Test) => {
+// REVERSED (pure-type-composition epic, decision 1): computed keys now RIDE across source
+// files — the consumer's config references the contributor's `<Name>Config` alias through
+// a generated type-only import, and the alias spells its computed keys in ITS OWN scope,
+// so no transplanting ever happens. §10.25's "deliberately omitted" strip rule dissolves:
+// the keys keep their identity, VALUE types and REQUIREDNESS downstream.
+it("carries computed config keys across source files through the composed alias", async (t: Test) => {
     const sourceFiles: TypeScriptFixtureSourceFile[] = [
         {
             fileName : "exotic.ts",
@@ -736,6 +741,8 @@ it("keeps literal/index config keys but deliberately drops computed keys across 
                 const value = Holder.new({
                     0           : "zero",
                     "dash-name" : 1,
+                    [computed]  : true,
+                    [symbolic]  : true,
                     own         : new Date(0)
                 })
 
@@ -744,14 +751,15 @@ it("keeps literal/index config keys but deliberately drops computed keys across 
                 const computedValue: boolean = value[computed]
                 const symbolicValue: boolean = value[symbolic]
 
-                // A computed key's declaration cannot be transplanted into another source scope.
-                // @ts-expect-error cross-file consumer configs deliberately omit computed string keys
-                Holder.new({ 0: "zero", "dash-name": 1, computed: true, own: new Date(0) })
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error the imported REQUIRED computed keys stay required across files
+                    Holder.new({ 0: "zero", "dash-name": 1, own: new Date(0) })
 
-                // @ts-expect-error the same transplantability rule applies to unique-symbol keys
-                Holder.new({ 0: "zero", "dash-name": 1, [symbolic]: true, own: new Date(0) })
+                    // @ts-expect-error the computed key's value type constrains across files
+                    Holder.new({ 0: "zero", "dash-name": 1, [computed]: 1, [symbolic]: true, own: new Date(0) })
+                }
 
-                void [ literal, dashed, computedValue, symbolicValue ]
+                void [ literal, dashed, computedValue, symbolicValue, typeOnlyChecks ]
             `
         }
     ]
@@ -1026,6 +1034,195 @@ it("preserves overloaded constructors and exotic statics through a declaration p
             result.exitCode,
             0,
             `Declaration consumers retain constructor overloads and every static member shape:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// The pure-type composition, CROSS-FILE stage (epic decision 1): an imported contributor
+// with an available `<Name>Config` alias joins the downstream config as a generated
+// TYPE-ONLY import (`import type { SortableConfig as __Sortable$config } from …`) instead
+// of a re-spelled fact list. This carries what the fact transport never could: computed
+// (unique-symbol) keys keep their identity AND requiredness across files, and a GENERIC
+// contributor instantiates at the use site.
+it("an imported construction mixin's config joins by alias — computed keys and requiredness ride it", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "provider.ts",
+                text     : `
+                    import { Base, mixin } from "ts-mixin-class"
+
+                    export const prioKey: unique symbol = Symbol("prioKey")
+
+                    @mixin()
+                    export class Sortable extends Base {
+                        public order!: number
+                        public [prioKey]!: number
+                    }
+
+                    @mixin()
+                    export class Boxed<T> extends Base {
+                        public value!: T
+                    }
+                `
+            },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { prioKey, Sortable, Boxed } from "./provider.js"
+
+                    export class Widget implements Sortable {
+                        public label!: string
+                    }
+
+                    export class StringBox implements Boxed<string> {
+                        public own!: number
+                    }
+
+                    const widget = Widget.new({ label: "l", order: 1, [prioKey]: 2 })
+                    const box = StringBox.new({ own: 1, value: "s" })
+
+                    const readPrio: number = widget[prioKey]
+                    const readValue: string = box.value
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the imported REQUIRED computed key stays required across files
+                        Widget.new({ label: "l", order: 1 })
+
+                        // @ts-expect-error the generic contributor instantiates at the use site
+                        StringBox.new({ own: 1, value: 42 })
+                    }
+
+                    void [ widget, box, readPrio, readValue, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `imported computed keys and generic instantiation ride the composed alias:\n${commandOutput(result)}`
+        )
+
+        const consumerDeclaration = await readFile(path.join(fixture.directory, "dist", "consumer.d.ts"), "utf8")
+
+        t.match(consumerDeclaration, "SortableConfig", "the consumer's config references the imported alias by name")
+        t.match(consumerDeclaration, "BoxedConfig", "the generic contributor's alias is referenced")
+        t.match(consumerDeclaration, "<string>", "…instantiated with the use-site argument")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("a subclass of an imported construction base joins the parent's config by alias", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "parent.ts",
+                text     : `
+                    import { Base } from "ts-mixin-class/base"
+
+                    export class AppBase extends Base {
+                        public appValue!: string
+                    }
+                `
+            },
+            {
+                fileName : "child.ts",
+                text     : `
+                    import { AppBase } from "./parent.js"
+
+                    export class Child extends AppBase {
+                        public ownValue!: number
+                    }
+
+                    const child = Child.new({ appValue: "a", ownValue: 1 })
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error the parent's required key rides the referenced alias
+                        Child.new({ ownValue: 1 })
+                    }
+
+                    void [ child, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(result.exitCode, 0, `the subclass composes over the imported parent alias:\n${commandOutput(result)}`)
+
+        const childDeclaration = await readFile(path.join(fixture.directory, "dist", "child.d.ts"), "utf8")
+
+        t.match(childDeclaration, "AppBaseConfig", "the child's config references the imported parent's alias")
+        t.notMatch(childDeclaration, '"appValue" | "ownValue"', "the parent's keys are not re-spelled at the child")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("a GENERIC declaration-package contributor's exotic config keys reach the downstream config through the alias", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "generic-exotic-lib", [ {
+        fileName : "boxed.ts",
+        text     : `
+            import { Base, mixin } from "ts-mixin-class"
+
+            export const stamp: unique symbol = Symbol("stamp")
+
+            @mixin()
+            export class Boxed<T> extends Base {
+                public value!: T
+                public [stamp]!: number
+            }
+        `
+    } ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [ {
+            fileName : "consumer.ts",
+            text     : `
+                import { Boxed, stamp } from "generic-exotic-lib/boxed"
+
+                class NumberBox implements Boxed<number> {
+                    public own!: string
+                }
+
+                const box = NumberBox.new({ own: "o", value: 1, [stamp]: 7 })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error the published REQUIRED unique-symbol key stays required — even on a GENERIC use
+                    NumberBox.new({ own: "o", value: 1 })
+
+                    // @ts-expect-error the published generic instantiates at the use site
+                    NumberBox.new({ own: "o", value: "wrong", [stamp]: 7 })
+                }
+
+                void [ box, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `the generic .d.ts contributor's exotic keys ride the imported alias (the pre-epic gap):\n${commandOutput(result)}`
         )
     } finally {
         await fixture.dispose()

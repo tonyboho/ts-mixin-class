@@ -20,6 +20,8 @@ import {
 } from "./model.js"
 import { baseConfigProperties, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { generatedName } from "./naming.js"
+import { normalizePath } from "./util.js"
 import { deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
 import { collapseSubtreeTextRange, preserveGeneratedDeclarationRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
@@ -68,7 +70,8 @@ export function createConstructionMembers(
     crossFile?: CrossFileContext,
     baseImportMap?: ImportMap,
     requiredBaseIsConstructionBase = false,
-    nativeDiagnostics?: NativeMixinDiagnostic[]
+    nativeDiagnostics?: NativeMixinDiagnostic[],
+    usedImports?: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>
 ): ConstructionMembers {
     const facts = getSourceFileFacts(tsInstance, sourceFile, options)
 
@@ -109,7 +112,8 @@ export function createConstructionMembers(
         options,
         facts,
         crossFile,
-        baseImportMap
+        baseImportMap,
+        usedImports
     )
     const consumerType   = createConsumerInstanceType(tsInstance, declaration)
 
@@ -333,7 +337,8 @@ export function createMixinConstructionNewType(
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
     baseImportMap?: ImportMap,
-    nativeDiagnostics?: NativeMixinDiagnostic[]
+    nativeDiagnostics?: NativeMixinDiagnostic[],
+    usedImports?: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>
 ): MixinConstructionNew | undefined {
     if (declaration.name === undefined ||
         facts.classesByDeclaration.get(declaration)?.hasStaticNew === true ||
@@ -353,7 +358,8 @@ export function createMixinConstructionNewType(
         options,
         facts,
         crossFile,
-        baseImportMap
+        baseImportMap,
+        usedImports
     )
     // A construction-base mixin is just a class for config purposes, so it gets the
     // same exported `<MixinName>Config` alias - emitted in both the value-cast (emit)
@@ -412,7 +418,13 @@ export function createMixinConstructionNewType(
 // contributors.
 type ConfigLayer = {
     reference  : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
-    properties : ConfigProperty[]
+    properties : ConfigProperty[],
+    // A reference layer whose keys are ALL overridden by nearer layers may be dropped
+    // ONLY when `properties` is a COMPLETE inventory of the alias (a local, dependency-free
+    // contributor without index signatures). An imported alias may carry cargo the fact
+    // route cannot see (computed keys, index signatures) — it must stay referenced (bare,
+    // or Omit-ed by its known keys) even when every known key is overridden.
+    droppable? : boolean
 }
 
 function createConstructionConfig(
@@ -428,7 +440,8 @@ function createConstructionConfig(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile?: CrossFileContext,
-    baseImportMap?: ImportMap
+    baseImportMap?: ImportMap,
+    usedImports?: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>
 ): ConstructionConfig {
     const factory = tsInstance.factory
 
@@ -437,7 +450,7 @@ function createConstructionConfig(
     // for the meta companion, the `.new` parameter's requiredness, and each key's WINNING
     // representation; only the TYPE rendering below switched from re-spelling it to the
     // layered composition.
-    const merged = staticConstructionConfigProperties(
+    const merged        = staticConstructionConfigProperties(
         tsInstance,
         sourceFile,
         declaration,
@@ -448,20 +461,26 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
+    const routedRefKeys = new Set<string>()
+
+    const layers: ConfigLayer[] = [
+        { reference: undefined, properties: facts.classesByDeclaration.get(declaration)?.configProperties ?? [] },
+        ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap, usedImports, routedRefKeys)),
+        ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap, usedImports, routedRefKeys)
+    ]
+
+    // Value-route parts are skipped for contributors the alias route already carries —
+    // the alias IS the full published config, so the opaque duplicate would only bloat
+    // the intersection (the `requiresArgument` flag is still read for them).
     const opaque = declarationFileConfigParts(
         tsInstance,
         declaration,
         extendsType ?? implicitRequiredBase,
         mixinRefs,
         crossFile,
-        baseImportMap
+        baseImportMap,
+        routedRefKeys
     )
-
-    const layers: ConfigLayer[] = [
-        { reference: undefined, properties: facts.classesByDeclaration.get(declaration)?.configProperties ?? [] },
-        ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap)),
-        ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap)
-    ]
 
     // Nearest-first winners: the FIRST layer declaring a key owns its rendering. A later
     // (deeper) layer renders only its unseen keys; a reference layer whose keys are all
@@ -521,7 +540,7 @@ function createConstructionConfig(
             flushFactsGroup(false)
         }
 
-        if (owned.length === 0) {
+        if (owned.length === 0 && layer.droppable === true) {
             return
         }
 
@@ -677,11 +696,37 @@ function mixinConfigLayer(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined
+    baseImportMap: ImportMap | undefined,
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined,
+    routedRefKeys: Set<string>
 ): ConfigLayer {
     const mixinFacts = ref.declaration === undefined
         ? undefined
         : facts.classesByDeclaration.get(ref.declaration)
+
+    // An IMPORTED contributor with an importable alias joins by a generated TYPE-ONLY
+    // import (`import type { XConfig as __X$config } from …`). A GENERIC one needs the
+    // use-site arguments — a transitive generic dependency (no implements entry) falls
+    // back to the fact route, exactly like a contributor without an importable alias.
+    if (mixinFacts === undefined && ref.configAliasImport !== undefined && usedImports !== undefined) {
+        const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
+
+        if (!ref.configAliasImport.generic || typeArguments !== undefined) {
+            const localName = generatedName(ref.className, "$config")
+
+            if (registerConfigAliasImport(usedImports, ref.configAliasImport.specifier, ref.configAliasImport.importedName, localName)) {
+                routedRefKeys.add(ref.key)
+
+                return {
+                    reference : {
+                        aliasName     : localName,
+                        typeArguments : typeArguments?.map((argument) => deepCloneNode(tsInstance, argument))
+                    },
+                    properties : ref.configProperties
+                }
+            }
+        }
+    }
 
     if (mixinFacts === undefined ||
         !localConfigAliasAvailable(tsInstance, sourceFile, mixinFacts, options, facts, crossFile, baseImportMap)
@@ -695,7 +740,12 @@ function mixinConfigLayer(
             typeArguments : aliasReferenceTypeArguments(tsInstance, declaration, ref, mixinFacts)
         },
         // Identity only (overlap / winner gates): the alias itself carries the types.
-        properties : ref.configProperties
+        properties : ref.configProperties,
+        // Complete inventory: local and no index signatures — only then may a
+        // fully-overridden layer drop. Dependencies are irrelevant here: the consumer's
+        // C3-linearized ref list carries every transitive dependency as its OWN layer,
+        // so their cargo never rides only through this alias.
+        droppable  : mixinFacts.indexSignatures.length === 0
     }
 }
 
@@ -710,7 +760,9 @@ function baseConfigLayer(
     options: TransformOptions,
     facts: SourceFileFacts,
     crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined
+    baseImportMap: ImportMap | undefined,
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }> | undefined,
+    routedRefKeys: Set<string>
 ): ConfigLayer[] {
     if (baseType === undefined) {
         return []
@@ -729,9 +781,41 @@ function baseConfigLayer(
 
     const parentFacts = facts.classesByName.get(baseType.expression.text)
 
-    if (parentFacts === undefined ||
-        !localConfigAliasAvailable(tsInstance, sourceFile, parentFacts, options, facts, crossFile, baseImportMap)
-    ) {
+    // An IMPORTED parent with an importable alias joins by a generated type-only import;
+    // the extends clause's own type arguments instantiate it (a bare generic parent falls
+    // back to its defaults natively).
+    if (parentFacts === undefined) {
+        const baseName  = baseType.expression.text
+        const baseEntry = resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)
+        const specifier = facts.imports.find((importFacts) => importFacts.localNames.includes(baseName))?.specifier
+        const binding   = baseImportMap?.get(baseName)
+
+        // The declaring-module check mirrors the mixin route: a named re-export barrel
+        // forwards the class value but not its `<Name>Config` alias.
+        if (baseEntry?.configAliasAvailable === true && specifier !== undefined && usedImports !== undefined &&
+            binding !== undefined && normalizePath(binding.resolvedFileName) === normalizePath(baseEntry.fileName)
+        ) {
+            const localName = generatedName(baseEntry.name, "$config")
+
+            if (registerConfigAliasImport(usedImports, specifier, `${baseEntry.name}Config`, localName)) {
+                routedRefKeys.add(`base:${baseName}`)
+
+                return [ {
+                    reference : {
+                        aliasName     : localName,
+                        typeArguments : baseType.typeArguments === undefined
+                            ? undefined
+                            : baseType.typeArguments.map((argument) => deepCloneNode(tsInstance, argument))
+                    },
+                    properties : accumulated()
+                } ]
+            }
+        }
+
+        return flattened()
+    }
+
+    if (!localConfigAliasAvailable(tsInstance, sourceFile, parentFacts, options, facts, crossFile, baseImportMap)) {
         return flattened()
     }
 
@@ -744,6 +828,79 @@ function baseConfigLayer(
         },
         properties : accumulated()
     } ]
+}
+
+// Whether a class's `<Name>Config` alias is importable FROM ANOTHER FILE, short of
+// construction-enabledness — the registration-side twin of `localConfigAliasAvailable`
+// with the export requirement on top (the alias's export tracks the class's, §7.15).
+// Recorded on registry entries at build time so a downstream file can decide the alias
+// route without re-reading the declaring file. The construction-base registry combines
+// this with its own `isBaseDescendant` resolution; the mixin registry adds the LOCAL
+// construction check below.
+export function exportedConfigAliasEligible(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    classFacts: ClassFacts
+): boolean {
+    return classFacts.name !== undefined &&
+        // Statement-list membership, not `declaration.parent` — see `localConfigAliasAvailable`.
+        sourceFile.statements.includes(classFacts.declaration) &&
+        hasModifier(tsInstance, classFacts.declaration, tsInstance.SyntaxKind.ExportKeyword) &&
+        !hasModifier(tsInstance, classFacts.declaration, tsInstance.SyntaxKind.DefaultKeyword) &&
+        !hasModifier(tsInstance, classFacts.declaration, tsInstance.SyntaxKind.AbstractKeyword) &&
+        !classFacts.hasStaticNew &&
+        !collectTopLevelDeclaredNameNodes(tsInstance, sourceFile).has(`${classFacts.name}Config`)
+}
+
+// The mixin-registry variant: eligibility plus LOCAL construction-enabledness (no
+// cross-file context exists at registration — a mixin whose base chain leaves the file
+// just keeps the fact route, which is always correct).
+export function exportedConfigAliasAvailable(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    classFacts: ClassFacts,
+    options: TransformOptions,
+    facts: SourceFileFacts
+): boolean {
+    return exportedConfigAliasEligible(tsInstance, sourceFile, classFacts) &&
+        isConstructionBaseOptIn(
+            tsInstance,
+            sourceFile,
+            classFacts.extendsType,
+            options,
+            facts,
+            new Set(),
+            undefined,
+            undefined
+        )
+}
+
+// Registers one generated type-only alias import (`import type { XConfig as __X$config }
+// from "<specifier>"`) on the shared per-file import map — the same rails the mixin
+// factory imports materialize through. Returns false (caller falls back to the fact
+// route) when a DIFFERENT module already claimed the local name: two same-named
+// contributors from two modules cannot share `__X$config`.
+function registerConfigAliasImport(
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>,
+    specifier: string,
+    importedName: string,
+    localName: string
+): boolean {
+    const key = `${specifier}:${importedName}:${localName}`
+
+    if (usedImports.has(key)) {
+        return true
+    }
+
+    for (const existing of usedImports.values()) {
+        if (existing.localName === localName && existing.specifier !== specifier) {
+            return false
+        }
+    }
+
+    usedImports.set(key, { specifier, importedName, localName, typeOnly: true })
+
+    return true
 }
 
 // Whether a LOCAL class publishes a `<Name>Config` alias this file can reference: named,
@@ -765,7 +922,9 @@ function localConfigAliasAvailable(
         // The alias is spliced as a SIBLING of the contributor's declaration; only a
         // top-level contributor's alias is lexically reachable from an arbitrary
         // reference site (a namespace/nested contributor's alias lives inside its block).
-        classFacts.declaration.parent === sourceFile &&
+        // Membership in the file's own statement list, NOT `declaration.parent` — the
+        // registry builds before the binder runs, when parent pointers are still unset.
+        sourceFile.statements.includes(classFacts.declaration) &&
         !hasModifier(tsInstance, classFacts.declaration, tsInstance.SyntaxKind.AbstractKeyword) &&
         !classFacts.hasStaticNew &&
         isConstructionBaseOptIn(
@@ -826,7 +985,8 @@ function declarationFileConfigParts(
     baseType: ts.ExpressionWithTypeArguments | undefined,
     mixinRefs: ResolvedMixinRef[],
     crossFile: CrossFileContext | undefined,
-    baseImportMap: ImportMap | undefined
+    baseImportMap: ImportMap | undefined,
+    routedRefKeys: Set<string> = new Set()
 ): { types: ts.TypeNode[], requiresArgument: boolean } {
     const factory              = tsInstance.factory
     const types: ts.TypeNode[] = []
@@ -855,6 +1015,15 @@ function declarationFileConfigParts(
             continue
         }
 
+        // The alias route already carries this contributor's FULL published config; only
+        // the requiredness flag is still read from the registry.
+        if (routedRefKeys.has(ref.key)) {
+            if (crossFile?.registry.get(ref.key)?.configRequiresArgument === true) {
+                requiresArgument = true
+            }
+            continue
+        }
+
         // A dependency's computed keys ride the DEPENDENT's published config (the emitted
         // `.new` param aggregates transitive dependencies), so only directly-referenced
         // (value-carrying) mixins contribute a part.
@@ -865,7 +1034,7 @@ function declarationFileConfigParts(
         }
     }
 
-    if (baseType !== undefined && baseType.typeArguments === undefined) {
+    if (baseType !== undefined) {
         const baseName  = tsInstance.isIdentifier(baseType.expression)
             ? baseType.expression.text
             : dottedExpressionText(tsInstance, baseType.expression)
@@ -874,12 +1043,16 @@ function declarationFileConfigParts(
             : resolveCrossFileConstructionBase(baseName, crossFile, baseImportMap)
 
         if (baseEntry?.isBaseDescendant === true && baseEntry.fileName.endsWith(".d.ts")) {
-            types.push(valueRouteConfigType(
-                dottedNameToEntityName(tsInstance, baseName as string)
-            ))
-
+            // The published parameter-requiredness flag holds regardless of the carrier —
+            // value part, alias route, or a generic use neither can express it.
             if (baseEntry.configRequiresArgument === true) {
                 requiresArgument = true
+            }
+
+            if (baseType.typeArguments === undefined && !routedRefKeys.has(`base:${baseName as string}`)) {
+                types.push(valueRouteConfigType(
+                    dottedNameToEntityName(tsInstance, baseName as string)
+                ))
             }
         }
     }

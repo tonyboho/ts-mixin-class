@@ -329,7 +329,8 @@ export function expandConsumerClass(
         context.crossFile,
         consumerBaseImports,
         linearized.some((ref) => ref.requiredBase?.isPackageBase === true),
-        context.nativeDiagnostics
+        context.nativeDiagnostics,
+        context.usedFactoryImports
     )
     const constructionMembers = construction.members
     // A construction consumer that declares its OWN constructor brands THAT constructor's parameter

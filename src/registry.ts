@@ -18,6 +18,7 @@ import {
     type TransformOptions
 } from "./model.js"
 import { normalizePath, shouldSkipFileName } from "./util.js"
+import { exportedConfigAliasAvailable, exportedConfigAliasEligible } from "./construction-config.js"
 import { collectDeclarationFileConstructionBases, collectDeclarationFileMixinCandidates } from "./registry-declaration-file.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
@@ -56,7 +57,9 @@ export function buildMixinRegistry(
             requiredBaseName          : candidate.requiredBaseName,
             requiredBaseIsPackageBase : candidate.requiredBaseIsPackageBase,
             configProperties          : candidate.configProperties,
-            configRequiresArgument    : candidate.configRequiresArgument
+            configRequiresArgument    : candidate.configRequiresArgument,
+            configAliasAvailable      : candidate.configAliasAvailable,
+            generic                   : candidate.generic
         })
 
         if (candidate.defaultExport) {
@@ -224,7 +227,10 @@ export type Candidate = {
     // `.d.ts` construction mixins only — see `RegisteredMixin.configRequiresArgument`.
     configRequiresArgument?   : boolean,
     declarationHeritage       : boolean,
-    defaultExport             : boolean
+    defaultExport             : boolean,
+    // See `RegisteredMixin.configAliasAvailable` / `.generic`.
+    configAliasAvailable?     : boolean,
+    generic?                  : boolean
 }
 
 // Program-wide map of ordinary (non-mixin) classes that transitively extend the
@@ -255,7 +261,11 @@ export function buildConstructionBaseRegistry(
         qualifiedBaseConfigProperties : ConfigProperty[],
         ownConfigProperties           : ConfigProperty[],
         mixinDependencyNames          : string[],
-        importMap                     : ImportMap
+        importMap                     : ImportMap,
+        // See `ConstructionBaseEntry.configAliasAvailable` (export/top-level/no-static-new/
+        // no-collision computed at collection; construction-enabledness comes from
+        // `isBaseDescendant` at resolve time).
+        configAliasEligible           : boolean
     }
 
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
@@ -329,7 +339,8 @@ export function buildConstructionBaseRegistry(
                     ...classFacts.implementsIdentifierNames,
                     ...classFacts.implementsQualifiedNames
                 ],
-                importMap
+                importMap,
+                configAliasEligible : exportedConfigAliasEligible(tsInstance, sourceFile, classFacts)
             }
 
             candidates.push(candidate)
@@ -529,10 +540,12 @@ export function buildConstructionBaseRegistry(
         }
 
         registry.set(registryKey(candidate.fileName, candidate.name), {
-            fileName         : candidate.fileName,
-            name             : candidate.name,
-            isBaseDescendant : true,
-            configProperties : entry.configProperties
+            fileName             : candidate.fileName,
+            name                 : candidate.name,
+            isBaseDescendant     : true,
+            configProperties     : entry.configProperties,
+            // A base-descendant IS construction-enabled, so eligibility is the whole test.
+            configAliasAvailable : candidate.configAliasEligible
         })
     }
 
@@ -554,7 +567,8 @@ export function buildConstructionBaseRegistry(
                 name                   : constructionBase.name,
                 isBaseDescendant       : true,
                 configProperties       : constructionBase.configProperties,
-                configRequiresArgument : constructionBase.configRequiresArgument
+                configRequiresArgument : constructionBase.configRequiresArgument,
+                configAliasAvailable   : constructionBase.configAliasAvailable
             }
 
             // No "default"-name aliasing here (unlike the mixin registry's line for
@@ -625,9 +639,11 @@ function collectSourceFileMixinCandidates(
             requiredBaseName          : classFacts.requiredBaseName,
             requiredBaseIsPackageBase : classFacts.extendsType !== undefined &&
                 isPackageBaseExpression(tsInstance, classFacts.extendsType.expression, options, facts),
-            configProperties    : classFacts.configProperties,
-            declarationHeritage : false,
-            defaultExport       : classFacts.defaultExport
+            configProperties     : classFacts.configProperties,
+            declarationHeritage  : false,
+            defaultExport        : classFacts.defaultExport,
+            configAliasAvailable : exportedConfigAliasAvailable(tsInstance, sourceFile, classFacts, options, facts),
+            generic              : (classFacts.declaration.typeParameters?.length ?? 0) > 0
         })
     }
 

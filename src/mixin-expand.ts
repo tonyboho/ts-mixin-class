@@ -321,7 +321,8 @@ export function expandMixinClass(
         facts,
         context.crossFile,
         baseImportMap,
-        context.nativeDiagnostics
+        context.nativeDiagnostics,
+        context.usedFactoryImports
     )
 
     const interfaceDeclaration = preserveTextRange(

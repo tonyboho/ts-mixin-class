@@ -70,7 +70,16 @@ export type RegisteredMixin = {
     // fact transport strips computed/symbol keys (unspellable here), so their
     // requiredness survives ONLY through this flag — a downstream `.new` keeps a
     // required parameter even when every RESPELLED key is optional (§13.8).
-    configRequiresArgument?   : boolean
+    configRequiresArgument?   : boolean,
+    // The mixin's `<Name>Config` alias is importable from its module (exported,
+    // top-level, no user `static new`, construction-enabled, reserved name free) — a
+    // downstream config may then join it by a generated type-only import (the pure-type
+    // composition) instead of the re-spelled fact route.
+    configAliasAvailable?     : boolean,
+    // The mixin declares type parameters: a downstream alias reference must carry the
+    // use-site arguments (a TRANSITIVE generic dependency, whose arguments are unknown
+    // at the consumer, falls back to the fact route).
+    generic?                  : boolean
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -86,7 +95,9 @@ export type ConstructionBaseEntry = {
     isBaseDescendant        : boolean,
     configProperties        : ConfigProperty[],
     // `.d.ts` bases only — see `RegisteredMixin.configRequiresArgument`.
-    configRequiresArgument? : boolean
+    configRequiresArgument? : boolean,
+    // See `RegisteredMixin.configAliasAvailable`.
+    configAliasAvailable?   : boolean
 }
 
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
@@ -192,6 +203,11 @@ export type ResolvedMixinRef = {
     dependencies         : string[],
     declaration          : ts.ClassDeclaration | undefined,
     configProperties     : ConfigProperty[],
+    // Set for an IMPORTED mixin whose `<Name>Config` alias is importable (see
+    // `RegisteredMixin.configAliasAvailable`): the module specifier and exported alias
+    // name a downstream composed config references it by. `generic` mirrors the
+    // registered flag — the reference needs the use-site type arguments.
+    configAliasImport?   : { specifier: string, importedName: string, generic: boolean },
     missingRuntimeImport : {
         specifier    : string,
         importedName : string
@@ -227,7 +243,7 @@ export type FileMixinContext = {
     // construction bases. Used to resolve imported/required construction bases.
     crossFile?         : CrossFileContext,
     // Factories actually used in generated chains.
-    usedFactoryImports : Map<string, { specifier: string, importedName: string, localName: string }>,
+    usedFactoryImports : Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>,
     // Shared with the program-wide cache via CrossFileContext when available, so
     // per-mixin C3 linearizations are reused across consumers and files.
     linearizationCache : Map<string, string[]>,

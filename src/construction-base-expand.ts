@@ -24,7 +24,8 @@ export function expandConstructionBaseClass(
     options: TransformOptions,
     crossFile: CrossFileContext | undefined,
     baseImportMap: ImportMap | undefined,
-    nativeDiagnostics?: NativeMixinDiagnostic[]
+    nativeDiagnostics?: NativeMixinDiagnostic[],
+    usedImports?: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>
 ): ts.Statement[] {
     const factory      = tsInstance.factory
     const extendsType  = declaration.heritageClauses?.find((clause) => {
@@ -48,7 +49,8 @@ export function expandConstructionBaseClass(
         crossFile,
         baseImportMap,
         false,
-        nativeDiagnostics
+        nativeDiagnostics,
+        usedImports
     )
 
     if (construction.members.length === 0) {

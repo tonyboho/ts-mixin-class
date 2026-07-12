@@ -183,11 +183,15 @@ export function transformSourceFile(
                     resolvedOptions,
                     crossFile,
                     getBaseImportMap(),
-                    context.nativeDiagnostics
+                    context.nativeDiagnostics,
+                    context.usedFactoryImports
                 )
 
                 if (expandedStatements.length !== 1 || expandedStatements[0] !== statement) {
                     expandedAnything = true
+                    // A composed config may have registered a type-only alias import (an
+                    // imported parent's `<Name>Config`) — the insertion pass materializes it.
+                    needsGeneratedImports = true
                     return expandedStatements
                 }
             }

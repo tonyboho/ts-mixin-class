@@ -29,11 +29,12 @@ import type { TypeScript } from "./util.js"
 export function collectDeclarationFileConstructionBases(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
-): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean }> {
+): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean, configAliasAvailable: boolean }> {
     const bases: Array<{
         name                   : string,
         configProperties       : ConfigProperty[],
-        configRequiresArgument : boolean
+        configRequiresArgument : boolean,
+        configAliasAvailable   : boolean
     }> = []
     // The generated `static new(props: <Name>Config)` references an exported config
     // alias declared alongside it in the same `.d.ts`; map alias name -> body so the
@@ -62,11 +63,30 @@ export function collectDeclarationFileConstructionBases(
         bases.push({
             name                   : statement.name.text,
             configProperties       : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set()),
-            configRequiresArgument : staticNew.parameters[0].questionToken === undefined
+            configRequiresArgument : staticNew.parameters[0].questionToken === undefined,
+            configAliasAvailable   : declarationFileExportsConfigAlias(tsInstance, sourceFile, statement.name.text)
         })
     }
 
     return bases
+}
+
+// Whether the `.d.ts` EXPORTS the `<Name>Config` alias — the whole alias-route
+// availability test for a published contributor: the emitted alias exists exactly when
+// the transformer generated it (construction-enabled, no user `static new`, no reserved
+// collision), and its export tracks the class's (§7.15), so presence-of-exported-alias
+// is precise with no re-derivation.
+function declarationFileExportsConfigAlias(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    className: string
+): boolean {
+    const aliasName = `${className}Config`
+
+    return sourceFile.statements.some((statement) =>
+        tsInstance.isTypeAliasDeclaration(statement) &&
+        statement.name.text === aliasName &&
+        hasModifier(tsInstance, statement, tsInstance.SyntaxKind.ExportKeyword))
 }
 
 function collectDeclarationFileTypeAliases(
@@ -259,8 +279,10 @@ export function collectDeclarationFileMixinCandidates(
                 configRequiresArgument : requiredBaseIsPackageBase
                     ? mixinValueNewRequiresArgument(tsInstance, declaration.type)
                     : undefined,
-                declarationHeritage : true,
-                defaultExport
+                declarationHeritage  : true,
+                defaultExport,
+                configAliasAvailable : declarationFileExportsConfigAlias(tsInstance, sourceFile, declaration.name.text),
+                generic              : (interfaces.get(declaration.name.text)?.typeParameters?.length ?? 0) > 0
             })
         }
     }

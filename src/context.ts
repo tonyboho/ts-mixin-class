@@ -288,9 +288,20 @@ function addImportedMixinRefs(
                     importedName : generatedName(registered.name, mixinFactorySuffix)
                 },
                 requiredBase,
-                dependencies         : registered.dependencies,
-                declaration          : undefined,
-                configProperties     : registered.configProperties,
+                dependencies      : registered.dependencies,
+                declaration       : undefined,
+                configProperties  : registered.configProperties,
+                // Route only when the import resolves to the DECLARING module: a named
+                // re-export barrel forwards the mixin value but not its `<Name>Config`
+                // alias, so the alias must be imported from where it is declared.
+                configAliasImport : registered.configAliasAvailable === true &&
+                    normalizePath(imported.resolvedFileName) === normalizePath(registered.fileName)
+                    ? {
+                        specifier    : importFacts.specifier,
+                        importedName : `${registered.name}Config`,
+                        generic      : registered.generic === true
+                    }
+                    : undefined,
                 missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
                     ? {
                         specifier    : importFacts.specifier,
@@ -400,9 +411,18 @@ function addQualifiedMixinRefs(
                 importedName : generatedName(registered.name, mixinFactorySuffix)
             },
             requiredBase,
-            dependencies         : registered.dependencies,
-            declaration          : undefined,
-            configProperties     : registered.configProperties,
+            dependencies      : registered.dependencies,
+            declaration       : undefined,
+            configProperties  : registered.configProperties,
+            // Declaring-module check — see the named-import site above.
+            configAliasImport : registered.configAliasAvailable === true &&
+                normalizePath(binding.resolvedFileName) === normalizePath(registered.fileName)
+                ? {
+                    specifier,
+                    importedName : `${registered.name}Config`,
+                    generic      : registered.generic === true
+                }
+                : undefined,
             missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
                 ? {
                     specifier,

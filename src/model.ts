@@ -85,7 +85,11 @@ export type RegisteredMixin = {
     // inventory lets a downstream composition SKIP the alias reference: an empty class's
     // own alias is the exact-empty idiom (`Partial<Record<PropertyKey, never>>`, §7.25),
     // whose never-typed index signatures would poison every other layer in the flatten.
-    configInventoryComplete?  : boolean
+    configInventoryComplete?  : boolean,
+    // The `<Name>ConfigMeta` companion is importable from the declaring module — a
+    // downstream meta may then COMPOSE it by reference (`__X$configMeta["keys"]`) instead
+    // of under-reporting keys it cannot respell (foreign computed keys, index kinds).
+    configMetaAvailable?      : boolean
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -106,7 +110,9 @@ export type ConstructionBaseEntry = {
     configAliasAvailable?    : boolean,
     // See `RegisteredMixin.configInventoryComplete` — here for the ACCUMULATED chain
     // inventory (own + every ancestor and consumed mixin up to `Base`).
-    configInventoryComplete? : boolean
+    configInventoryComplete? : boolean,
+    // See `RegisteredMixin.configMetaAvailable`.
+    configMetaAvailable?     : boolean
 }
 
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
@@ -219,7 +225,8 @@ export type ResolvedMixinRef = {
     // `inventoryComplete` mirrors `RegisteredMixin.configInventoryComplete` — with an
     // EMPTY `configProperties` it proves the alias is the exact-empty idiom, which must
     // never join a composition (its never-typed index signatures poison the flatten).
-    configAliasImport?   : { specifier: string, importedName: string, generic: boolean, inventoryComplete: boolean },
+    // `metaAvailable` mirrors `RegisteredMixin.configMetaAvailable`.
+    configAliasImport?   : { specifier: string, importedName: string, generic: boolean, inventoryComplete: boolean, metaAvailable: boolean },
     missingRuntimeImport : {
         specifier    : string,
         importedName : string

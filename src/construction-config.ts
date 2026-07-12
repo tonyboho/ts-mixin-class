@@ -32,7 +32,11 @@ type ConstructionConfig = {
     // The aggregated property list the config type was built from — the single source the
     // `<Name>ConfigMeta` companion derives its literal unions from, so meta ↔ config
     // coherence holds by construction.
-    properties        : ConfigProperty[]
+    properties        : ConfigProperty[],
+    // Contributor metas the companion must COMPOSE by reference (`__X$configMeta["keys"]`):
+    // layers whose inventory the merged list cannot respell (foreign computed keys, index
+    // kinds). Empty in source view and for fully-respellable compositions.
+    metaReferences    : string[]
 }
 
 // A short, improbable marker placed as the first statement of the generated `static new`
@@ -466,14 +470,20 @@ export function createMixinConstructionNewType(
 // reserved-name-colliding parents, and (until the cross-file alias-route stage) imported
 // contributors.
 type ConfigLayer = {
-    reference  : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
-    properties : ConfigProperty[],
+    reference      : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
+    properties     : ConfigProperty[],
     // A reference layer whose keys are ALL overridden by nearer layers may be dropped
     // ONLY when `properties` is a COMPLETE inventory of the alias (a local, dependency-free
     // contributor without index signatures). An imported alias may carry cargo the fact
     // route cannot see (computed keys, index signatures) — it must stay referenced (bare,
     // or Omit-ed by its known keys) even when every known key is overridden.
-    droppable? : boolean
+    droppable?     : boolean,
+    // The contributor's `<Name>ConfigMeta` reference name usable in THIS file (a generated
+    // type-only import's local name, or the plain same-file alias name). Set only when the
+    // layer carries inventory the consumer's meta cannot respell (foreign computed keys,
+    // index kinds) — the consumer's meta then COMPOSES it (`__X$configMeta["keys"]`)
+    // instead of under-reporting. Emit plane only (source view emits no meta).
+    metaReference? : string
 }
 
 function createConstructionConfig(
@@ -515,6 +525,8 @@ function createConstructionConfig(
         ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap, usedImports)),
         ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap, usedImports)
     ]
+    const metaReferences        = [ ...new Set(layers.flatMap((layer) =>
+        layer.metaReference === undefined ? [] : [ layer.metaReference ])) ]
 
     // A `.d.ts` contributor's published `.new` parameter may be REQUIRED for keys the fact
     // inventory misses (an older emit without the meta) — the registry flag keeps this
@@ -648,7 +660,8 @@ function createConstructionConfig(
                 ])
             ]),
             optionalParameter : true,
-            properties        : []
+            properties        : [],
+            metaReferences    : []
         }
     }
 
@@ -661,7 +674,8 @@ function createConstructionConfig(
         // parameter required in that case.
         optionalParameter : !merged.some((property) => property.valueType === undefined && !property.optional)
             && !declarationRequiresArgument,
-        properties : merged
+        properties : merged,
+        metaReferences
     }
 }
 
@@ -772,7 +786,19 @@ function mixinConfigLayer(
                         aliasName     : localName,
                         typeArguments : typeArguments?.map((argument) => deepCloneNode(tsInstance, argument))
                     },
-                    properties : ref.configProperties
+                    properties    : ref.configProperties,
+                    metaReference : importedMetaReference(
+                        tsInstance,
+                        options,
+                        usedImports,
+                        ref.className,
+                        ref.configAliasImport.specifier,
+                        ref.configAliasImport.metaAvailable,
+                        // Hidden inventory: the strip loses computed keys here, or the own
+                        // inventory is not provably whole (index signatures).
+                        !ref.configAliasImport.inventoryComplete ||
+                            transplantableConfigProperties(ref.configProperties).length !== ref.configProperties.length
+                    )
                 }
             }
         }
@@ -790,18 +816,28 @@ function mixinConfigLayer(
         return { reference: undefined, properties: [] }
     }
 
+    const locallyExported = hasModifier(tsInstance, mixinFacts.declaration, tsInstance.SyntaxKind.ExportKeyword) &&
+        !hasModifier(tsInstance, mixinFacts.declaration, tsInstance.SyntaxKind.DefaultKeyword)
+
     return {
         reference : {
             aliasName     : `${mixinFacts.name ?? ""}Config`,
             typeArguments : aliasReferenceTypeArguments(tsInstance, declaration, ref, mixinFacts)
         },
         // Identity only (overlap / winner gates): the alias itself carries the types.
-        properties : ref.configProperties,
+        properties    : ref.configProperties,
         // Complete inventory: local and no index signatures — only then may a
         // fully-overridden layer drop. Dependencies are irrelevant here: the consumer's
         // C3-linearized ref list carries every transitive dependency as its OWN layer,
         // so their cargo never rides only through this alias.
-        droppable  : mixinFacts.indexSignatures.length === 0
+        droppable     : mixinFacts.indexSignatures.length === 0,
+        // Index kinds are the one local inventory `ConfigProperty[]` cannot carry — an
+        // index-signature mixin's meta is composed by plain name (exported classes only;
+        // its keys and base chain need no reference: keys are spellable same-file, the
+        // chain rides the consumer's own base layer).
+        metaReference : !options.sourceView && locallyExported && mixinFacts.indexSignatures.length > 0
+            ? `${mixinFacts.name ?? ""}ConfigMeta`
+            : undefined
     }
 }
 
@@ -871,7 +907,17 @@ function baseConfigLayer(
                             ? undefined
                             : baseType.typeArguments.map((argument) => deepCloneNode(tsInstance, argument))
                     },
-                    properties : accumulated()
+                    properties    : accumulated(),
+                    metaReference : importedMetaReference(
+                        tsInstance,
+                        options,
+                        usedImports,
+                        baseEntry.name,
+                        specifier,
+                        baseEntry.configMetaAvailable === true,
+                        !(baseEntry.configInventoryComplete === true &&
+                            transplantableConfigProperties(baseEntry.configProperties).length === baseEntry.configProperties.length)
+                    )
                 } ]
             }
         }
@@ -883,16 +929,21 @@ function baseConfigLayer(
         return flattened()
     }
 
-    const properties = accumulated()
+    const properties    = accumulated()
+    const chainComplete = chainInventoryComplete(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set())
 
     // A provably EMPTY local parent chain contributes nothing instead of its alias (the
     // exact-empty idiom, §7.25, must never join a composition). The completeness walk is
     // the accumulation's twin: index signatures or unprovable levels keep the reference.
-    if (properties.length === 0 &&
-        chainInventoryComplete(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set())
-    ) {
+    if (properties.length === 0 && chainComplete) {
         return []
     }
+
+    // A local parent whose chain hides inventory (it inherits a `.d.ts` contributor's
+    // computed keys, or carries index signatures) gets its meta COMPOSED by plain name —
+    // the meta exists in this same file for an exported class.
+    const parentExported = hasModifier(tsInstance, parentFacts.declaration, tsInstance.SyntaxKind.ExportKeyword) &&
+        !hasModifier(tsInstance, parentFacts.declaration, tsInstance.SyntaxKind.DefaultKeyword)
 
     return [ {
         reference : {
@@ -901,8 +952,36 @@ function baseConfigLayer(
                 ? undefined
                 : baseType.typeArguments.map((argument) => deepCloneNode(tsInstance, argument))
         },
-        properties
+        properties,
+        metaReference : !options.sourceView && parentExported && !chainComplete
+            ? `${parentFacts.name ?? ""}ConfigMeta`
+            : undefined
     } ]
+}
+
+// The generated type-only meta import (`import type { XConfigMeta as __X$configMeta }`)
+// for an imported contributor whose layer hides inventory the consumer's meta cannot
+// respell. Emit plane only (source view emits no meta, so the import would dangle);
+// requires the contributor to actually publish the meta (an older emit does not), and
+// falls back to no reference on a local-name collision.
+function importedMetaReference(
+    tsInstance: TypeScript,
+    options: TransformOptions,
+    usedImports: Map<string, { specifier: string, importedName: string, localName: string, typeOnly?: boolean }>,
+    className: string,
+    specifier: string,
+    metaAvailable: boolean,
+    hidesInventory: boolean
+): string | undefined {
+    if (options.sourceView || !metaAvailable || !hidesInventory) {
+        return undefined
+    }
+
+    const localName = generatedName(className, "$configMeta")
+
+    return registerConfigAliasImport(usedImports, specifier, `${className}ConfigMeta`, localName)
+        ? localName
+        : undefined
 }
 
 // Whether a class's `<Name>Config` alias is importable FROM ANOTHER FILE, short of
@@ -1419,6 +1498,16 @@ function createConstructionConfigMeta(
                     : "string"
         )))
 
+    // COMPOSED fields: a contributor whose inventory the merged list cannot respell
+    // (foreign computed keys, index kinds) rides as an indexed access into ITS meta
+    // (`__X$configMeta["keys"]`) — exact by reference at any package depth, the meta twin
+    // of the config tree. Literals overlapping a reference dedup in the union.
+    const metaReferenceTerms = (fieldName: string): ts.TypeNode[] => config.metaReferences.map((reference) =>
+        factory.createIndexedAccessTypeNode(
+            factory.createTypeReferenceNode(reference, undefined),
+            factory.createLiteralTypeNode(factory.createStringLiteral(fieldName))
+        ))
+
     const unionOrNever = (types: ts.TypeNode[]): ts.TypeNode => types.length === 0
         ? factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
         : keyUnionType(tsInstance, types)
@@ -1438,9 +1527,9 @@ function createConstructionConfigMeta(
             literalField("requiresArgument", factory.createLiteralTypeNode(
                 config.optionalParameter ? factory.createFalse() : factory.createTrue()
             )),
-            literalField("requiredKeys", unionOrNever(requiredKeys)),
-            literalField("keys", unionOrNever(keys)),
-            literalField("indexKinds", unionOrNever(indexKinds))
+            literalField("requiredKeys", unionOrNever([ ...requiredKeys, ...metaReferenceTerms("requiredKeys") ])),
+            literalField("keys", unionOrNever([ ...keys, ...metaReferenceTerms("keys") ])),
+            literalField("indexKinds", unionOrNever([ ...indexKinds, ...metaReferenceTerms("indexKinds") ]))
         ])
     )
 }

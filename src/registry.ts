@@ -21,7 +21,7 @@ import {
 } from "./model.js"
 import { normalizePath, shouldSkipFileName } from "./util.js"
 import { exportedConfigAliasAvailable, exportedConfigAliasEligible } from "./construction-config.js"
-import { collectDeclarationFileConstructionBases, collectDeclarationFileMixinCandidates } from "./registry-declaration-file.js"
+import { collectDeclarationFileConstructionBases, collectDeclarationFileMixinCandidates, type DeclarationMetaResolution } from "./registry-declaration-file.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import type { TypeScript } from "./util.js"
 
@@ -45,7 +45,7 @@ export function buildMixinRegistry(
             continue
         }
 
-        candidates.push(...cachedSourceFileMixinCandidates(tsInstance, sourceFile, resolvedOptions))
+        candidates.push(...cachedSourceFileMixinCandidates(tsInstance, sourceFile, resolvedOptions, { program, resolveModuleFileName }))
     }
 
     const registry: MixinRegistry = new Map()
@@ -62,7 +62,8 @@ export function buildMixinRegistry(
             configRequiresArgument    : candidate.configRequiresArgument,
             configAliasAvailable      : candidate.configAliasAvailable,
             generic                   : candidate.generic,
-            configInventoryComplete   : candidate.configInventoryComplete
+            configInventoryComplete   : candidate.configInventoryComplete,
+            configMetaAvailable       : candidate.configMetaAvailable
         })
 
         if (candidate.defaultExport) {
@@ -231,10 +232,12 @@ export type Candidate = {
     configRequiresArgument?   : boolean,
     declarationHeritage       : boolean,
     defaultExport             : boolean,
-    // See `RegisteredMixin.configAliasAvailable` / `.generic` / `.configInventoryComplete`.
+    // See `RegisteredMixin.configAliasAvailable` / `.generic` / `.configInventoryComplete`
+    // / `.configMetaAvailable`.
     configAliasAvailable?     : boolean,
     generic?                  : boolean,
-    configInventoryComplete?  : boolean
+    configInventoryComplete?  : boolean,
+    configMetaAvailable?      : boolean
 }
 
 // Program-wide map of ordinary (non-mixin) classes that transitively extend the
@@ -588,7 +591,9 @@ export function buildConstructionBaseRegistry(
             configProperties        : entry.configProperties,
             // A base-descendant IS construction-enabled, so eligibility is the whole test.
             configAliasAvailable    : candidate.configAliasEligible,
-            configInventoryComplete : entry.inventoryComplete
+            configInventoryComplete : entry.inventoryComplete,
+            // The meta companion shares the alias's availability gates.
+            configMetaAvailable     : candidate.configAliasEligible
         })
     }
 
@@ -611,7 +616,7 @@ export function buildConstructionBaseRegistry(
             continue
         }
 
-        for (const constructionBase of collectDeclarationFileConstructionBases(tsInstance, sourceFile)) {
+        for (const constructionBase of collectDeclarationFileConstructionBases(tsInstance, sourceFile, { program, resolveModuleFileName })) {
             const entry = {
                 fileName                : sourceFile.fileName,
                 name                    : constructionBase.name,
@@ -619,7 +624,8 @@ export function buildConstructionBaseRegistry(
                 configProperties        : constructionBase.configProperties,
                 configRequiresArgument  : constructionBase.configRequiresArgument,
                 configAliasAvailable    : constructionBase.configAliasAvailable,
-                configInventoryComplete : constructionBase.configInventoryComplete
+                configInventoryComplete : constructionBase.configInventoryComplete,
+                configMetaAvailable     : constructionBase.configMetaAvailable
             }
 
             // No "default"-name aliasing here (unlike the mixin registry's line for
@@ -636,7 +642,8 @@ export function buildConstructionBaseRegistry(
 function cachedSourceFileMixinCandidates(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
-    options: TransformOptions
+    options: TransformOptions,
+    resolution?: DeclarationMetaResolution
 ): Candidate[] {
     const cacheKey = registryCandidateCacheKey(sourceFile, options)
     const cached   = registryCandidateCache.get(sourceFile)?.get(cacheKey)
@@ -645,7 +652,7 @@ function cachedSourceFileMixinCandidates(
         return cached
     }
 
-    const candidates      = collectSourceFileMixinCandidates(tsInstance, sourceFile, options)
+    const candidates      = collectSourceFileMixinCandidates(tsInstance, sourceFile, options, resolution)
     const cachedByOptions = registryCandidateCache.get(sourceFile) ?? new Map<string, Candidate[]>()
 
     cachedByOptions.set(cacheKey, candidates)
@@ -657,10 +664,11 @@ function cachedSourceFileMixinCandidates(
 function collectSourceFileMixinCandidates(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
-    options: TransformOptions
+    options: TransformOptions,
+    resolution?: DeclarationMetaResolution
 ): Candidate[] {
     if (sourceFile.isDeclarationFile) {
-        return collectDeclarationFileMixinCandidates(tsInstance, sourceFile, options)
+        return collectDeclarationFileMixinCandidates(tsInstance, sourceFile, options, resolution)
     }
 
     if (!sourceFile.text.includes(options.packageName)) {
@@ -697,7 +705,10 @@ function collectSourceFileMixinCandidates(
             generic                 : (classFacts.declaration.typeParameters?.length ?? 0) > 0,
             // Source facts see every key, so the own inventory is complete exactly when
             // there is no index signature (`ConfigProperty[]` cannot represent one).
-            configInventoryComplete : classFacts.indexSignatures.length === 0
+            configInventoryComplete : classFacts.indexSignatures.length === 0,
+            // The meta companion shares the alias's availability gates (exported,
+            // construction-enabled, reserved name free).
+            configMetaAvailable     : exportedConfigAliasAvailable(tsInstance, sourceFile, classFacts, options, facts)
         })
     }
 

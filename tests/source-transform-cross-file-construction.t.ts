@@ -1415,3 +1415,104 @@ it("a SECOND-generation declaration package stays construction-enabled and keeps
         await app.dispose()
     }
 })
+
+it("a consumer's meta COMPOSES its contributors' metas — the inherited exotic inventory stays exact by reference", async (t: Test) => {
+    // Generation 1: computed keys with a NARROW value type on the required symbol key.
+    const firstGeneration = await buildDeclarationPackage(t, "meta-gen-one", [ {
+        fileName : "tagged.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
+
+            export const priority = Symbol("priority")
+            export const kind = "meta-kind"
+
+            export class Tagged extends Base {
+                public [priority]!: 1 | 2
+                public [kind]: string = ""
+            }
+        `
+    } ])
+
+    // Generation 2: a keyless subclass. Its meta cannot RESPELL gen-one's computed keys
+    // (foreign-scope entities), so it must reference gen-one's meta instead of publishing
+    // an under-reporting literal `never`.
+    const secondGeneration = await buildDeclarationPackage(
+        t,
+        "meta-gen-two",
+        [ {
+            fileName : "middle.ts",
+            text     : `
+            import { Tagged } from "meta-gen-one/tagged"
+
+            export class Middle extends Tagged {
+            }
+        `
+        } ],
+        firstGeneration
+    )
+
+    const middleDeclaration = secondGeneration.find((file) => file.fileName.endsWith("middle.d.ts"))!.text
+
+    t.match(middleDeclaration, '$configMeta["keys"]', "the meta's keys reference the contributor's meta")
+    t.match(middleDeclaration, '$configMeta["requiredKeys"]', "the meta's requiredKeys reference the contributor's meta")
+    t.notMatch(middleDeclaration, "readonly keys: never", "the key inventory is no longer under-reported")
+
+    // Generation 3, published as a package too: its meta must reference GENERATION 2's
+    // meta alongside its own literal key — transitivity, and the proof that the reader
+    // RESOLVED generation 2's references (an unresolved layer would read as key-free and
+    // emit no reference of its own).
+    const thirdGeneration = await buildDeclarationPackage(
+        t,
+        "meta-gen-three",
+        [ {
+            fileName : "leaf.ts",
+            text     : `
+            import { Middle } from "meta-gen-two/middle"
+
+            export class Leaf extends Middle {
+                public own!: string
+            }
+        `
+        } ],
+        [ ...firstGeneration, ...secondGeneration ]
+    )
+
+    const leafDeclaration = thirdGeneration.find((file) => file.fileName.endsWith("leaf.d.ts"))!.text
+
+    t.match(leafDeclaration, '"own" | __Middle$configMeta["keys"]', "the third generation spells its own key and references the second's meta")
+    t.match(leafDeclaration, '"own" | __Middle$configMeta["requiredKeys"]', "requiredness composes by reference too")
+
+    // Generation 4, a source consumer: construction typing through the whole chain.
+    const app = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : [ ...firstGeneration, ...secondGeneration, ...thirdGeneration ],
+        sourceFiles            : [ {
+            fileName : "consumer.ts",
+            text     : `
+                import { Leaf } from "meta-gen-three/leaf"
+                import { priority } from "meta-gen-one/tagged"
+
+                export class App extends Leaf {
+                    public appValue: boolean = false
+                }
+
+                const app = App.new({ own: "x", [priority]: 1, appValue: true })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error the symbol key stays REQUIRED three package generations up
+                    App.new({ own: "x" })
+                }
+
+                void [ app, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", app.tsconfigFile ], app.directory)
+
+        t.isStrict(result.exitCode, 0, `construction typing holds through three composed package generations:\n${commandOutput(result)}`)
+    } finally {
+        await app.dispose()
+    }
+})

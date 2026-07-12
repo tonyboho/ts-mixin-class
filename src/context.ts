@@ -300,7 +300,8 @@ function addImportedMixinRefs(
                         specifier         : importFacts.specifier,
                         importedName      : `${registered.name}Config`,
                         generic           : registered.generic === true,
-                        inventoryComplete : registered.configInventoryComplete === true
+                        inventoryComplete : registered.configInventoryComplete === true,
+                        metaAvailable     : registered.configMetaAvailable === true
                     }
                     : undefined,
                 missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
@@ -422,7 +423,8 @@ function addQualifiedMixinRefs(
                     specifier,
                     importedName      : `${registered.name}Config`,
                     generic           : registered.generic === true,
-                    inventoryComplete : registered.configInventoryComplete === true
+                    inventoryComplete : registered.configInventoryComplete === true,
+                    metaAvailable     : registered.configMetaAvailable === true
                 }
                 : undefined,
             missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false

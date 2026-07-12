@@ -18,8 +18,10 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
+import { isPackageBaseExpression } from "./construction-chain.js"
 import { metadataBaseLocalName, uniqueTypeParameterName } from "./naming.js"
 import { extendsClause, requiredBaseType } from "./heritage.js"
+import { getSourceFileFacts } from "./source-file-facts.js"
 import { cloneNode, deepCloneNode } from "./util.js"
 import { preserveTextRange } from "./text-range.js"
 import type { RequiredBaseConflict, RequiredBaseInstance } from "./required-base-plan.js"
@@ -185,7 +187,19 @@ export function createRequiredBaseValidations(
     // the type arguments that instantiate a generic mixin's declared base in the
     // consumer's scope. Transitive refs have no use site here — their generic bases
     // degrade to the nominal/runtime checks.
-    directHeritageByRef?: ReadonlyMap<ResolvedMixinRef, ts.ExpressionWithTypeArguments>
+    directHeritageByRef?: ReadonlyMap<ResolvedMixinRef, ts.ExpressionWithTypeArguments>,
+    // The consumer's explicit base chain provably reaches the package `Base` — computed
+    // by the caller with FULL cross-file context (`isConstructionBaseOptIn`: registry,
+    // qualified, namespace-import and barrel forms). Source view decides validations at
+    // transform time, and its same-file syntactic walk alone would bake a FALSE
+    // hard-failure literal for a package-`Base` requirement over an IMPORTED base.
+    extendsPackageBase = false,
+    // The USER-CLASS twin: the checker (nominal machinery, original program) proved the
+    // explicit base satisfies the SELECTED requirement with no conflicting requirement
+    // present — every direct requirement then sits on the selected one's chain, so the
+    // source-view validations may skip wholesale (an imported descendant of a required
+    // user base is invisible to both the syntactic walk and the registries).
+    extendsSatisfiesSelectedRequirement = false
 ): RequiredBaseValidation[] {
     const validations: RequiredBaseValidation[] = []
 
@@ -206,11 +220,15 @@ export function createRequiredBaseValidations(
             continue
         }
 
-        if (options.sourceView && baseSatisfiesRequiredBaseSyntactically(
-            tsInstance,
-            sourceFile,
-            extendsType,
-            requiredBase.typeNode
+        if (options.sourceView && (
+            extendsSatisfiesSelectedRequirement ||
+            baseSatisfiesRequiredBaseSyntactically(
+                tsInstance,
+                sourceFile,
+                extendsType,
+                requiredBase.typeNode
+            ) ||
+            (extendsPackageBase && requirementIsPackageBase(tsInstance, sourceFile, ref, options))
         )) {
             continue
         }
@@ -455,6 +473,36 @@ function requiredBaseRequirementOfMixinRef(
         typeNode : runtimeMixinClassRequiredBaseInstanceType(tsInstance, ref.localValueName),
         name     : `${ref.className} required base`
     }
+}
+
+// Whether a ref's required base is the package `Base` itself: an imported mixin records
+// it on the ref (`requiredBase.isPackageBase`); a local mixin's requirement is its own
+// `extends` expression, judged against the file's package-`Base` bindings. Only for a
+// package-`Base` requirement can the caller's `extendsPackageBase` (the construction-base
+// opt-in walk) vouch that the consumer's IMPORTED base satisfies it — a user-class
+// requirement needs descendant knowledge the registries do not carry.
+function requirementIsPackageBase(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    ref: ResolvedMixinRef,
+    options: TransformOptions
+): boolean {
+    if (ref.requiredBase !== undefined) {
+        return ref.requiredBase.isPackageBase
+    }
+
+    if (ref.declaration === undefined) {
+        return false
+    }
+
+    const requiredBase = requiredBaseType(tsInstance, ref.declaration)
+
+    return requiredBase !== undefined && isPackageBaseExpression(
+        tsInstance,
+        requiredBase.expression,
+        options,
+        getSourceFileFacts(tsInstance, sourceFile, options)
+    )
 }
 
 function baseSatisfiesRequiredBaseSyntactically(

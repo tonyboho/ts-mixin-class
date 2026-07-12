@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 
-import { it, xit } from "@bryntum/siesta/nodejs.js"
+import { it } from "@bryntum/siesta/nodejs.js"
 import type { Test } from "@bryntum/siesta/nodejs.js"
 
 import { commandOutput, createTypeScriptFixture, packageRoot, runCommand } from "./util.js"
@@ -1203,14 +1203,15 @@ it("preserves overloaded constructors and exotic statics through a declaration p
     }
 })
 
-// PRE-EXISTING source-view-only bug (found 2026-07-12 by the construction-barrel fixture;
-// reproduced at v0.0.13, DIRECT import, no barrel involved): a consumer that combines
-// `extends <imported Base descendant>` with `implements <package-Base-required mixin>`
-// gets a FALSE TS990014-encoded TS2344 ("Mixin required base mismatch ... can only be
-// applied to Base") plus an unused generated `<Mixin>$requiredBase` import (TS6133) in
-// the source-view plane, while the emit plane correctly accepts the same program. See
-// TODO.md ("Source-view false required-base mismatch over an imported base").
-xit("an imported-base consumer of a package-Base-required mixin passes the source-view required-base check", async (t: Test) => {
+// Found 2026-07-12 by the construction-barrel fixture (reproduced at v0.0.13, DIRECT
+// import, no barrel involved): a consumer combining `extends <imported Base descendant>`
+// with `implements <package-Base-required mixin>` used to get a FALSE TS990014-encoded
+// TS2344 ("Mixin required base mismatch ... can only be applied to Base") plus an unused
+// generated `<Mixin>$requiredBase` import (TS6133) in the SOURCE-VIEW plane — that plane
+// bakes the validation's outcome at transform time, and its satisfaction walk saw only
+// same-file classes. For a package-`Base` requirement the construction-base opt-in walk
+// (registry, qualified, namespace-import, barrel forms) now answers it cross-file.
+it("an imported-base consumer of a package-Base-required mixin passes the source-view required-base check", async (t: Test) => {
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
         sourceFiles            : [
@@ -1253,6 +1254,64 @@ xit("an imported-base consumer of a package-Base-required mixin passes the sourc
             result.exitCode,
             0,
             `An imported Base descendant satisfies the mixin's package-Base requirement in source view:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// The USER-CLASS twin of the previous test: the mixin requires a user base
+// (`@mixin() Tagged extends AppBase`), and the consumer extends an IMPORTED descendant
+// of it. The registries carry package-`Base` descendants only, so here the source-view
+// satisfaction check leans on the nominal machinery (`explicitBaseSatisfies` — the
+// original program's checker relation), which already feeds the nominal validation.
+it("an imported-descendant consumer of a user-base-required mixin passes the source-view required-base check", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            {
+                fileName : "provider.ts",
+                text     : `
+                    import { Base, mixin } from "ts-mixin-class"
+
+                    export class AppBase extends Base {
+                        public baseValue!: string
+                    }
+
+                    export class AppSub extends AppBase {
+                        public subValue!: number
+                    }
+
+                    @mixin()
+                    export class Tagged extends AppBase {
+                        public tag?: string = ""
+                    }
+                `
+            },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { AppSub, Tagged } from "./provider.js"
+
+                    export class Widget extends AppSub implements Tagged {
+                        public ownValue?: number = 0
+                    }
+
+                    const widget = Widget.new({ baseValue: "b", subValue: 1, tag: "t", ownValue: 7 })
+
+                    void widget
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `An imported descendant satisfies the mixin's user-base requirement in source view:\n${commandOutput(result)}`
         )
     } finally {
         await fixture.dispose()

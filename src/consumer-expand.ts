@@ -196,10 +196,10 @@ export function expandConsumerClass(
     // foreign parameters — clone/alias as-is), an instantiated argument list, or
     // undefined (inexpressible → the TYPE-level base is dropped; the plan/value side
     // and the members flowing through the mixin interfaces are unaffected).
-    const selectedInstantiation         = requiredBaseResolution?.selected === undefined
+    const selectedInstantiation = requiredBaseResolution?.selected === undefined
         ? undefined
         : context.crossFile?.requiredBases.instantiateBase(requiredBaseResolution.selected)
-    const implicitRequiredBase          = expansion.extendsType !== undefined
+    const implicitRequiredBase  = expansion.extendsType !== undefined
         ? undefined
         : selectedRequiredBaseRef !== undefined
             ? instantiatedRequiredBaseTypeOfRef(
@@ -210,24 +210,32 @@ export function expandConsumerClass(
                 selectedInstantiation
             )
             : firstRequiredBaseType(tsInstance, context, linearizedForPlan, directHeritageByRef)
-    const emptyBaseName                 = expansion.extendsType === undefined &&
+    const emptyBaseName         = expansion.extendsType === undefined &&
         implicitRequiredBase === undefined && selectedRequiredBaseRef === undefined
         ? generatedName(expansion.name, consumerEmptyBaseSuffix)
         : undefined
-    const requiredBasePlan              = expansion.extendsType !== undefined || linearizationPlan === undefined
+    const requiredBasePlan      = expansion.extendsType !== undefined || linearizationPlan === undefined
         ? undefined
         : selectedRequiredBaseRef !== undefined
             ? planSelection!.plan
             : emptyBaseName !== undefined
                 ? 0
                 : undefined
-    const nominalRequiredBaseValidation = expansion.extendsType !== undefined &&
-        requiredBaseResolution?.selected !== undefined &&
-        context.crossFile?.requiredBases.explicitBaseSatisfies(
+    // The checker relation between the consumer's EXPLICIT base and the selected
+    // (strictest) requirement: false → the nominal validation below; true → the
+    // source-view validations may skip (with no conflict, every direct requirement
+    // sits on the selected one's chain, so all are satisfied); undefined → unknown.
+    const explicitBaseNominalRelation   = expansion.extendsType !== undefined &&
+        requiredBaseResolution?.selected !== undefined
+        ? context.crossFile?.requiredBases.explicitBaseSatisfies(
             sourceFile.fileName,
             declaration,
             requiredBaseResolution.selected
-        ) === false
+        )
+        : undefined
+    const nominalRequiredBaseValidation = expansion.extendsType !== undefined &&
+        requiredBaseResolution?.selected !== undefined &&
+        explicitBaseNominalRelation === false
         ? [ createNominalRequiredBaseValidation(
             tsInstance,
             declaration,
@@ -239,7 +247,24 @@ export function expandConsumerClass(
             )
         ) ]
         : []
-    const requiredBaseValidations       = expansion.extendsType === undefined
+    const facts                         = getSourceFileFacts(tsInstance, sourceFile, options)
+    const consumerBaseImports           = consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts)
+    // The consumer's explicit/implicit base chain provably reaches the package `Base`,
+    // with full cross-file context (registry, qualified, namespace-import, barrel
+    // forms). Feeds both the construction gate below and the source-view required-base
+    // validations: their same-file satisfaction walk alone would bake a FALSE
+    // hard-failure literal for a package-`Base` requirement over an IMPORTED base.
+    const extendsPackageBase      = isConstructionBaseOptIn(
+        tsInstance,
+        sourceFile,
+        expansion.extendsType ?? implicitRequiredBase,
+        options,
+        facts,
+        new Set(),
+        context.crossFile,
+        consumerBaseImports
+    )
+    const requiredBaseValidations = expansion.extendsType === undefined
         ? []
         : [
             ...createRequiredBaseValidations(
@@ -251,7 +276,9 @@ export function expandConsumerClass(
                 linearizedForPlan,
                 expansion.generatedHeritageTypeRange,
                 options,
-                directHeritageByRef
+                directHeritageByRef,
+                extendsPackageBase,
+                explicitBaseNominalRelation === true && requiredBaseResolution?.conflict === undefined
             ),
             ...nominalRequiredBaseValidation
         ]
@@ -264,23 +291,12 @@ export function expandConsumerClass(
         mixinHeritage
     )
     const reducedMixinHeritage = reduceTransitiveMixinHeritageTypes(tsInstance, context, mixinHeritage)
-    const facts                = getSourceFileFacts(tsInstance, sourceFile, options)
-    const consumerBaseImports  = consumerBaseImportMap(tsInstance, sourceFile, context, linearized, facts)
     // A construction consumer transitively extends the package `Base` (so it gets a
     // generated static `new` factory). This mirrors `createConstructionMembers`' own
     // gate: an applied mixin's required base may itself be the package `Base`, or the
     // consumer's explicit/implicit base resolves to it (locally or cross-file).
     const isConstructionConsumer = linearized.some((ref) => ref.requiredBase?.isPackageBase === true) ||
-        isConstructionBaseOptIn(
-            tsInstance,
-            sourceFile,
-            expansion.extendsType ?? implicitRequiredBase,
-            options,
-            facts,
-            new Set(),
-            context.crossFile,
-            consumerBaseImports
-        )
+        extendsPackageBase
     // A construction consumer refuses a direct `new Consumer(...)` (construction goes through the
     // static `new`). When it declares NO constructor of its own, the brand rides on the `$base`
     // cast's construct signature, which the consumer inherits. When it DOES declare a constructor,

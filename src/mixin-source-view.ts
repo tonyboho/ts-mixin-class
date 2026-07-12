@@ -246,7 +246,7 @@ export function expandSourceViewMixinClass(
             requiredBase,
             declaration.typeParameters,
             isConstructionMixin
-                ? { consumerName: declaration.name.text, branded: brandConstructionBase }
+                ? { consumerName: declaration.name.text, branded: brandConstructionBase, omitInheritedStaticNew: construction.dropInheritedStaticNew }
                 : undefined,
             [ createRuntimeMixinClassType(tsInstance, declaration) ]
         )
@@ -299,7 +299,7 @@ export function expandSourceViewMixinClass(
             baseName,
             baseTypeParameters(),
             [ factory.createHeritageClause(tsInstance.SyntaxKind.ExtendsKeyword, [
-                createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase)
+                createSourceViewMixinMetadataBase(tsInstance, declaration, requiredBase, dependencyRefs, brandConstructionBase, construction.dropInheritedStaticNew)
             ]) ],
             []
         ),
@@ -332,7 +332,8 @@ function createSourceViewMixinMetadataBase(
     declaration: ts.ClassDeclaration,
     requiredBase: ts.ExpressionWithTypeArguments | undefined,
     dependencyRefs: ResolvedMixinRef[],
-    isConstructionMixin = false
+    isConstructionMixin = false,
+    dropInheritedStaticNew = false
 ): ts.ExpressionWithTypeArguments {
     const factory = tsInstance.factory
 
@@ -340,7 +341,7 @@ function createSourceViewMixinMetadataBase(
     // parity with the emit value cast; a base-less / custom-required-base mixin keeps the permissive
     // head, so its direct `new` stays allowed.
     const construction = isConstructionMixin && declaration.name !== undefined
-        ? { consumerName: declaration.name.text, branded: true }
+        ? { consumerName: declaration.name.text, branded: true, omitInheritedStaticNew: dropInheritedStaticNew }
         : undefined
     const headType     = requiredBase === undefined
         ? factory.createTypeReferenceNode(anyConstructorLocalName, undefined)

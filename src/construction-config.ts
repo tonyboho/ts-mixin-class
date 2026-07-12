@@ -18,7 +18,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { baseConfigProperties, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
+import { baseConfigProperties, chainInventoryComplete, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { generatedName } from "./naming.js"
 import { normalizePath } from "./util.js"
@@ -51,11 +51,17 @@ export const generatedStaticNewMarker = "$tmc$"
 // its positioning) inserts and positions it; `configAlias` is undefined when the
 // class is not a construction base.
 export type ConstructionMembers = {
-    members     : ts.ClassElement[],
-    configAlias : ts.TypeAliasDeclaration | undefined,
+    members                : ts.ClassElement[],
+    configAlias            : ts.TypeAliasDeclaration | undefined,
     // The `<ClassName>ConfigMeta` companion — emit plane only (undefined in source view,
     // when the class is not a construction base, and in the reserved-name error state).
-    configMeta  : ts.TypeAliasDeclaration | undefined
+    configMeta             : ts.TypeAliasDeclaration | undefined,
+    // The inherited `static new` must be OMITTED from the parent-statics cast: this
+    // class's `.new` parameter is REQUIRED while the provably-empty parent's `.new`
+    // takes the exact-empty idiom (§7.25) — the one config shape assignable in NEITHER
+    // bivariance direction, so keeping the inherited member is a guaranteed TS2417. The
+    // class declares its own `static new`, so omitting loses nothing.
+    dropInheritedStaticNew : boolean
 }
 
 export function createConstructionMembers(
@@ -97,7 +103,7 @@ export function createConstructionMembers(
             )
         )
     ) {
-        return { members: [], configAlias: undefined, configMeta: undefined }
+        return { members: [], configAlias: undefined, configMeta: undefined, dropInheritedStaticNew: false }
     }
 
     const factory        = tsInstance.factory
@@ -276,7 +282,50 @@ export function createConstructionMembers(
         )
     ]
 
-    return { members, configAlias, configMeta }
+    return {
+        members,
+        configAlias,
+        configMeta,
+        dropInheritedStaticNew : !config.optionalParameter && constructionBaseChainProvablyEmpty(
+            tsInstance,
+            sourceFile,
+            extendsType ?? implicitRequiredBase,
+            facts,
+            crossFile,
+            baseImportMap
+        )
+    }
+}
+
+// Whether the parent chain provably contributes NO config at all — its `.new` parameter
+// is then the exact-empty idiom (§7.25). The same evidence `baseConfigLayer` drops the
+// parent's alias reference by: an empty inventory that is COMPLETE (registry flag for an
+// imported parent, the completeness walk for a local one). The package `Base` itself
+// (or no base) answers false — its polymorphic self-typed `.new` conflicts with nothing.
+function constructionBaseChainProvablyEmpty(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    baseType: ts.ExpressionWithTypeArguments | undefined,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined
+): boolean {
+    if (baseType === undefined || !tsInstance.isIdentifier(baseType.expression)) {
+        return false
+    }
+
+    const parentFacts = facts.classesByName.get(baseType.expression.text)
+
+    if (parentFacts === undefined) {
+        const baseEntry = resolveCrossFileConstructionBase(baseType.expression.text, crossFile, baseImportMap)
+
+        return baseEntry !== undefined &&
+            baseEntry.configProperties.length === 0 &&
+            baseEntry.configInventoryComplete === true
+    }
+
+    return baseConfigProperties(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set()).length === 0 &&
+        chainInventoryComplete(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set())
 }
 
 // Positions the generated `<ClassName>Config` alias, a sibling top-level statement the
@@ -704,6 +753,14 @@ function mixinConfigLayer(
     // use-site arguments — a transitive generic dependency (no implements entry) falls
     // back to the fact route, exactly like a contributor without an importable alias.
     if (mixinFacts === undefined && ref.configAliasImport !== undefined && usedImports !== undefined) {
+        // A provably EMPTY contributor contributes nothing instead of its alias: the
+        // alias is the exact-empty idiom (§7.25), whose never-typed index signatures
+        // would poison every other layer in the flatten. (Its base-chain keys ride the
+        // consumer's own base layer, its dependencies ride their own C3 layers.)
+        if (ref.configProperties.length === 0 && ref.configAliasImport.inventoryComplete) {
+            return { reference: undefined, properties: [] }
+        }
+
         const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
 
         if (!ref.configAliasImport.generic || typeArguments !== undefined) {
@@ -725,6 +782,12 @@ function mixinConfigLayer(
         !localConfigAliasAvailable(tsInstance, sourceFile, mixinFacts, options, facts, crossFile, baseImportMap)
     ) {
         return { reference: undefined, properties: substituteMixinConfigTypeParameters(tsInstance, declaration, ref) }
+    }
+
+    // A LOCAL empty contributor: same exact-empty-idiom guard as the imported route
+    // above — local facts are complete, so no keys and no index signatures IS the proof.
+    if (mixinFacts.configProperties.length === 0 && mixinFacts.indexSignatures.length === 0) {
+        return { reference: undefined, properties: [] }
     }
 
     return {
@@ -782,6 +845,17 @@ function baseConfigLayer(
         const specifier = facts.imports.find((importFacts) => importFacts.localNames.includes(baseName))?.specifier
         const binding   = baseImportMap?.get(baseName)
 
+        // A provably EMPTY imported parent contributes nothing instead of its alias —
+        // the alias is the exact-empty idiom (§7.25), whose never-typed index signatures
+        // would poison every other layer in the flatten. The RAW registry list judges
+        // emptiness (the transplantable strip must not hide computed keys).
+        if (baseEntry !== undefined &&
+            baseEntry.configProperties.length === 0 &&
+            baseEntry.configInventoryComplete === true
+        ) {
+            return []
+        }
+
         // The declaring-module check mirrors the mixin route: a named re-export barrel
         // forwards the class value but not its `<Name>Config` alias.
         if (baseEntry?.configAliasAvailable === true && specifier !== undefined && usedImports !== undefined &&
@@ -809,6 +883,17 @@ function baseConfigLayer(
         return flattened()
     }
 
+    const properties = accumulated()
+
+    // A provably EMPTY local parent chain contributes nothing instead of its alias (the
+    // exact-empty idiom, §7.25, must never join a composition). The completeness walk is
+    // the accumulation's twin: index signatures or unprovable levels keep the reference.
+    if (properties.length === 0 &&
+        chainInventoryComplete(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set())
+    ) {
+        return []
+    }
+
     return [ {
         reference : {
             aliasName     : `${parentFacts.name ?? ""}Config`,
@@ -816,7 +901,7 @@ function baseConfigLayer(
                 ? undefined
                 : baseType.typeArguments.map((argument) => deepCloneNode(tsInstance, argument))
         },
-        properties : accumulated()
+        properties
     } ]
 }
 

@@ -17,8 +17,14 @@ import type { TypeScript } from "./util.js"
 // `super(...)` call keeps working even when the base is itself a branded construction
 // class (whose `typeof Base` construct would otherwise require the brand argument).
 export type ConstructionBrand = {
-    consumerName : string,
-    branded      : boolean
+    consumerName            : string,
+    branded                 : boolean,
+    // Also omit the inherited `static new` from the base-statics head: set when this
+    // class's `.new` parameter is REQUIRED while the provably-empty base's `.new` takes
+    // the exact-empty idiom (§7.25) — assignable in neither bivariance direction, so the
+    // inherited member would be a guaranteed TS2417. The class declares its own
+    // `static new`, so omitting loses nothing.
+    omitInheritedStaticNew? : boolean
 }
 
 // The "construction base head" used in a construction consumer's `$base` cast. The
@@ -54,11 +60,44 @@ export function constructionHeadType(
         // construction-base path, which does not request generated imports, needs none:
         // `Omit` is a global lib utility. This keeps the base's statics while the mapped
         // type drops the public construct signature, leaving the one added above as the
-        // only construct signature.
-        factory.createTypeReferenceNode("Omit", [
-            factory.createTypeQueryNode(baseEntity),
-            factory.createLiteralTypeNode(factory.createStringLiteral("prototype"))
-        ])
+        // only construct signature. For a provably-empty base under a required-config
+        // class (see ConstructionBrand) the inherited `static new` is replaced by a
+        // permissive `"new"(props?: any): unknown` member: the exact-empty parameter
+        // would TS2417 against the subclass's required one, while the replacement stays
+        // bivariance-compatible with any config AND keeps the generated implementation
+        // overload's `super.new(props)` forwarding typed.
+        ...(construction.omitInheritedStaticNew === true
+            ? [
+                factory.createTypeReferenceNode("Omit", [
+                    factory.createTypeQueryNode(baseEntity),
+                    factory.createUnionTypeNode([
+                        factory.createLiteralTypeNode(factory.createStringLiteral("prototype")),
+                        factory.createLiteralTypeNode(factory.createStringLiteral("new"))
+                    ])
+                ]),
+                factory.createTypeLiteralNode([
+                    factory.createMethodSignature(
+                        undefined,
+                        factory.createStringLiteral("new"),
+                        undefined,
+                        undefined,
+                        [ factory.createParameterDeclaration(
+                            undefined,
+                            undefined,
+                            "props",
+                            factory.createToken(tsInstance.SyntaxKind.QuestionToken),
+                            factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+                        ) ],
+                        factory.createKeywordTypeNode(tsInstance.SyntaxKind.UnknownKeyword)
+                    )
+                ])
+            ]
+            : [
+                factory.createTypeReferenceNode("Omit", [
+                    factory.createTypeQueryNode(baseEntity),
+                    factory.createLiteralTypeNode(factory.createStringLiteral("prototype"))
+                ])
+            ])
     ])
 }
 

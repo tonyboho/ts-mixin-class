@@ -29,12 +29,19 @@ import type { TypeScript } from "./util.js"
 export function collectDeclarationFileConstructionBases(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
-): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean, configAliasAvailable: boolean }> {
+): Array<{
+    name                    : string,
+    configProperties        : ConfigProperty[],
+    configRequiresArgument  : boolean,
+    configAliasAvailable    : boolean,
+    configInventoryComplete : boolean
+}> {
     const bases: Array<{
-        name                   : string,
-        configProperties       : ConfigProperty[],
-        configRequiresArgument : boolean,
-        configAliasAvailable   : boolean
+        name                    : string,
+        configProperties        : ConfigProperty[],
+        configRequiresArgument  : boolean,
+        configAliasAvailable    : boolean,
+        configInventoryComplete : boolean
     }> = []
     // (No default-export detection: a default-exported construction value is banned at
     // its own build — TS990016, the epic's decision 2 reversed §13.9.)
@@ -57,10 +64,11 @@ export function collectDeclarationFileConstructionBases(
         }
 
         bases.push({
-            name                   : statement.name.text,
-            configProperties       : configPropertiesFromConfigMeta(tsInstance, sourceFile, statement.name.text) ?? [],
-            configRequiresArgument : staticNew.parameters[0].questionToken === undefined,
-            configAliasAvailable   : declarationFileExportsConfigAlias(tsInstance, sourceFile, statement.name.text)
+            name                    : statement.name.text,
+            configProperties        : configPropertiesFromConfigMeta(tsInstance, sourceFile, statement.name.text) ?? [],
+            configRequiresArgument  : staticNew.parameters[0].questionToken === undefined,
+            configAliasAvailable    : declarationFileExportsConfigAlias(tsInstance, sourceFile, statement.name.text),
+            configInventoryComplete : configMetaProvesInventoryComplete(tsInstance, sourceFile, statement.name.text)
         })
     }
 
@@ -98,6 +106,55 @@ function configPropertiesFromConfigMeta(
     sourceFile: ts.SourceFile,
     className: string
 ): ConfigProperty[] | undefined {
+    const metaType = configMetaLiteral(tsInstance, sourceFile, className)
+
+    if (metaType === undefined) {
+        return undefined
+    }
+
+    const keys = metaFieldType(tsInstance, metaType, "keys")
+
+    if (keys === undefined) {
+        return undefined
+    }
+
+    const requiredNames = new Set(
+        metaKeyEntries(tsInstance, metaFieldType(tsInstance, metaType, "requiredKeys")).map((entry) => entry.name)
+    )
+
+    return metaKeyEntries(tsInstance, keys).map((entry) => ({
+        name            : entry.name,
+        optional        : !requiredNames.has(entry.name),
+        computedKeyName : entry.computedKeyName
+    }))
+}
+
+// Whether the published meta proves the read inventory WHOLE: the meta is readable and
+// declares no index kinds (`ConfigProperty[]` cannot represent an index signature). A
+// meta-less older emit answers false — its config may carry cargo the interface shape
+// does not show, so a downstream composition must keep referencing the alias even when
+// the read inventory is empty.
+function configMetaProvesInventoryComplete(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    className: string
+): boolean {
+    const metaType = configMetaLiteral(tsInstance, sourceFile, className)
+
+    if (metaType === undefined || metaFieldType(tsInstance, metaType, "keys") === undefined) {
+        return false
+    }
+
+    const indexKinds = metaFieldType(tsInstance, metaType, "indexKinds")
+
+    return indexKinds !== undefined && indexKinds.kind === tsInstance.SyntaxKind.NeverKeyword
+}
+
+function configMetaLiteral(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    className: string
+): ts.TypeLiteralNode | undefined {
     const metaName = `${className}ConfigMeta`
     const meta     = sourceFile.statements.find((statement): statement is ts.TypeAliasDeclaration =>
         tsInstance.isTypeAliasDeclaration(statement) &&
@@ -106,29 +163,19 @@ function configPropertiesFromConfigMeta(
 
     const metaType = meta?.type
 
-    if (metaType === undefined || !tsInstance.isTypeLiteralNode(metaType)) {
-        return undefined
-    }
+    return metaType !== undefined && tsInstance.isTypeLiteralNode(metaType) ? metaType : undefined
+}
 
-    const fieldType = (fieldName: string): ts.TypeNode | undefined => metaType.members.find(
+function metaFieldType(
+    tsInstance: TypeScript,
+    metaType: ts.TypeLiteralNode,
+    fieldName: string
+): ts.TypeNode | undefined {
+    return metaType.members.find(
         (member): member is ts.PropertySignature =>
             tsInstance.isPropertySignature(member) &&
             propertyNameText(tsInstance, member.name) === fieldName
     )?.type
-
-    const keys = fieldType("keys")
-
-    if (keys === undefined) {
-        return undefined
-    }
-
-    const requiredNames = new Set(metaKeyEntries(tsInstance, fieldType("requiredKeys")).map((entry) => entry.name))
-
-    return metaKeyEntries(tsInstance, keys).map((entry) => ({
-        name            : entry.name,
-        optional        : !requiredNames.has(entry.name),
-        computedKeyName : entry.computedKeyName
-    }))
 }
 
 // One meta key union decomposed: string/numeric literal types name respellable keys;
@@ -250,10 +297,14 @@ export function collectDeclarationFileMixinCandidates(
                 configRequiresArgument : requiredBaseIsPackageBase
                     ? mixinValueNewRequiresArgument(tsInstance, declaration.type)
                     : undefined,
-                declarationHeritage  : true,
+                declarationHeritage     : true,
                 defaultExport,
-                configAliasAvailable : declarationFileExportsConfigAlias(tsInstance, sourceFile, declaration.name.text),
-                generic              : (interfaces.get(declaration.name.text)?.typeParameters?.length ?? 0) > 0
+                configAliasAvailable    : declarationFileExportsConfigAlias(tsInstance, sourceFile, declaration.name.text),
+                generic                 : (interfaces.get(declaration.name.text)?.typeParameters?.length ?? 0) > 0,
+                // Only a meta-backed inventory is provably whole; the interface fallback
+                // reads a shape that may hide computed keys and index signatures.
+                configInventoryComplete : newParamConfig !== undefined &&
+                    configMetaProvesInventoryComplete(tsInstance, sourceFile, declaration.name.text)
             })
         }
     }

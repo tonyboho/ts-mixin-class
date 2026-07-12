@@ -397,7 +397,7 @@ export function expandConsumerClass(
                 linearized,
                 updatedConsumerMembers,
                 isConstructionConsumer
-                    ? { consumerName: expansion.name, branded: brandsConstruction }
+                    ? { consumerName: expansion.name, branded: brandsConstruction, omitInheritedStaticNew: construction.dropInheritedStaticNew }
                     : undefined
             ),
             // The fast path's intersection cast silently absorbs incompatible same-named
@@ -470,7 +470,7 @@ export function expandConsumerClass(
             linearized,
             options,
             isConstructionConsumer
-                ? { consumerName: expansion.name, branded: brandsConstruction }
+                ? { consumerName: expansion.name, branded: brandsConstruction, omitInheritedStaticNew: construction.dropInheritedStaticNew }
                 : undefined,
             linearizationPlan,
             requiredBasePlan

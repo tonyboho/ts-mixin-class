@@ -224,7 +224,7 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
     return [
         ...(scenario.baseChainDepth === undefined
             ? []
-            : [ { fileName: "src/bases.ts", text: baseChainSource(scenario.baseChainDepth) } ]),
+            : [ { fileName: "src/bases.ts", text: baseChainSource(scenario.baseChainDepth, scenario.construction) } ]),
         ...Array.from({ length: scenario.size }, (_, index) => {
             return {
                 fileName : `src/${mixinModuleName(index)}.ts`,
@@ -238,9 +238,14 @@ function generateSourceFiles(scenario: BenchmarkScenario): SourceFile[] {
     ]
 }
 
-function baseChainSource(depth: number): string {
-    return Array.from({ length: depth }, (_, index) => {
-        const extendsClause = index === 0 ? "" : ` extends ${baseClassName(index - 1)}`
+function baseChainSource(depth: number, construction: BenchmarkConstructionMode): string {
+    // In construction mode the whole chain derives the construction Base, so the
+    // consumers stay construction-enabled while satisfying the required bases.
+    const rootExtends = construction === "base" ? " extends Base" : ""
+    const rootImport  = construction === "base" ? `import { Base } from "ts-mixin-class/base"\n\n` : ""
+
+    return rootImport + Array.from({ length: depth }, (_, index) => {
+        const extendsClause = index === 0 ? rootExtends : ` extends ${baseClassName(index - 1)}`
 
         return `export class ${baseClassName(index)}${extendsClause} {
     baseValue${index}: number = ${index}
@@ -324,31 +329,37 @@ function createSeededRandom(seed: number): () => number {
 }
 
 function consumerSource(scenario: BenchmarkScenario): string {
-    const leafIndexes      = consumerLeafIndexes(scenario.size, scenario.consumerLeafCount)
+    const leafIndexes = consumerLeafIndexes(scenario.size, scenario.consumerLeafCount)
+    // In construction mode the consumer must extend a Base-derived class; with a required-base
+    // chain in play the deepest chain class (itself Base-derived) satisfies every mixin.
+    const constructionBase = scenario.baseChainDepth === undefined
+        ? { name: "Base", importLine: `import { Base } from "ts-mixin-class/base"` }
+        : { name: baseClassName(scenario.baseChainDepth - 1), importLine: `import { ${baseClassName(scenario.baseChainDepth - 1)} } from "./bases.js"` }
     const imports          = [
-        ...(scenario.construction === "base" ? [ `import { Base } from "ts-mixin-class/base"` ] : []),
+        ...(scenario.construction === "base" ? [ constructionBase.importLine ] : []),
         ...leafIndexes.map((index) => {
             return `import { ${mixinClassName(index)} } from "./${mixinModuleName(index)}.js"`
         })
     ]
     const implementsClause = leafIndexes.map((index) => mixinClassName(index)).join(", ")
-    const extendsClause    = scenario.construction === "base" ? " extends Base" : ""
+    const extendsClause    = scenario.construction === "base" ? ` extends ${constructionBase.name}` : ""
     const checks           = leafIndexes.flatMap((index) => {
         return Array.from({ length: scenario.propertyCount }, (_, propertyIndex) => {
             return `consumer.value${index}_${propertyIndex}`
         })
     })
-    const construction     = scenario.construction === "base"
+    // Construction classes ban direct `new` (the generated brand parameter), so the
+    // construction corpus instantiates through the generated static `.new` instead.
+    const instantiation = scenario.construction === "base"
         ? constructionSource(scenario, leafIndexes)
-        : ""
+        : "const consumer = new Consumer()"
 
     return `${imports.join("\n")}
 
 export class Consumer${extendsClause} implements ${implementsClause} {
 }
 
-const consumer = new Consumer()
-${construction}
+${instantiation}
 
 ${checks.map((check) => `void ${check}`).join("\n")}
 `
@@ -363,11 +374,9 @@ function constructionSource(scenario: BenchmarkScenario, leafIndexes: number[]):
         })
         : []
 
-    return `
-const configured = Consumer.new({
+    return `const consumer = Consumer.new({
 ${configProperties.join(",\n")}
-})
-void configured`
+})`
 }
 
 function mixinDependencyClosure(scenario: BenchmarkScenario, roots: number[]): number[] {

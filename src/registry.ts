@@ -9,6 +9,7 @@ import {
     type ImportMap,
     importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
+    registeredMixinInventoryComplete,
     defaultTransformOptions,
     registryKey,
     uniqueConfigProperties,
@@ -59,7 +60,8 @@ export function buildMixinRegistry(
             configProperties          : candidate.configProperties,
             configRequiresArgument    : candidate.configRequiresArgument,
             configAliasAvailable      : candidate.configAliasAvailable,
-            generic                   : candidate.generic
+            generic                   : candidate.generic,
+            configInventoryComplete   : candidate.configInventoryComplete
         })
 
         if (candidate.defaultExport) {
@@ -228,9 +230,10 @@ export type Candidate = {
     configRequiresArgument?   : boolean,
     declarationHeritage       : boolean,
     defaultExport             : boolean,
-    // See `RegisteredMixin.configAliasAvailable` / `.generic`.
+    // See `RegisteredMixin.configAliasAvailable` / `.generic` / `.configInventoryComplete`.
     configAliasAvailable?     : boolean,
-    generic?                  : boolean
+    generic?                  : boolean,
+    configInventoryComplete?  : boolean
 }
 
 // Program-wide map of ordinary (non-mixin) classes that transitively extend the
@@ -265,7 +268,11 @@ export function buildConstructionBaseRegistry(
         // See `ConstructionBaseEntry.configAliasAvailable` (export/top-level/no-static-new/
         // no-collision computed at collection; construction-enabledness comes from
         // `isBaseDescendant` at resolve time).
-        configAliasEligible           : boolean
+        configAliasEligible           : boolean,
+        // The class's OWN inventory is provably whole: no index signatures, and any
+        // qualified chain's local levels likewise (see `ConstructionBaseEntry
+        // .configInventoryComplete`; mixins and the base chain fold in at resolve time).
+        ownInventoryComplete          : boolean
     }
 
     const candidatesByKey                         = new Map<string, ConstructionBaseCandidate>()
@@ -340,7 +347,9 @@ export function buildConstructionBaseRegistry(
                     ...classFacts.implementsQualifiedNames
                 ],
                 importMap,
-                configAliasEligible : exportedConfigAliasEligible(tsInstance, sourceFile, classFacts)
+                configAliasEligible  : exportedConfigAliasEligible(tsInstance, sourceFile, classFacts),
+                ownInventoryComplete : classFacts.indexSignatures.length === 0 &&
+                    (qualifiedExit === undefined || qualifiedExit.inventoryComplete)
             }
 
             candidates.push(candidate)
@@ -430,7 +439,7 @@ export function buildConstructionBaseRegistry(
         pendingChainFiles = keptChainFiles
     }
 
-    const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[] }>()
+    const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[], inventoryComplete: boolean }>()
 
     const candidateMixinConfig = (candidate: ConstructionBaseCandidate): ConfigProperty[] => {
         if (mixinRegistry === undefined) {
@@ -467,10 +476,29 @@ export function buildConstructionBaseRegistry(
             ...candidate.qualifiedBaseConfigProperties
         ])
 
+    // The completeness half of `ownPlusMixinConfig`: an `implements` name outside the
+    // mixin registry is an interface (it contributes no config), so only RESOLVED mixin
+    // dependencies are judged. Mirrors `candidateMixinConfig`'s resolution order.
+    const ownPlusMixinInventoryComplete = (candidate: ConstructionBaseCandidate): boolean =>
+        candidate.ownInventoryComplete &&
+        (mixinRegistry === undefined || candidate.mixinDependencyNames.every((name) => {
+            const keys        = name.includes(".") ? [] : [ registryKey(candidate.fileName, name) ]
+            const importedKey = importedBindingRegistryKey(name, candidate.importMap)
+
+            if (importedKey !== undefined) {
+                keys.push(importedKey)
+            }
+
+            const registeredKey = keys.find((key) => mixinRegistry.has(key))
+
+            return registeredKey === undefined ||
+                registeredMixinInventoryComplete(registeredKey, mixinRegistry, new Set())
+        }))
+
     const resolve = (
         candidate: ConstructionBaseCandidate,
         seen: Set<string>
-    ): { isBaseDescendant: boolean, configProperties: ConfigProperty[] } => {
+    ): { isBaseDescendant: boolean, configProperties: ConfigProperty[], inventoryComplete: boolean } => {
         const key    = registryKey(candidate.fileName, candidate.name)
         const cached = resolved.get(key)
 
@@ -479,13 +507,21 @@ export function buildConstructionBaseRegistry(
         }
 
         if (seen.has(key)) {
-            return { isBaseDescendant: false, configProperties: ownPlusMixinConfig(candidate) }
+            return {
+                isBaseDescendant  : false,
+                configProperties  : ownPlusMixinConfig(candidate),
+                inventoryComplete : ownPlusMixinInventoryComplete(candidate)
+            }
         }
 
         seen.add(key)
 
         if (candidate.extendsPackageBase) {
-            const result = { isBaseDescendant: true, configProperties: ownPlusMixinConfig(candidate) }
+            const result = {
+                isBaseDescendant  : true,
+                configProperties  : ownPlusMixinConfig(candidate),
+                inventoryComplete : ownPlusMixinInventoryComplete(candidate)
+            }
 
             resolved.set(key, result)
 
@@ -498,7 +534,11 @@ export function buildConstructionBaseRegistry(
                 resolveImportedConstructionBaseCandidate(candidate, candidatesByKey)
 
         if (baseCandidate === undefined) {
-            const result = { isBaseDescendant: false, configProperties: ownPlusMixinConfig(candidate) }
+            const result = {
+                isBaseDescendant  : false,
+                configProperties  : ownPlusMixinConfig(candidate),
+                inventoryComplete : ownPlusMixinInventoryComplete(candidate)
+            }
 
             resolved.set(key, result)
 
@@ -507,9 +547,10 @@ export function buildConstructionBaseRegistry(
 
         const baseResolved = resolve(baseCandidate, seen)
         const result       = {
-            isBaseDescendant : baseResolved.isBaseDescendant,
+            isBaseDescendant  : baseResolved.isBaseDescendant,
             // Own-plus-mixin leads: nearer than the resolved base chain (nearest-first).
-            configProperties : uniqueConfigProperties([ ...ownPlusMixinConfig(candidate), ...baseResolved.configProperties ])
+            configProperties  : uniqueConfigProperties([ ...ownPlusMixinConfig(candidate), ...baseResolved.configProperties ]),
+            inventoryComplete : ownPlusMixinInventoryComplete(candidate) && baseResolved.inventoryComplete
         }
 
         resolved.set(key, result)
@@ -540,12 +581,13 @@ export function buildConstructionBaseRegistry(
         }
 
         registry.set(registryKey(candidate.fileName, candidate.name), {
-            fileName             : candidate.fileName,
-            name                 : candidate.name,
-            isBaseDescendant     : true,
-            configProperties     : entry.configProperties,
+            fileName                : candidate.fileName,
+            name                    : candidate.name,
+            isBaseDescendant        : true,
+            configProperties        : entry.configProperties,
             // A base-descendant IS construction-enabled, so eligibility is the whole test.
-            configAliasAvailable : candidate.configAliasEligible
+            configAliasAvailable    : candidate.configAliasEligible,
+            configInventoryComplete : entry.inventoryComplete
         })
     }
 
@@ -563,12 +605,13 @@ export function buildConstructionBaseRegistry(
 
         for (const constructionBase of collectDeclarationFileConstructionBases(tsInstance, sourceFile)) {
             const entry = {
-                fileName               : sourceFile.fileName,
-                name                   : constructionBase.name,
-                isBaseDescendant       : true,
-                configProperties       : constructionBase.configProperties,
-                configRequiresArgument : constructionBase.configRequiresArgument,
-                configAliasAvailable   : constructionBase.configAliasAvailable
+                fileName                : sourceFile.fileName,
+                name                    : constructionBase.name,
+                isBaseDescendant        : true,
+                configProperties        : constructionBase.configProperties,
+                configRequiresArgument  : constructionBase.configRequiresArgument,
+                configAliasAvailable    : constructionBase.configAliasAvailable,
+                configInventoryComplete : constructionBase.configInventoryComplete
             }
 
             // No "default"-name aliasing here (unlike the mixin registry's line for
@@ -639,11 +682,14 @@ function collectSourceFileMixinCandidates(
             requiredBaseName          : classFacts.requiredBaseName,
             requiredBaseIsPackageBase : classFacts.extendsType !== undefined &&
                 isPackageBaseExpression(tsInstance, classFacts.extendsType.expression, options, facts),
-            configProperties     : classFacts.configProperties,
-            declarationHeritage  : false,
-            defaultExport        : classFacts.defaultExport,
-            configAliasAvailable : exportedConfigAliasAvailable(tsInstance, sourceFile, classFacts, options, facts),
-            generic              : (classFacts.declaration.typeParameters?.length ?? 0) > 0
+            configProperties        : classFacts.configProperties,
+            declarationHeritage     : false,
+            defaultExport           : classFacts.defaultExport,
+            configAliasAvailable    : exportedConfigAliasAvailable(tsInstance, sourceFile, classFacts, options, facts),
+            generic                 : (classFacts.declaration.typeParameters?.length ?? 0) > 0,
+            // Source facts see every key, so the own inventory is complete exactly when
+            // there is no index signature (`ConfigProperty[]` cannot represent one).
+            configInventoryComplete : classFacts.indexSignatures.length === 0
         })
     }
 

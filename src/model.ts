@@ -79,7 +79,13 @@ export type RegisteredMixin = {
     // The mixin declares type parameters: a downstream alias reference must carry the
     // use-site arguments (a TRANSITIVE generic dependency, whose arguments are unknown
     // at the consumer, falls back to the fact route).
-    generic?                  : boolean
+    generic?                  : boolean,
+    // `configProperties` is the COMPLETE inventory of the mixin's OWN contribution — no
+    // index signatures and (for `.d.ts` entries) a readable meta. Only a complete-and-empty
+    // inventory lets a downstream composition SKIP the alias reference: an empty class's
+    // own alias is the exact-empty idiom (`Partial<Record<PropertyKey, never>>`, §7.25),
+    // whose never-typed index signatures would poison every other layer in the flatten.
+    configInventoryComplete?  : boolean
 }
 
 export type MixinRegistry = Map<string, RegisteredMixin>
@@ -90,14 +96,17 @@ export type MixinRegistry = Map<string, RegisteredMixin>
 // accumulates the class's own public config fields plus those of its ancestors up
 // to `Base`, which is exactly what a downstream `.new(...)` config type needs.
 export type ConstructionBaseEntry = {
-    fileName                : string,
-    name                    : string,
-    isBaseDescendant        : boolean,
-    configProperties        : ConfigProperty[],
+    fileName                 : string,
+    name                     : string,
+    isBaseDescendant         : boolean,
+    configProperties         : ConfigProperty[],
     // `.d.ts` bases only — see `RegisteredMixin.configRequiresArgument`.
-    configRequiresArgument? : boolean,
+    configRequiresArgument?  : boolean,
     // See `RegisteredMixin.configAliasAvailable`.
-    configAliasAvailable?   : boolean
+    configAliasAvailable?    : boolean,
+    // See `RegisteredMixin.configInventoryComplete` — here for the ACCUMULATED chain
+    // inventory (own + every ancestor and consumed mixin up to `Base`).
+    configInventoryComplete? : boolean
 }
 
 export type ConstructionBaseRegistry = Map<string, ConstructionBaseEntry>
@@ -207,7 +216,10 @@ export type ResolvedMixinRef = {
     // `RegisteredMixin.configAliasAvailable`): the module specifier and exported alias
     // name a downstream composed config references it by. `generic` mirrors the
     // registered flag — the reference needs the use-site type arguments.
-    configAliasImport?   : { specifier: string, importedName: string, generic: boolean },
+    // `inventoryComplete` mirrors `RegisteredMixin.configInventoryComplete` — with an
+    // EMPTY `configProperties` it proves the alias is the exact-empty idiom, which must
+    // never join a composition (its never-typed index signatures poison the flatten).
+    configAliasImport?   : { specifier: string, importedName: string, generic: boolean, inventoryComplete: boolean },
     missingRuntimeImport : {
         specifier    : string,
         importedName : string
@@ -374,6 +386,34 @@ export function accumulateRegisteredMixinConfig(
         ...registered.configProperties,
         ...registered.dependencies.flatMap((dependency) => accumulateRegisteredMixinConfig(dependency, registry, seen))
     ])
+}
+
+// The completeness twin of `accumulateRegisteredMixinConfig`: whether the accumulated
+// list is the mixin's WHOLE contribution — its own inventory complete, nothing lost to
+// the cross-file computed-key strip, and every transitive dependency likewise. An
+// unregistered dependency name is an interface (it contributes no config), so it does
+// not break completeness. A `seen` cycle answers true: the cycle's members are judged
+// where they are first visited.
+export function registeredMixinInventoryComplete(
+    key: string,
+    registry: MixinRegistry,
+    seen: Set<string>
+): boolean {
+    if (seen.has(key)) {
+        return true
+    }
+
+    seen.add(key)
+
+    const registered = registry.get(key)
+
+    if (registered === undefined) {
+        return true
+    }
+
+    return registered.configInventoryComplete === true &&
+        transplantableConfigProperties(registered.configProperties).length === registered.configProperties.length &&
+        registered.dependencies.every((dependency) => registeredMixinInventoryComplete(dependency, registry, seen))
 }
 
 export function registryKey(fileName: string, name: string): string {

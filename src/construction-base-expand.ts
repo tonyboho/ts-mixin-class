@@ -62,7 +62,7 @@ export function expandConstructionBaseClass(
         rewritten.modifiers,
         rewritten.name,
         rewritten.typeParameters,
-        brandedConstructionHeritageClauses(tsInstance, declaration, rewritten, extendsType, options),
+        brandedConstructionHeritageClauses(tsInstance, declaration, rewritten, extendsType, options, construction.dropInheritedStaticNew),
         preserveTextRange(
             tsInstance,
             factory.createNodeArray([ ...rewritten.members, ...construction.members ]),
@@ -93,7 +93,8 @@ function brandedConstructionHeritageClauses(
     declaration: ts.ClassDeclaration,
     rewritten: ts.ClassDeclaration,
     extendsType: ts.ExpressionWithTypeArguments | undefined,
-    options: TransformOptions
+    options: TransformOptions,
+    dropInheritedStaticNew: boolean
 ): ts.NodeArray<ts.HeritageClause> | undefined {
     const heritageClauses = rewritten.heritageClauses
 
@@ -112,7 +113,8 @@ function brandedConstructionHeritageClauses(
         tsInstance,
         extendsType,
         declaration.name.text,
-        options
+        options,
+        dropInheritedStaticNew
     )
 
     return preserveTextRange(
@@ -139,7 +141,8 @@ function brandedConstructionBaseHeritage(
     tsInstance: TypeScript,
     extendsType: ts.ExpressionWithTypeArguments,
     consumerName: string,
-    options: TransformOptions
+    options: TransformOptions,
+    dropInheritedStaticNew: boolean
 ): ts.HeritageClause {
     const factory = tsInstance.factory
 
@@ -147,7 +150,7 @@ function brandedConstructionBaseHeritage(
     const castType       = constructionHeadType(
         tsInstance,
         expressionToEntityName(tsInstance, extendsType.expression),
-        { consumerName, branded: true },
+        { consumerName, branded: true, omitInheritedStaticNew: dropInheritedStaticNew },
         heritageTypeToTypeReference(tsInstance, extendsType)
     )
     const innerAs        = factory.createAsExpression(

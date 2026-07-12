@@ -27,3 +27,8 @@ What this changes for users:
 Contributors without a referenceable alias — non-construction mixins, named re-export
 barrels, transitive generic dependencies, namespace members, nested declarations — keep
 the previous flattened route, which remains fully supported.
+
+A provably EMPTY contributor (no config keys, no index signatures) contributes nothing
+instead of its alias: its own alias is the exact-empty shape, which must never join a
+composition, and a required-config subclass of such a parent no longer trips the
+static-side `new` compatibility check.

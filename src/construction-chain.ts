@@ -4,6 +4,7 @@ import { dottedExpressionText } from "./entity-name.js"
 import {
     importedBindingRegistryKey,
     accumulateRegisteredMixinConfig,
+    registeredMixinInventoryComplete,
     registryKey,
     transplantableConfigProperties,
     uniqueConfigProperties,
@@ -217,9 +218,14 @@ export function importsPackageBase(
 // added by the caller's own resolution. Returns undefined when the chain dead-ends
 // locally (no `extends`, a cycle, or an unresolvable dotted path).
 export type QualifiedBaseChainExit = {
-    isPackageBase    : boolean,
-    unresolvedName   : string | undefined,
-    configProperties : ConfigProperty[]
+    isPackageBase     : boolean,
+    unresolvedName    : string | undefined,
+    configProperties  : ConfigProperty[],
+    // Whether `configProperties` provably lists the local levels' WHOLE contribution.
+    // Collection time has no cross-file context to judge `implements` targets by, so
+    // this is conservative: any `implements` or index signature on a visited level
+    // answers false (see `chainInventoryComplete` for the full-context walk).
+    inventoryComplete : boolean
 }
 
 export function qualifiedConstructionChainExit(
@@ -239,14 +245,20 @@ export function qualifiedConstructionChainExit(
 
     // Not a local namespace path — a namespace-import member; nothing local to fold in.
     if (firstLocal === undefined) {
-        return { isPackageBase: false, unresolvedName: dottedName, configProperties: [] }
+        return { isPackageBase: false, unresolvedName: dottedName, configProperties: [], inventoryComplete: true }
     }
 
-    const seen  = new Set<string>([ dottedName ])
-    let current = firstLocal
+    const seen            = new Set<string>([ dottedName ])
+    let current           = firstLocal
+    let inventoryComplete = true
     let exit: { isPackageBase: boolean, unresolvedName: string | undefined }
 
     for (;;) {
+        inventoryComplete = inventoryComplete &&
+            current.indexSignatures.length === 0 &&
+            current.implementsIdentifierNames.length === 0 &&
+            current.implementsQualifiedNames.length === 0
+
         const currentBase = current.extendsType
 
         if (currentBase === undefined) {
@@ -282,6 +294,7 @@ export function qualifiedConstructionChainExit(
 
     return {
         ...exit,
+        inventoryComplete,
         configProperties : localClassConfigProperties(
             tsInstance,
             sourceFile,
@@ -413,4 +426,117 @@ function importedMixinConfigProperties(
         crossFile.registry,
         seen
     )
+}
+
+// The completeness twin of `baseConfigProperties`: whether the chain's accumulated list
+// is provably its WHOLE config contribution — no index signatures at any level, nothing
+// lost to the cross-file computed-key strip, every cross-file exit's registry entry
+// itself complete. Only a complete-AND-EMPTY chain lets the composition skip the
+// parent's alias reference: an empty class's alias is the exact-empty idiom (§7.25),
+// whose never-typed index signatures would poison every other layer in the flatten. A
+// name the property walk cannot resolve contributes nothing there (an interface in an
+// `implements` slot, the package `Base` itself), so it answers complete here — mirroring
+// what the walk counted, not what the unreadable target might hold.
+export function chainInventoryComplete(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    baseType: ts.ExpressionWithTypeArguments | undefined,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined,
+    seen: Set<string>
+): boolean {
+    if (baseType === undefined) {
+        return true
+    }
+
+    if (!tsInstance.isIdentifier(baseType.expression)) {
+        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
+
+        if (dottedName === undefined || seen.has(dottedName)) {
+            return dottedName !== undefined
+        }
+
+        seen.add(dottedName)
+
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+
+        if (qualifiedBase === undefined) {
+            return crossFileBaseEntryInventoryComplete(
+                resolveCrossFileConstructionBase(dottedName, crossFile, baseImportMap)
+            )
+        }
+
+        return localClassInventoryComplete(tsInstance, sourceFile, qualifiedBase, facts, crossFile, baseImportMap, seen)
+    }
+
+    return inventoryCompleteForName(tsInstance, sourceFile, baseType.expression.text, facts, crossFile, baseImportMap, seen)
+}
+
+function localClassInventoryComplete(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    localClass: ClassFacts,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined,
+    seen: Set<string>
+): boolean {
+    // Qualified `implements` names are not folded by `localClassConfigProperties` at all,
+    // so a class carrying one cannot prove its accumulated list complete.
+    return localClass.indexSignatures.length === 0 &&
+        localClass.implementsQualifiedNames.length === 0 &&
+        localClass.implementsIdentifierNames.every((implemented) =>
+            inventoryCompleteForName(tsInstance, sourceFile, implemented, facts, crossFile, baseImportMap, seen)) &&
+        chainInventoryComplete(tsInstance, sourceFile, localClass.extendsType, facts, crossFile, baseImportMap, seen)
+}
+
+function inventoryCompleteForName(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    name: string,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined,
+    seen: Set<string>
+): boolean {
+    if (seen.has(name)) {
+        return true
+    }
+
+    seen.add(name)
+
+    const localClass = facts.classesByName.get(name)
+
+    if (localClass !== undefined) {
+        return localClassInventoryComplete(tsInstance, sourceFile, localClass, facts, crossFile, baseImportMap, seen)
+    }
+
+    const baseEntry = resolveCrossFileConstructionBase(name, crossFile, baseImportMap)
+
+    if (baseEntry !== undefined) {
+        return crossFileBaseEntryInventoryComplete(baseEntry)
+    }
+
+    const imported = baseImportMap?.get(name)
+
+    if (imported !== undefined && crossFile !== undefined) {
+        const key = registryKey(imported.resolvedFileName, imported.importedName)
+
+        // An imported name outside both registries contributes nothing to the property
+        // walk (an interface, or the package `Base` itself) — complete by mirroring.
+        return crossFile.registry.has(key)
+            ? registeredMixinInventoryComplete(key, crossFile.registry, seen)
+            : true
+    }
+
+    return true
+}
+
+function crossFileBaseEntryInventoryComplete(baseEntry: ConstructionBaseEntry | undefined): boolean {
+    return baseEntry !== undefined &&
+        baseEntry.configInventoryComplete === true &&
+        // The property walk strips computed keys cross-file — a stripped key is a key the
+        // accumulated list no longer shows, so the list cannot prove emptiness.
+        transplantableConfigProperties(baseEntry.configProperties).length === baseEntry.configProperties.length
 }

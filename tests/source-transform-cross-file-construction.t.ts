@@ -1233,3 +1233,107 @@ it("a GENERIC declaration-package contributor's exotic config keys reach the dow
         await fixture.dispose()
     }
 })
+
+it("imported EMPTY contributors never ride the composed config by alias", async (t: Test) => {
+    // The empty contributor's own alias is the exact-empty idiom
+    // (`Partial<Record<PropertyKey, never>>`, §7.25) — referenced as a layer it would type
+    // every key of the composed config `undefined`. The registry's inventory proves it
+    // empty, so the layer contributes nothing instead.
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [
+            {
+                fileName : "blank.ts",
+                text     : `
+                    import { Base, mixin } from "ts-mixin-class"
+
+                    export class Blank extends Base {
+                    }
+
+                    @mixin()
+                    export class Tag extends Base {
+                    }
+                `
+            },
+            {
+                fileName : "user.ts",
+                text     : `
+                    import { Blank, Tag } from "./blank.js"
+
+                    export class Doc extends Blank implements Tag {
+                        public title!: string
+                    }
+
+                    const doc = Doc.new({ title: "x" })
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error unknown keys are still rejected
+                        Doc.new({ title: "x", junk: 1 })
+                    }
+
+                    void [ doc, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(result.exitCode, 0, `construction over imported empty contributors typechecks:\n${commandOutput(result)}`)
+
+        const userDeclaration = await readFile(path.join(fixture.directory, "dist", "user.d.ts"), "utf8")
+
+        t.notMatch(userDeclaration, "BlankConfig", "the empty parent's alias does not ride the composed config")
+        t.notMatch(userDeclaration, "TagConfig", "the empty mixin's alias does not ride the composed config")
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+it("a declaration-package EMPTY contributor is dropped through its meta inventory", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "hollow-lib", [ {
+        fileName : "hollow.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
+
+            export class Hollow extends Base {
+            }
+        `
+    } ])
+
+    const consumer = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "app.ts",
+                text     : `
+                    import { Hollow } from "hollow-lib/hollow"
+
+                    export class App extends Hollow {
+                        public own!: string
+                    }
+
+                    const app = App.new({ own: "x" })
+
+                    function typeOnlyChecks(): void {
+                        // @ts-expect-error unknown keys are still rejected
+                        App.new({ own: "x", junk: 1 })
+                    }
+
+                    void [ app, typeOnlyChecks ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", consumer.tsconfigFile ], consumer.directory)
+
+        t.isStrict(result.exitCode, 0, `construction over a declaration-package empty parent typechecks:\n${commandOutput(result)}`)
+    } finally {
+        await consumer.dispose()
+    }
+})

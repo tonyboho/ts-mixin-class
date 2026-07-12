@@ -195,3 +195,104 @@ it("a generic local mixin rides as its instantiated alias", async (t: Test) => {
 
     t.is(messages, "", `generic instantiation through the alias reference typechecks:\n${messages}`)
 })
+
+it("an EMPTY contributor's alias is dropped from the composed config — the exact-empty idiom must not poison the tree", async (t: Test) => {
+    // An empty construction class's own alias is the EXACT-EMPTY idiom
+    // (`Partial<Record<PropertyKey, never>>`, §7.25) — its index signatures type every key
+    // `undefined`, so referencing it as a composition LAYER would swallow every other
+    // layer's keys in the flatten. A provably empty layer must contribute nothing instead.
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base, mixin } from "ts-mixin-class"
+
+        @mixin()
+        export class Tagged extends Base {
+        }
+
+        export class Marker extends Base {
+        }
+
+        export class Stamp extends Marker {
+        }
+
+        export class Sheet extends Stamp implements Tagged {
+            public label!: string
+        }
+    `)))
+
+    t.notMatch(printed, "& StampConfig", "an empty parent alias does not ride the composed config")
+    t.notMatch(printed, "& TaggedConfig", "an empty mixin alias does not ride the composed config")
+
+    const messages = typecheckText(`${printed}
+        const sheet = Sheet.new({ label: "x" })
+        void sheet
+
+        function typeOnlyChecks(): void {
+            // @ts-expect-error unknown keys are still rejected
+            Sheet.new({ label: "x", junk: 1 })
+        }
+        void typeOnlyChecks
+    `).join("\n")
+
+    t.is(messages, "", `construction over empty contributors typechecks:\n${messages}`)
+})
+
+it("an empty MIDDLE parent is NOT dropped — its alias still routes the keyed grandparent", async (t: Test) => {
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        export class Keyed extends Base {
+            public k!: string
+        }
+
+        export class Mid extends Keyed {
+        }
+
+        export class Tip extends Mid {
+            public c!: number
+        }
+    `)))
+
+    t.match(printed, "& MidConfig", "the keyless middle still rides as its alias — its chain is not empty")
+
+    const messages = typecheckText(`${printed}
+        const tip = Tip.new({ k: "x", c: 1 })
+        void tip
+
+        function typeOnlyChecks(): void {
+            // @ts-expect-error the grandparent's required key rides the middle alias
+            Tip.new({ c: 1 })
+        }
+        void typeOnlyChecks
+    `).join("\n")
+
+    t.is(messages, "", `the chain through a keyless middle typechecks:\n${messages}`)
+})
+
+it("an index-signature-only contributor is NOT dropped — empty of keys is not empty of cargo", async (t: Test) => {
+    const printed = printSourceFile(ts, transformSourceFile(ts, createSourceFile(`
+        import { Base } from "ts-mixin-class/base"
+
+        export class Baggy extends Base {
+            [bag: string]: number | Base["initialize"] | undefined
+        }
+
+        export class Load extends Baggy {
+            public own!: number
+        }
+    `)))
+
+    t.match(printed, "& BaggyConfig", "the index-signature carrier stays referenced")
+
+    const messages = typecheckText(`${printed}
+        const load = Load.new({ own: 1, extra: 2 })
+        void load
+
+        function typeOnlyChecks(): void {
+            // @ts-expect-error bag keys stay constrained by the index signature's value type
+            Load.new({ own: 1, extra: "wrong" })
+        }
+        void typeOnlyChecks
+    `).join("\n")
+
+    t.is(messages, "", `the index-signature cargo survives composition:\n${messages}`)
+})

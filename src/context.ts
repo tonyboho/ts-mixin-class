@@ -297,9 +297,10 @@ function addImportedMixinRefs(
                 configAliasImport : registered.configAliasAvailable === true &&
                     normalizePath(imported.resolvedFileName) === normalizePath(registered.fileName)
                     ? {
-                        specifier    : importFacts.specifier,
-                        importedName : `${registered.name}Config`,
-                        generic      : registered.generic === true
+                        specifier         : importFacts.specifier,
+                        importedName      : `${registered.name}Config`,
+                        generic           : registered.generic === true,
+                        inventoryComplete : registered.configInventoryComplete === true
                     }
                     : undefined,
                 missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false
@@ -419,8 +420,9 @@ function addQualifiedMixinRefs(
                 normalizePath(binding.resolvedFileName) === normalizePath(registered.fileName)
                 ? {
                     specifier,
-                    importedName : `${registered.name}Config`,
-                    generic      : registered.generic === true
+                    importedName      : `${registered.name}Config`,
+                    generic           : registered.generic === true,
+                    inventoryComplete : registered.configInventoryComplete === true
                 }
                 : undefined,
             missingRuntimeImport : crossFile.canImportRuntimeValue?.(registered.fileName) === false

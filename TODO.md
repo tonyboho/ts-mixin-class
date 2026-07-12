@@ -59,8 +59,15 @@ reversed incl. the registry read-side `"default"` aliasing —
 generation, §7.30 — `construction-config-meta.t.ts`; refinements: EXPORTED classes only
 (a module-local companion is unimportable and a TS6196 under `noUnusedLocals`), fields
 `requiresArgument`/`requiredKeys`/`keys`/`indexKinds`, the latter two per pre-probe 2's
-overlap/index gates). Next: the composition itself (alias-route + overlap-gated Omit —
-decision 1), then the legacy-transport deletion (decision 3's wholesale `.d.ts` shape
+overlap/index gates). Decision 1 stage 1 SHIPPED (SAME-FILE
+composition — `source-transform-config-composition.t.ts`): a consumer/subclass/mixin
+config references its LOCAL contributors' `<Name>Config<args>` aliases (top-level,
+construction-enabled, no user `static new`, no reserved-name collision — everything else
+flattens through facts as before); the Omit and the re-require are overlap-gated with
+LITERAL subtractions (never `keyof`), a fully-overlapped alias layer drops entirely, and
+the merged nearest-first fact list remains the single source for meta/requiredness/winner
+representation. Next: cross-file same-program alias-route (generated imports), the `.d.ts`
+meta reader, then the legacy-transport deletion (decision 3's wholesale `.d.ts` shape
 change happens there).
 
 **One mechanism, four wins:** (1) the config becomes a TREE — each level spells only its

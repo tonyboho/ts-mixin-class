@@ -503,9 +503,11 @@ it("collects the transitive mixin chain into a construction-base mixin's `new` c
 
     t.match(
         printed,
-        // Key order is NEAREST-first (§7.29): own members lead, the dependency chain trails.
-        "Pick<Leaf, \"ownValue\" | \"deepValue\">",
-        "Mixin construction config includes the transitive mixin-chain public property"
+        // The pure-type composition: own members spelled, the dependency chain rides as a
+        // contributor's alias reference (the transitive `deepValue` reaches `.new` through
+        // it — never re-spelled at the leaf).
+        "Partial<Pick<Leaf, \"ownValue\">> & DeepConfig",
+        "Mixin construction config carries the transitive mixin-chain property through the composed alias"
     )
     t.expect(typecheckText(printed)).toEqual([])
 })

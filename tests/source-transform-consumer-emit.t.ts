@@ -241,10 +241,13 @@ it("generates public-only static construction config overloads by default", asyn
     )
     t.match(
         printed,
-        // Key order is NEAREST-first (§7.29): own, then mixins, then the base chain.
-        "Pick<Consumer<T>, \"ownValue\" | \"mixinValue\" | \"baseValue\"> & " +
-            "Partial<Pick<Consumer<T>, \"optionalOwnValue\" | \"optionalMixinValue\" | \"optionalBaseValue\">>",
-        "Default public-only construction config preserves required and optional property names in the named alias"
+        // Key order is NEAREST-first (§7.29): own, then the NON-construction mixin's keys
+        // (no alias exists — they flatten into the same facts group), then the parent as
+        // its instantiated ALIAS (the pure-type composition: the base chain is referenced,
+        // not re-spelled).
+        "Pick<Consumer<T>, \"ownValue\" | \"mixinValue\"> & " +
+            "Partial<Pick<Consumer<T>, \"optionalOwnValue\" | \"optionalMixinValue\">> & GenericBaseConfig<T>",
+        "Default public-only construction config spells own+mixin keys and references the parent alias"
     )
     t.match(
         printed,

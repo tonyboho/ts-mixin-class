@@ -19,7 +19,7 @@ import {
     type TransformOptions
 } from "./model.js"
 import { baseConfigProperties, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
-import { getSourceFileFacts, type SourceFileFacts } from "./source-file-facts.js"
+import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { deepCloneNode, hasModifier, stripVarianceAnnotations } from "./util.js"
 import { collapseSubtreeTextRange, preserveGeneratedDeclarationRange, preserveTextRange } from "./text-range.js"
 import type { TypeScript } from "./util.js"
@@ -403,6 +403,18 @@ export function createMixinConstructionNewType(
     }
 }
 
+// One nearest-first layer of the composed construction config (the pure-type TREE — epic
+// decision 1). A layer either JOINS BY REFERENCE (`<Name>Config<args>`: each level spells
+// only its own keys and reuses the contributor's published alias) or FLATTENS its
+// properties through the facts route: the class's own keys always, plus every contributor
+// without a reachable alias — non-construction mixins, abstract / user-`static new` /
+// reserved-name-colliding parents, and (until the cross-file alias-route stage) imported
+// contributors.
+type ConfigLayer = {
+    reference  : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
+    properties : ConfigProperty[]
+}
+
 function createConstructionConfig(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile,
@@ -420,7 +432,12 @@ function createConstructionConfig(
 ): ConstructionConfig {
     const factory = tsInstance.factory
 
-    const properties                  = staticConstructionConfigProperties(
+    // The MERGED nearest-first property list (first-wins representation, MONOTONIC
+    // requiredness — the `uniqueConfigProperties` contract). It stays the single source
+    // for the meta companion, the `.new` parameter's requiredness, and each key's WINNING
+    // representation; only the TYPE rendering below switched from re-spelling it to the
+    // layered composition.
+    const merged = staticConstructionConfigProperties(
         tsInstance,
         sourceFile,
         declaration,
@@ -431,7 +448,7 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
-    const opaque                      = declarationFileConfigParts(
+    const opaque = declarationFileConfigParts(
         tsInstance,
         declaration,
         extendsType ?? implicitRequiredBase,
@@ -439,12 +456,166 @@ function createConstructionConfig(
         crossFile,
         baseImportMap
     )
-    const requiredKeys: ts.TypeNode[] = []
-    const optionalKeys: ts.TypeNode[] = []
-    // Settable accessors that carry a setter type are emitted as explicit members (typed by
-    // the setter, not the getter a `Pick` would read); everything else goes through `Pick`.
-    // Class index signatures ride the same explicit literal as cloned index members, so a
-    // config object's bag keys stay value-constrained.
+
+    const layers: ConfigLayer[] = [
+        { reference: undefined, properties: facts.classesByDeclaration.get(declaration)?.configProperties ?? [] },
+        ...mixinRefs.map((ref) => mixinConfigLayer(tsInstance, sourceFile, declaration, ref, options, facts, crossFile, baseImportMap)),
+        ...baseConfigLayer(tsInstance, sourceFile, extendsType ?? implicitRequiredBase, options, facts, crossFile, baseImportMap)
+    ]
+
+    // Nearest-first winners: the FIRST layer declaring a key owns its rendering. A later
+    // (deeper) layer renders only its unseen keys; a reference layer whose keys are all
+    // owned by nearer layers contributes nothing and is dropped entirely (this also
+    // absorbs the C3 duplication where a consumer lists both a mixin and its dependency —
+    // the dependency's keys already ride the nearer mixin's composed alias).
+    const winner = new Map<string, number>()
+
+    layers.forEach((layer, index) => {
+        for (const property of layer.properties) {
+            if (!winner.has(property.name)) {
+                winner.set(property.name, index)
+            }
+        }
+    })
+
+    const mergedByName         = new Map(merged.map((property) => [ property.name, property ]))
+    const consumerType         = createConsumerInstanceType(tsInstance, declaration)
+    const parts: ts.TypeNode[] = []
+
+    // Consecutive facts layers coalesce into one Pick / Partial<Pick> / literal triple
+    // (their keys are disjoint after the winner filter, and each key renders through its
+    // MERGED representation, so ordering inside the group cannot change the result).
+    let factsGroup: ConfigProperty[] = []
+
+    const flushFactsGroup = (includeIndexSignatures: boolean): void => {
+        parts.push(...renderFactsConfigParts(tsInstance, consumerType, factsGroup, includeIndexSignatures
+            ? facts.classesByDeclaration.get(declaration)?.indexSignatures ?? []
+            : []))
+        factsGroup = []
+    }
+
+    let ownGroupFlushed = false
+
+    layers.forEach((layer, index) => {
+        const ownedKeys               = new Set<string>()
+        const owned: ConfigProperty[] = []
+
+        for (const property of layer.properties) {
+            if (winner.get(property.name) === index && !ownedKeys.has(property.name)) {
+                ownedKeys.add(property.name)
+                owned.push(mergedByName.get(property.name) ?? property)
+            }
+        }
+
+        if (layer.reference === undefined) {
+            factsGroup.push(...owned)
+            return
+        }
+
+        // The class's own index signatures ride the first (own) facts group even when the
+        // own layer has no keyed properties.
+        if (!ownGroupFlushed) {
+            flushFactsGroup(true)
+            ownGroupFlushed = true
+        } else {
+            flushFactsGroup(false)
+        }
+
+        if (owned.length === 0) {
+            return
+        }
+
+        let referenceNode: ts.TypeNode = factory.createTypeReferenceNode(
+            layer.reference.aliasName,
+            layer.reference.typeArguments
+        )
+
+        // The OVERLAP GATE (pre-probe 2): subtract only the keys a NEARER layer actually
+        // redeclared, spelled as a literal union — never `keyof`, whose `Exclude` would
+        // distribute over the whole accumulated union (the instantiation quadratic).
+        const overlapped       = layer.properties.filter((property) =>
+            (winner.get(property.name) ?? index) < index)
+        const overlappedUnique = [ ...new Map(overlapped.map((property) => [ property.name, property ])).values() ]
+
+        if (overlappedUnique.length > 0) {
+            referenceNode = factory.createTypeReferenceNode("Omit", [
+                referenceNode,
+                keyUnionType(tsInstance, overlappedUnique.map((property) =>
+                    configKeyType(tsInstance, mergedByName.get(property.name) ?? property)))
+            ])
+        }
+
+        parts.push(referenceNode)
+
+        // The RE-REQUIRE (§7.28, overlap-gated too): this layer WINS a key it declares
+        // optional, but a DEEPER layer requires it — requiredness is monotonic, so pull it
+        // back with a `Required<Pick<…>>` on this layer's alias.
+        const reRequired = owned.filter((property) => {
+            const layerOwn = layer.properties.find((candidate) => candidate.name === property.name)
+
+            return layerOwn?.optional === true && property.optional === false
+        })
+
+        if (reRequired.length > 0) {
+            parts.push(factory.createTypeReferenceNode("Required", [
+                factory.createTypeReferenceNode("Pick", [
+                    factory.createTypeReferenceNode(layer.reference.aliasName, layer.reference.typeArguments),
+                    keyUnionType(tsInstance, reRequired.map((property) => configKeyType(tsInstance, property)))
+                ])
+            ]))
+        }
+    })
+
+    flushFactsGroup(!ownGroupFlushed)
+
+    const allParts = [ ...parts, ...opaque.types ]
+
+    // An EMPTY config must stay EXACT: `Partial<Pick<C, never>>` reduces to `{}`, which
+    // accepts EVERY object (excess-property checking has nothing to check against), so an
+    // unknown key would silently pass. `Partial<Record<PropertyKey, never>>` keeps `.new()`
+    // and `.new({})` legal while typing every possible key `never` — any supplied key is a
+    // type error (§7.25).
+    if (allParts.length === 0) {
+        return {
+            type : factory.createTypeReferenceNode("Partial", [
+                factory.createTypeReferenceNode("Record", [
+                    factory.createTypeReferenceNode("PropertyKey", undefined),
+                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
+                ])
+            ]),
+            optionalParameter : true,
+            properties        : []
+        }
+    }
+
+    return {
+        type              : flattenIfIntersection(tsInstance, allParts),
+        // Requiredness is MONOTONIC over the merged list (explicit accessor members never
+        // force a required param — as before). A `.d.ts` contributor whose PUBLISHED
+        // `.new` parameter is required may owe that requiredness to keys the fact
+        // transport cannot respell (computed/symbol) — the opaque flag keeps this `.new`'s
+        // parameter required in that case.
+        optionalParameter : !merged.some((property) => property.valueType === undefined && !property.optional)
+            && !opaque.requiresArgument,
+        properties : merged
+    }
+}
+
+// The Pick / Partial<Pick> / explicit-literal rendering of one flattened facts group —
+// exactly the pre-composition shape, restricted to the group's properties. Settable
+// accessors that carry a setter type are emitted as explicit members (typed by the
+// setter, not the getter a `Pick` would read); everything else goes through `Pick`.
+// Class index signatures ride the same explicit literal as cloned index members, so a
+// config object's bag keys stay value-constrained.
+function renderFactsConfigParts(
+    tsInstance: TypeScript,
+    consumerType: ts.TypeReferenceNode,
+    properties: ConfigProperty[],
+    indexSignatures: ts.IndexSignatureDeclaration[]
+): ts.TypeNode[] {
+    const factory                           = tsInstance.factory
+    const requiredKeys: ts.TypeNode[]       = []
+    const optionalKeys: ts.TypeNode[]       = []
     const explicitMembers: ts.TypeElement[] = []
 
     for (const property of properties) {
@@ -462,7 +633,7 @@ function createConstructionConfig(
         }
     }
 
-    for (const indexSignature of facts.classesByDeclaration.get(declaration)?.indexSignatures ?? []) {
+    for (const indexSignature of indexSignatures) {
         explicitMembers.push(deepCloneNode(tsInstance, factory.createIndexSignature(
             undefined,
             indexSignature.parameters,
@@ -470,7 +641,6 @@ function createConstructionConfig(
         )))
     }
 
-    const consumerType = createConsumerInstanceType(tsInstance, declaration)
     const requiredType = requiredKeys.length === 0
         ? undefined
         : factory.createTypeReferenceNode("Pick", [
@@ -489,37 +659,153 @@ function createConstructionConfig(
         ? undefined
         : factory.createTypeLiteralNode(explicitMembers)
 
-    // Explicit accessor members are always optional, so they never force a required param.
-    const parts = ([ requiredType, optionalType, explicitType, ...opaque.types ] as Array<ts.TypeNode | undefined>).filter(
+    return ([ requiredType, optionalType, explicitType ] as Array<ts.TypeNode | undefined>).filter(
         (part): part is ts.TypeNode => part !== undefined
     )
+}
 
-    // An EMPTY config must stay EXACT: `Partial<Pick<C, never>>` reduces to `{}`, which
-    // accepts EVERY object (excess-property checking has nothing to check against), so an
-    // unknown key would silently pass. `Partial<Record<PropertyKey, never>>` keeps `.new()`
-    // and `.new({})` legal while typing every possible key `never` — any supplied key is a
-    // type error (§7.25).
-    if (parts.length === 0) {
-        return {
-            type : factory.createTypeReferenceNode("Partial", [
-                factory.createTypeReferenceNode("Record", [
-                    factory.createTypeReferenceNode("PropertyKey", undefined),
-                    factory.createKeywordTypeNode(tsInstance.SyntaxKind.NeverKeyword)
-                ])
-            ]),
-            optionalParameter : true,
-            properties        : []
-        }
+// A consumed mixin's config layer: joins by its `<MixinName>Config<args>` alias when that
+// alias exists in this file (a LOCAL, construction-enabled mixin without a user
+// `static new` and without a reserved-name collision — the use-site type arguments then
+// instantiate the generic alias natively); otherwise flattens through the substituted
+// fact route as before.
+function mixinConfigLayer(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef,
+    options: TransformOptions,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined
+): ConfigLayer {
+    const mixinFacts = ref.declaration === undefined
+        ? undefined
+        : facts.classesByDeclaration.get(ref.declaration)
+
+    if (mixinFacts === undefined ||
+        !localConfigAliasAvailable(tsInstance, sourceFile, mixinFacts, options, facts, crossFile, baseImportMap)
+    ) {
+        return { reference: undefined, properties: substituteMixinConfigTypeParameters(tsInstance, declaration, ref) }
     }
 
     return {
-        type              : flattenIfIntersection(tsInstance, parts),
-        // A `.d.ts` contributor whose PUBLISHED `.new` parameter is required may owe that
-        // requiredness to keys the fact transport cannot respell (computed/symbol) — the
-        // opaque flag keeps this `.new`'s parameter required in that case.
-        optionalParameter : requiredType === undefined && !opaque.requiresArgument,
-        properties
+        reference : {
+            aliasName     : `${mixinFacts.name ?? ""}Config`,
+            typeArguments : aliasReferenceTypeArguments(tsInstance, declaration, ref, mixinFacts)
+        },
+        // Identity only (overlap / winner gates): the alias itself carries the types.
+        properties : ref.configProperties
     }
+}
+
+// The direct parent's config layer: joins by `<ParentName>Config<args>` when the parent is
+// a LOCAL class with an available alias (the parent's alias already accumulates ITS whole
+// chain — this is what makes the composition a TREE); otherwise flattens the accumulated
+// base-chain facts as before. Returned as a list so a missing base contributes nothing.
+function baseConfigLayer(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    baseType: ts.ExpressionWithTypeArguments | undefined,
+    options: TransformOptions,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined
+): ConfigLayer[] {
+    if (baseType === undefined) {
+        return []
+    }
+
+    const accumulated = () => baseConfigProperties(tsInstance, sourceFile, baseType, facts, crossFile, baseImportMap, new Set())
+    const flattened   = (): ConfigLayer[] => {
+        const properties = accumulated()
+
+        return properties.length === 0 ? [] : [ { reference: undefined, properties } ]
+    }
+
+    if (!tsInstance.isIdentifier(baseType.expression)) {
+        return flattened()
+    }
+
+    const parentFacts = facts.classesByName.get(baseType.expression.text)
+
+    if (parentFacts === undefined ||
+        !localConfigAliasAvailable(tsInstance, sourceFile, parentFacts, options, facts, crossFile, baseImportMap)
+    ) {
+        return flattened()
+    }
+
+    return [ {
+        reference : {
+            aliasName     : `${parentFacts.name ?? ""}Config`,
+            typeArguments : baseType.typeArguments === undefined
+                ? undefined
+                : baseType.typeArguments.map((argument) => deepCloneNode(tsInstance, argument))
+        },
+        properties : accumulated()
+    } ]
+}
+
+// Whether a LOCAL class publishes a `<Name>Config` alias this file can reference: named,
+// concrete (an abstract class generates no construction members), no user-owned
+// `static new` (it suppresses generation), construction-enabled through its own extends
+// chain, and its reserved alias name not taken by a user declaration (the TS990015 error
+// state skips the alias). Conservative by design — a MISS only means the layer flattens
+// through facts, which is always correct.
+function localConfigAliasAvailable(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    classFacts: ClassFacts,
+    options: TransformOptions,
+    facts: SourceFileFacts,
+    crossFile: CrossFileContext | undefined,
+    baseImportMap: ImportMap | undefined
+): boolean {
+    return classFacts.name !== undefined &&
+        // The alias is spliced as a SIBLING of the contributor's declaration; only a
+        // top-level contributor's alias is lexically reachable from an arbitrary
+        // reference site (a namespace/nested contributor's alias lives inside its block).
+        classFacts.declaration.parent === sourceFile &&
+        !hasModifier(tsInstance, classFacts.declaration, tsInstance.SyntaxKind.AbstractKeyword) &&
+        !classFacts.hasStaticNew &&
+        isConstructionBaseOptIn(
+            tsInstance,
+            sourceFile,
+            classFacts.extendsType,
+            options,
+            facts,
+            new Set(),
+            crossFile,
+            baseImportMap
+        ) &&
+        !collectTopLevelDeclaredNameNodes(tsInstance, sourceFile).has(`${classFacts.name}Config`)
+}
+
+// The FULL type-argument list for a generic contributor's alias reference, mirroring the
+// substitution fallback (`substituteMixinConfigTypeParameters`): the use-site argument,
+// else the parameter's default, else `any` — spelled explicitly so a partial use never
+// leaves the alias under-applied (TS2314).
+function aliasReferenceTypeArguments(
+    tsInstance: TypeScript,
+    declaration: ts.ClassDeclaration,
+    ref: ResolvedMixinRef,
+    mixinFacts: ClassFacts
+): ts.TypeNode[] | undefined {
+    const typeParameters = mixinFacts.declaration.typeParameters
+
+    if (typeParameters === undefined || typeParameters.length === 0) {
+        return undefined
+    }
+
+    const typeArguments = mixinImplementsTypeArguments(tsInstance, declaration, ref)
+
+    return typeParameters.map((typeParameter, index) => {
+        const argument = typeArguments?.[index] ?? typeParameter.default
+
+        return argument === undefined
+            ? tsInstance.factory.createKeywordTypeNode(tsInstance.SyntaxKind.AnyKeyword)
+            : deepCloneNode(tsInstance, argument)
+    })
 }
 
 // §13.8 — the VALUE-ROUTE config carrier for DECLARATION-file contributors. A published

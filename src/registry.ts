@@ -155,16 +155,19 @@ export function buildMixinRegistry(
     return registry
 }
 
-// Walks every module's `export ... from` re-exports and, for each re-exported mixin,
-// adds a registry alias key `registryKey(reExportingFile, exportedName) -> entry`. Uses
-// the type-checker (original-program symbols) to follow alias chains — so named, aliased
-// (`as`), `export *`, default-passthrough, and nested barrels all resolve uniformly. The
-// checker is fetched lazily and only files that actually re-export are inspected, so a
-// project of direct imports pays effectively nothing.
-function addReExportAliasKeys(
+// Walks every module's `export ... from` re-exports and, for each re-exported class the
+// map already registers under its DECLARING file, adds an alias key
+// `registryKey(reExportingFile, exportedName) -> entry`. Uses the type-checker
+// (original-program symbols) to follow alias chains — so named, aliased (`as`),
+// `export *`, default-passthrough, and nested barrels all resolve uniformly. Serves
+// both class registries (mixins AND construction bases — the map only needs
+// `registryKey`-shaped keys) and the construction-base CANDIDATE map. The checker is
+// fetched lazily and only files that actually re-export are inspected, so a project of
+// direct imports pays effectively nothing.
+function addReExportAliasKeys<Entry>(
     tsInstance: TypeScript,
     program: ts.Program,
-    registry: MixinRegistry
+    registry: Map<string, Entry>
 ): void {
     let checker: ts.TypeChecker | undefined
 
@@ -424,6 +427,13 @@ export function buildConstructionBaseRegistry(
     let pendingChainFiles = chainCandidateFiles
 
     for (;;) {
+        // A chain may pass through a BARREL: the base import resolves to the re-exporting
+        // file, so the candidate map needs the barrel alias keys for both the admission
+        // test above and the `resolve` recursion below. Refreshed each round (idempotent)
+        // — a candidate admitted in one round may reach the next one's file through a
+        // barrel of its own.
+        addReExportAliasKeys(tsInstance, program, candidatesByKey)
+
         const keptChainFiles: ts.SourceFile[] = []
         let admittedAnything                  = false
 
@@ -442,6 +452,10 @@ export function buildConstructionBaseRegistry(
 
         pendingChainFiles = keptChainFiles
     }
+
+    // The last admitting round breaks without a refresh — top up so `resolve` sees
+    // aliases for candidates admitted in it.
+    addReExportAliasKeys(tsInstance, program, candidatesByKey)
 
     const resolved = new Map<string, { isBaseDescendant: boolean, configProperties: ConfigProperty[], inventoryComplete: boolean }>()
 
@@ -635,6 +649,12 @@ export function buildConstructionBaseRegistry(
             registry.set(registryKey(sourceFile.fileName, constructionBase.name), entry)
         }
     }
+
+    // Re-export aliases for the transform-time lookups (`resolveCrossFileConstructionBase`
+    // keys by the file an import RESOLVES to): a construction base subclassed through a
+    // barrel — a source one or a package's `export *` entry-point `.d.ts` — must resolve
+    // to its declaring file's entry, or the subclass is silently never expanded.
+    addReExportAliasKeys(tsInstance, program, registry)
 
     return registry
 }

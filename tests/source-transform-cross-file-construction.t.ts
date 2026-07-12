@@ -41,10 +41,9 @@ async function buildDeclarationPackage(
         })))
 
         // Expose each module as its own subpath export (`<pkg>/timestamp` ->
-        // `timestamp.d.ts`/`timestamp.js`), like the package's own `./mixins` entry. A
-        // consumer must import a mixin from the file that DECLARES it, not through a
-        // re-exporting barrel: the mixin registry keys entries by their defining file, so
-        // a barrel re-export would resolve the import to the barrel and miss the entry.
+        // `timestamp.d.ts`/`timestamp.js`), like the package's own `./mixins` entry — a
+        // consumer can then import from the declaring file OR through a re-exporting
+        // barrel: both registries alias barrel keys onto the declaring file's entry.
         const exportsMap: Record<string, { types: string, default: string }> = {}
 
         for (const name of emittedNames) {
@@ -703,6 +702,166 @@ it("makes a subclass of an imported declaration (.d.ts) construction base constr
             result.exitCode,
             0,
             `Subclass of a .d.ts construction base gets its own .new with aggregated config:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// A construction base reaches its subclass THROUGH A BARREL: the import resolves to the
+// re-exporting file, so the registry must expose the entry under the barrel's key too
+// (the mixin registry's re-export alias walk, applied to construction bases). Covers
+// both halves: Widget's own expansion (final-registry alias) and Widget's REGISTRATION
+// for further subclassing (candidate-map alias — Gadget extends Widget directly, and
+// consumer.ts itself never mentions the package, so its admission also rides the alias).
+it("makes a subclass construction-enabled through an `export *` barrel, transitively", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            { fileName: "provider.ts", text: providerText },
+            { fileName: "barrel.ts", text: `export * from "./provider.js"` },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { AppBase } from "./barrel.js"
+
+                    export class Widget extends AppBase {
+                        public ownValue!: number = 0
+                    }
+
+                    const widget = Widget.new({ appValue : "x", ownValue : 7 })
+
+                    const a: string = widget.appValue
+                    const b: number = widget.ownValue
+
+                    void [ a, b ]
+                `
+            },
+            {
+                fileName : "gadget.ts",
+                text     : `
+                    import { Widget } from "./consumer.js"
+
+                    class Gadget extends Widget {
+                        public gadgetValue!: boolean = false
+                    }
+
+                    const gadget = Gadget.new({ appValue : "x", ownValue : 7, gadgetValue : true })
+
+                    const c: boolean = gadget.gadgetValue
+
+                    void c
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Construction survives an export-* barrel, two subclass generations deep:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// The NAMED, ALIASED re-export form of the same route: the barrel key carries the
+// EXPORTED name (`PlatformBase`), not the declaring one.
+it("makes a subclass construction-enabled through a named, aliased re-export", async (t: Test) => {
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        sourceFiles            : [
+            { fileName: "provider.ts", text: providerText },
+            { fileName: "barrel.ts", text: `export { AppBase as PlatformBase } from "./provider.js"` },
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { PlatformBase } from "./barrel.js"
+
+                    class Widget extends PlatformBase {
+                        public ownValue!: number = 0
+                    }
+
+                    const widget = Widget.new({ appValue : "x", ownValue : 7 })
+
+                    const a: string = widget.appValue
+                    const b: number = widget.ownValue
+
+                    void [ a, b ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Construction survives a named aliased re-export:\n${commandOutput(result)}`
+        )
+    } finally {
+        await fixture.dispose()
+    }
+})
+
+// The same route across a PACKAGE boundary: a published declaration package whose
+// entry point is an `export *` barrel `.d.ts`. The declaring `.d.ts` registers the
+// entry; the barrel key must alias it for the consumer's import to resolve.
+it("makes a subclass of a declaration (.d.ts) construction base construction-enabled through the package's barrel", async (t: Test) => {
+    const packageFiles = await buildDeclarationPackage(t, "barrel-base-lib", [
+        {
+            fileName : "app-base.ts",
+            text     : `
+                import { Base } from "ts-mixin-class/base"
+
+                export class AppBase extends Base {
+                    public appValue!: string = ""
+                }
+            `
+        },
+        {
+            fileName : "index.ts",
+            text     : `export * from "./app-base.js"`
+        }
+    ])
+
+    const fixture = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : packageFiles,
+        sourceFiles            : [
+            {
+                fileName : "consumer.ts",
+                text     : `
+                    import { AppBase } from "barrel-base-lib/index"
+
+                    class Widget extends AppBase {
+                        public ownValue!: number = 0
+                    }
+
+                    const widget = Widget.new({ appValue : "x", ownValue : 7 })
+
+                    const a: string = widget.appValue
+                    const b: number = widget.ownValue
+
+                    void [ a, b ]
+                `
+            }
+        ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+
+        t.isStrict(
+            result.exitCode,
+            0,
+            `Construction survives a declaration-package export-* barrel:\n${commandOutput(result)}`
         )
     } finally {
         await fixture.dispose()
@@ -1533,15 +1692,20 @@ it("an index-only declaration ancestor's bag constraint survives a keyless middl
         `
     } ])
 
-    const secondGeneration = await buildDeclarationPackage(t, "bag-gen-two", [ {
-        fileName : "mid.ts",
-        text     : `
+    const secondGeneration = await buildDeclarationPackage(
+        t,
+        "bag-gen-two",
+        [ {
+            fileName : "mid.ts",
+            text     : `
             import { Baggy } from "bag-gen-one/baggy"
 
             export class Mid extends Baggy {
             }
         `
-    } ], firstGeneration)
+        } ],
+        firstGeneration
+    )
 
     const midDeclaration = secondGeneration.find((file) => file.fileName.endsWith("mid.d.ts"))!.text
 

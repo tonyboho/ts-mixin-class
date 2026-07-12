@@ -29,30 +29,18 @@ import type { TypeScript } from "./util.js"
 export function collectDeclarationFileConstructionBases(
     tsInstance: TypeScript,
     sourceFile: ts.SourceFile
-): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean, defaultExport: boolean }> {
+): Array<{ name: string, configProperties: ConfigProperty[], configRequiresArgument: boolean }> {
     const bases: Array<{
         name                   : string,
         configProperties       : ConfigProperty[],
-        configRequiresArgument : boolean,
-        defaultExport          : boolean
+        configRequiresArgument : boolean
     }> = []
     // The generated `static new(props: <Name>Config)` references an exported config
     // alias declared alongside it in the same `.d.ts`; map alias name -> body so the
     // reader can resolve the reference back to its `Pick<...> & Partial<...>` shape.
+    // (No default-export detection: a default-exported construction value is banned at
+    // its own build — TS990016, the epic's decision 2 reversed §13.9.)
     const configAliases = collectDeclarationFileTypeAliases(tsInstance, sourceFile)
-    // A default-exported construction base emits as `declare class X …; export default X`,
-    // and a consumer's default-import binding resolves through the registry under the
-    // "default" name — the entry is aliased under it by the registry builder.
-    const defaultExportNames = new Set<string>()
-
-    for (const statement of sourceFile.statements) {
-        if (tsInstance.isExportAssignment(statement) &&
-            statement.isExportEquals !== true &&
-            tsInstance.isIdentifier(statement.expression)
-        ) {
-            defaultExportNames.add(statement.expression.text)
-        }
-    }
 
     for (const statement of sourceFile.statements) {
         if (!tsInstance.isClassDeclaration(statement) || statement.name === undefined) {
@@ -74,9 +62,7 @@ export function collectDeclarationFileConstructionBases(
         bases.push({
             name                   : statement.name.text,
             configProperties       : configPropertiesFromConstructionNewParam(tsInstance, configType, false, configAliases, new Set()),
-            configRequiresArgument : staticNew.parameters[0].questionToken === undefined,
-            defaultExport          : defaultExportNames.has(statement.name.text) ||
-                hasModifier(tsInstance, statement, tsInstance.SyntaxKind.DefaultKeyword)
+            configRequiresArgument : staticNew.parameters[0].questionToken === undefined
         })
     }
 

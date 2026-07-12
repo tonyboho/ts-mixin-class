@@ -874,82 +874,56 @@ it("carries exotic construction config shapes through a declaration package", as
     }
 })
 
-it("supports default-exported construction classes and mixins through declarations", async (t: Test) => {
-    const packageFiles = await buildDeclarationPackage(t, "default-construction-lib", [
-        {
-            fileName : "default-base.ts",
-            text     : `
-                import { Base } from "ts-mixin-class/base"
+// REVERSED (pure-type-composition epic, decision 2): a default-exported construction value
+// is BANNED (TS990016) instead of supported through declarations. Its `<Name>Config`
+// companion cannot be exported (§7.15 keeps a default export's alias module-local) — the one
+// structural hole in companion-alias nameability, so the alias-route config transport would
+// have no name to import. A default-exported NON-construction mixin stays legal (no
+// companion to export — `package-default-consumer.t.ts` keeps pinning that).
+it("rejects default-exported construction classes and mixins at build time", async (t: Test) => {
+    const defaultBase  = {
+        fileName : "default-base.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
 
-                export default class DefaultBase extends Base {
-                    public baseKey!: string = ""
-                }
-            `
-        },
-        {
-            fileName : "default-mixin.ts",
-            text     : `
-                import { Base, mixin } from "ts-mixin-class"
+            export default class DefaultBase extends Base {
+                public baseKey!: string = ""
+            }
+        `
+    }
+    const defaultMixin = {
+        fileName : "default-mixin.ts",
+        text     : `
+            import { Base, mixin } from "ts-mixin-class"
 
-                @mixin()
-                export default class DefaultMixin extends Base {
-                    public mixinKey!: number = 0
-                }
-            `
-        }
-    ])
+            @mixin()
+            export default class DefaultMixin extends Base {
+                public mixinKey!: number = 0
+            }
+        `
+    }
 
     const fixture = await createTypeScriptFixture({
         experimentalDecorators : false,
-        extraFiles             : packageFiles,
-        sourceFiles            : [
-            {
-                fileName : "consumer.ts",
-                text     : `
-                    import DefaultBase from "default-construction-lib/default-base"
-                    import DefaultMixin from "default-construction-lib/default-mixin"
-
-                    const base = DefaultBase.new({ baseKey: "base" })
-                    const mixin = DefaultMixin.new({ mixinKey: 1 })
-
-                    class BaseChild extends DefaultBase {
-                        public childKey!: boolean
-                    }
-
-                    class MixinConsumer implements DefaultMixin {
-                        public ownKey!: Date
-                    }
-
-                    const child = BaseChild.new({ baseKey: "base", childKey: true })
-                    const consumed = MixinConsumer.new({ mixinKey: 1, ownKey: new Date(0) })
-
-                    const a: string = base.baseKey
-                    const b: number = mixin.mixinKey
-                    const c: boolean = child.childKey
-                    const d: Date = consumed.ownKey
-
-                    function typeOnlyChecks(): void {
-                        // @ts-expect-error the non-exported default-base config alias still enforces its required key
-                        DefaultBase.new({})
-
-                        // @ts-expect-error the default mixin's config stays exact through declarations
-                        DefaultMixin.new({ mixinKey: 1, extra: true })
-                    }
-
-                    void [ a, b, c, d, typeOnlyChecks ]
-                `
-            }
-        ]
+        compilerOptions        : { declaration: true },
+        sourceFiles            : [ defaultBase, defaultMixin ]
     })
 
     try {
-        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+        const emit       = await runCommand("node", [ tscBinary, "-p", fixture.tsconfigFile ], fixture.directory)
+        const emitOutput = commandOutput(emit)
 
-        t.isStrict(
-            result.exitCode,
-            0,
-            `Default-exported construction values remain usable through their non-exported config aliases:\n${commandOutput(result)}`
-        )
+        t.ne(emit.exitCode, 0, "emit: rejected")
+        t.match(emitOutput, "TS990016", `a native diagnostic bans the default export.\n${emitOutput}`)
+        t.match(emitOutput, "DefaultBase", "the plain construction base is named")
+        t.match(emitOutput, "DefaultMixin", "the construction mixin is named")
+        t.match(emitOutput, "named export", "the message points at the fix")
+
+        const sourceView       = await runCommand("node", [ tscBinary, "--noEmit", "-p", fixture.tsconfigFile ], fixture.directory)
+        const sourceViewOutput = commandOutput(sourceView)
+
+        t.ne(sourceView.exitCode, 0, "source view: rejected identically")
+        t.match(sourceViewOutput, "TS990016", `both planes agree.\n${sourceViewOutput}`)
     } finally {
         await fixture.dispose()
     }

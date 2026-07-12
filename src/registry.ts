@@ -557,14 +557,11 @@ export function buildConstructionBaseRegistry(
                 configRequiresArgument : constructionBase.configRequiresArgument
             }
 
+            // No "default"-name aliasing here (unlike the mixin registry's line for
+            // default-exported mixins): a default-exported CONSTRUCTION value is banned at
+            // its own build (TS990016 — the epic's decision 2 reversed §13.9), so a
+            // published `.d.ts` can only carry named construction bases.
             registry.set(registryKey(sourceFile.fileName, constructionBase.name), entry)
-
-            // A DEFAULT-exported construction base is imported as a default binding, whose
-            // registry lookup resolves under the "default" name (§13.9) — alias the entry
-            // the same way the mixin registry aliases default-exported mixins.
-            if (constructionBase.defaultExport) {
-                registry.set(registryKey(sourceFile.fileName, "default"), entry)
-            }
         }
     }
 

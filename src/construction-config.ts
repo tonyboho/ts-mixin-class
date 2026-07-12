@@ -116,6 +116,8 @@ export function createConstructionMembers(
     const aliasName      = constructionConfigAliasName(declaration)
     const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
 
+    banDefaultExportConstruction(tsInstance, sourceFile, declaration, nativeDiagnostics)
+
     const configAlias     = configCollides ? undefined : createConstructionConfigAlias(tsInstance, declaration, aliasName, config.type)
     const configReference = configCollides
         ? inlineConfigTypeClone(tsInstance, config.type)
@@ -340,6 +342,8 @@ export function createMixinConstructionNewType(
     // and the `static new` (source view) forms so the symbol exists in both.
     const aliasName      = constructionConfigAliasName(declaration)
     const configCollides = reserveConfigCompanionNames(tsInstance, sourceFile, declaration, aliasName, nativeDiagnostics)
+
+    banDefaultExportConstruction(tsInstance, sourceFile, declaration, nativeDiagnostics)
 
     // A method signature with a STRING-LITERAL name (`"new"(props?): Instance`), not a
     // property (`new: (props?) => Instance`): a method's parameters are checked
@@ -762,6 +766,39 @@ function reserveConfigCompanionNames(
     }
 
     return configCollides
+}
+
+// A DEFAULT-exported construction value is BANNED (pure-type-composition epic, decision 2):
+// its `<Name>Config` companion cannot be exported (§7.15 keeps a default export's alias
+// module-local, so the name does not leak), which is the one structural hole in
+// companion-alias nameability — a downstream alias-route reference would have nothing to
+// import. Generation still proceeds (the module-local alias keeps the class usable in its
+// own file); the ban is the only surfaced problem. Default-exported NON-construction
+// mixins never reach this (no companion is generated for them).
+function banDefaultExportConstruction(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    declaration: ts.ClassDeclaration,
+    nativeDiagnostics: NativeMixinDiagnostic[] | undefined
+): void {
+    if (nativeDiagnostics === undefined ||
+        !hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.ExportKeyword) ||
+        !hasModifier(tsInstance, declaration, tsInstance.SyntaxKind.DefaultKeyword)
+    ) {
+        return
+    }
+
+    const className = declaration.name?.text ?? "<anonymous>"
+
+    nativeDiagnostics.push(nativeDiagnosticOn(
+        tsInstance,
+        sourceFile,
+        declaration.name ?? declaration,
+        mixinDiagnosticCode.ConstructionDefaultExport,
+        `A construction class cannot be default-exported. The generated '${className}Config' companion of ` +
+            `class '${className}' must be exportable under a stable name, and a default export keeps it ` +
+            "module-local. Use a named export."
+    ))
 }
 
 function collectTopLevelDeclaredNameNodes(

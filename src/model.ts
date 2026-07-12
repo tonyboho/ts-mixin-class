@@ -134,7 +134,8 @@ export const mixinDiagnosticCode = {
     MixinManualApplication         : 990012,
     MixinRequiredBaseConflict      : 990013,
     MixinRequiredBaseMismatch      : 990014,
-    ConstructionConfigNameReserved : 990015
+    ConstructionConfigNameReserved : 990015,
+    ConstructionDefaultExport      : 990016
 } as const
 
 // The one shared constructor for a transformer-authored error: spans `node`'s own

@@ -275,6 +275,7 @@ export function createInstanceCollisionStatements(
         for (const name of contributor.instanceNames) {
             if (seenNames.has(name)) {
                 overlappingNames.add(name)
+                // eslint-disable-next-line align-assignments/align-assignments
                 pinContributor ??= contributor.heritageType
             }
         }

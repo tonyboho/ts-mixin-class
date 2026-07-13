@@ -2125,3 +2125,123 @@ it("an index-only declaration ancestor's bag constraint survives a keyless middl
         await app.dispose()
     }
 })
+
+// The NON-EXPORTED twin of the keyless-middle hazard: a module-local ancestor has NO meta
+// to reference (the companion is only emitted for exported classes), so the keyless
+// consumer's meta used to read provably empty (`keys: never, indexKinds: never`) while its
+// CONFIG faithfully carried the ancestor's bag typing — and a downstream package, trusting
+// the meta, wrongly dropped the alias (§7.31) and the bag-key constraint with it. A LOCAL
+// contributor's index KINDS need no reference: the facts see its signatures, so they are
+// spelled as literals (a recursion over the local levels).
+it("a NON-exported local ancestor's index kinds ride the keyless consumer's meta as literals", async (t: Test) => {
+    const library = await buildDeclarationPackage(t, "hidden-bag-lib", [ {
+        fileName : "sink.ts",
+        text     : `
+            import { Base } from "ts-mixin-class/base"
+
+            class BagHolder extends Base {
+                [bag: string]: number | Base["initialize"] | undefined
+            }
+
+            export class Sink extends BagHolder {
+            }
+        `
+    } ])
+
+    const sinkDeclaration = library.find((file) => file.fileName.endsWith("sink.d.ts"))!.text
+
+    t.match(
+        sinkDeclaration,
+        /SinkConfigMeta = \{[^}]*indexKinds: "string"/,
+        "the hidden local ancestor's index kind is spelled as a literal in the consumer's meta"
+    )
+
+    const app = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : library,
+        sourceFiles            : [ {
+            fileName : "app.ts",
+            text     : `
+                import { Sink } from "hidden-bag-lib/sink"
+
+                export class App extends Sink {
+                    public count!: number
+                }
+
+                const app = App.new({ count: 1, volume: 5 })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error bag keys stay constrained by the hidden ancestor's index signature
+                    App.new({ count: 1, volume: "wrong" })
+                }
+
+                void [ app, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", app.tsconfigFile ], app.directory)
+
+        t.isStrict(result.exitCode, 0, `the bag constraint survives the non-exported ancestor's missing meta:\n${commandOutput(result)}`)
+    } finally {
+        await app.dispose()
+    }
+})
+
+it("a NON-exported local mixin's index kinds ride the keyless consumer's meta as literals", async (t: Test) => {
+    const library = await buildDeclarationPackage(t, "hidden-bag-mixin-lib", [ {
+        fileName : "sink.ts",
+        text     : `
+            import { Base, mixin } from "ts-mixin-class"
+
+            @mixin()
+            class BagMixin extends Base {
+                [bag: string]: number | Base["initialize"] | undefined
+            }
+
+            export class Sink implements BagMixin {
+            }
+        `
+    } ])
+
+    const sinkDeclaration = library.find((file) => file.fileName.endsWith("sink.d.ts"))!.text
+
+    t.match(
+        sinkDeclaration,
+        /SinkConfigMeta = \{[^}]*indexKinds: "string"/,
+        "the hidden local mixin's index kind is spelled as a literal in the consumer's meta"
+    )
+
+    const app = await createTypeScriptFixture({
+        experimentalDecorators : false,
+        extraFiles             : library,
+        sourceFiles            : [ {
+            fileName : "app.ts",
+            text     : `
+                import { Sink } from "hidden-bag-mixin-lib/sink"
+
+                export class App extends Sink {
+                    public count!: number
+                }
+
+                const app = App.new({ count: 1, volume: 5 })
+
+                function typeOnlyChecks(): void {
+                    // @ts-expect-error bag keys stay constrained by the hidden mixin's index signature
+                    App.new({ count: 1, volume: "wrong" })
+                }
+
+                void [ app, typeOnlyChecks ]
+            `
+        } ]
+    })
+
+    try {
+        const result = await runCommand("node", [ tscBinary, "--noEmit", "-p", app.tsconfigFile ], app.directory)
+
+        t.isStrict(result.exitCode, 0, `the bag constraint survives the non-exported mixin's missing meta:\n${commandOutput(result)}`)
+    } finally {
+        await app.dispose()
+    }
+})

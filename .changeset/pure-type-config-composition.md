@@ -48,6 +48,10 @@ static-side `new` compatibility check.
 The `<Name>ConfigMeta` companion is compositional too — inventory a class cannot
 respell (an upstream package's computed keys, index kinds) references the
 contributor's own meta instead of silently vanishing, so the published inventory stays
-exact across any number of package generations. Second-generation packages (built on
+exact across any number of package generations. A NON-exported local contributor has
+no meta to reference — its index kinds are spelled as literals from the source facts
+instead, so a key-free class over a hidden index-signature ancestor or mixin never
+publishes a falsely empty inventory (which would drop its alias, and the bag-key
+constraint with it, one package further down). Second-generation packages (built on
 top of another construction package, never mentioning the transformer themselves) are
 now recognized as construction bases.

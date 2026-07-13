@@ -49,24 +49,6 @@ Fix plan (dedupe-by-position alone is INSUFFICIENT — it never fixes the direct
 Repro: the NOTE in `fixture-suite/src/mixin-type-level-generics.t.ts`; probe scripts from the
 investigation live in the pass-9 session scratchpad.
 
-### Pure-type config composition — residual refinements (epic shipped 2026-07-12)
-
-The tree-form config EPIC itself is SHIPPED (decisions 1–5, three stages, §7.13/§7.30/
-§7.31/§10.25/§13.8/§13.9 — see USE-CASES and the `pure-type-config-composition`
-changeset; a bench pass with the tree active measured compile + tsserver on the
-construction corpus at 10/30/60 classes, both visibilities, tree ≡ flat within noise;
-the meta is COMPOSITIONAL — contributor metas join by reference, so the published
-inventory stays exact across package generations). What remains, none started:
-
-- **Non-exported / meta-less contributors still under-report index kinds.** The meta
-  composition can only reference a PUBLISHED meta: a non-exported same-file contributor
-  with an index signature (no meta exists) and a meta-less older `.d.ts` emit keep the
-  consumer's `indexKinds` own-only. Mostly this costs inventory precision, but in the
-  corner where such a consumer is ALSO key-free its published meta reads provably empty
-  and a further downstream package wrongly drops its alias (§7.31) — losing the bag-key
-  constraint's typing. Fix: spell LOCAL contributors' index kinds as literals from facts
-  (a recursion over local levels), and accept the meta-less `.d.ts` case as permanent.
-
 ### Phantom "ancestors-only" interfaces to flatten the required-base checker cost (idea, 2026-07)
 
 **The problem.** The `requiredBase` compile-bench scenario (mixins `extends Base_k` over deep

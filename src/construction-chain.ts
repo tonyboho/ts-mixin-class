@@ -540,3 +540,75 @@ function crossFileBaseEntryInventoryComplete(baseEntry: ConstructionBaseEntry | 
         // accumulated list no longer shows, so the list cannot prove emptiness.
         transplantableConfigProperties(baseEntry.configProperties).length === baseEntry.configProperties.length
 }
+
+// The index signatures of a base chain's LOCAL levels (the parent, its local ancestors,
+// their local mixins) — the inventory a consumer's meta must spell as LITERALS when the
+// parent is module-local: no `<Name>ConfigMeta` companion exists for it to reference,
+// and without the literals a key-free consumer's meta would read provably empty (§7.31).
+// Cross-file exits contribute nothing here: an imported contributor's kinds ride its own
+// published meta, or stay under-reported for a meta-less older emit (the accepted
+// permanent case). Mirrors `chainInventoryComplete`'s local walk.
+export function localChainIndexSignatures(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    baseType: ts.ExpressionWithTypeArguments | undefined,
+    facts: SourceFileFacts,
+    seen: Set<string>
+): ts.IndexSignatureDeclaration[] {
+    if (baseType === undefined) {
+        return []
+    }
+
+    if (!tsInstance.isIdentifier(baseType.expression)) {
+        const dottedName = dottedExpressionText(tsInstance, baseType.expression)
+
+        if (dottedName === undefined || seen.has(dottedName)) {
+            return []
+        }
+
+        seen.add(dottedName)
+
+        const qualifiedBase = qualifiedLocalClassFacts(tsInstance, sourceFile, baseType.expression, facts)
+
+        return qualifiedBase === undefined
+            ? []
+            : localClassIndexSignatures(tsInstance, sourceFile, qualifiedBase, facts, seen)
+    }
+
+    return indexSignaturesForName(tsInstance, sourceFile, baseType.expression.text, facts, seen)
+}
+
+function localClassIndexSignatures(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    localClass: ClassFacts,
+    facts: SourceFileFacts,
+    seen: Set<string>
+): ts.IndexSignatureDeclaration[] {
+    return [
+        ...localClass.indexSignatures,
+        ...localClass.implementsIdentifierNames.flatMap((implemented) =>
+            indexSignaturesForName(tsInstance, sourceFile, implemented, facts, seen)),
+        ...localChainIndexSignatures(tsInstance, sourceFile, localClass.extendsType, facts, seen)
+    ]
+}
+
+function indexSignaturesForName(
+    tsInstance: TypeScript,
+    sourceFile: ts.SourceFile,
+    name: string,
+    facts: SourceFileFacts,
+    seen: Set<string>
+): ts.IndexSignatureDeclaration[] {
+    if (seen.has(name)) {
+        return []
+    }
+
+    seen.add(name)
+
+    const localClass = facts.classesByName.get(name)
+
+    return localClass === undefined
+        ? []
+        : localClassIndexSignatures(tsInstance, sourceFile, localClass, facts, seen)
+}

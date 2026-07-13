@@ -18,7 +18,7 @@ import {
     type ResolvedMixinRef,
     type TransformOptions
 } from "./model.js"
-import { baseConfigProperties, chainInventoryComplete, isConstructionBaseOptIn, resolveCrossFileConstructionBase } from "./construction-chain.js"
+import { baseConfigProperties, chainInventoryComplete, isConstructionBaseOptIn, localChainIndexSignatures, resolveCrossFileConstructionBase } from "./construction-chain.js"
 import { getSourceFileFacts, type ClassFacts, type SourceFileFacts } from "./source-file-facts.js"
 import { generatedName } from "./naming.js"
 import { normalizePath } from "./util.js"
@@ -36,7 +36,13 @@ type ConstructionConfig = {
     // Contributor metas the companion must COMPOSE by reference (`__X$configMeta["keys"]`):
     // layers whose inventory the merged list cannot respell (foreign computed keys, index
     // kinds). Empty in source view and for fully-respellable compositions.
-    metaReferences    : string[]
+    metaReferences    : string[],
+    // Index KINDS ("string" | "number" | "symbol") of LOCAL contributors that have no meta
+    // to reference (a module-local class gets no `<Name>ConfigMeta` companion). The facts
+    // see their signatures directly, so the companion spells these as literals — without
+    // them a key-free consumer's meta would read PROVABLY EMPTY and a downstream package
+    // would wrongly drop its alias (§7.31), losing the bag-key constraint.
+    localIndexKinds   : string[]
 }
 
 // A short, improbable marker placed as the first statement of the generated `static new`
@@ -470,20 +476,24 @@ export function createMixinConstructionNewType(
 // reserved-name-colliding parents, and (until the cross-file alias-route stage) imported
 // contributors.
 type ConfigLayer = {
-    reference      : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
-    properties     : ConfigProperty[],
+    reference        : { aliasName: string, typeArguments: ts.TypeNode[] | undefined } | undefined,
+    properties       : ConfigProperty[],
     // A reference layer whose keys are ALL overridden by nearer layers may be dropped
     // ONLY when `properties` is a COMPLETE inventory of the alias (a local, dependency-free
     // contributor without index signatures). An imported alias may carry cargo the fact
     // route cannot see (computed keys, index signatures) — it must stay referenced (bare,
     // or Omit-ed by its known keys) even when every known key is overridden.
-    droppable?     : boolean,
+    droppable?       : boolean,
     // The contributor's `<Name>ConfigMeta` reference name usable in THIS file (a generated
     // type-only import's local name, or the plain same-file alias name). Set only when the
     // layer carries inventory the consumer's meta cannot respell (foreign computed keys,
     // index kinds) — the consumer's meta then COMPOSES it (`__X$configMeta["keys"]`)
     // instead of under-reporting. Emit plane only (source view emits no meta).
-    metaReference? : string
+    metaReference?   : string,
+    // Index kinds of a NON-exported local contributor (no meta exists to reference —
+    // the companion is only emitted for exported classes): spelled as meta literals
+    // instead. Emit plane only, like `metaReference`.
+    localIndexKinds? : string[]
 }
 
 function createConstructionConfig(
@@ -527,6 +537,7 @@ function createConstructionConfig(
     ]
     const metaReferences        = [ ...new Set(layers.flatMap((layer) =>
         layer.metaReference === undefined ? [] : [ layer.metaReference ])) ]
+    const localIndexKinds       = [ ...new Set(layers.flatMap((layer) => layer.localIndexKinds ?? [])) ]
 
     // A `.d.ts` contributor's published `.new` parameter may be REQUIRED for keys the fact
     // inventory misses (an older emit without the meta) — the registry flag keeps this
@@ -661,7 +672,8 @@ function createConstructionConfig(
             ]),
             optionalParameter : true,
             properties        : [],
-            metaReferences    : []
+            metaReferences    : [],
+            localIndexKinds
         }
     }
 
@@ -675,7 +687,8 @@ function createConstructionConfig(
         optionalParameter : !merged.some((property) => property.valueType === undefined && !property.optional)
             && !declarationRequiresArgument,
         properties : merged,
-        metaReferences
+        metaReferences,
+        localIndexKinds
     }
 }
 
@@ -837,6 +850,11 @@ function mixinConfigLayer(
         // chain rides the consumer's own base layer).
         metaReference : !options.sourceView && locallyExported && mixinFacts.indexSignatures.length > 0
             ? `${mixinFacts.name ?? ""}ConfigMeta`
+            : undefined,
+        // A NON-exported local mixin has no meta to compose — its index kinds are spelled
+        // as literals from the facts instead.
+        localIndexKinds : !options.sourceView && !locallyExported && mixinFacts.indexSignatures.length > 0
+            ? indexSignatureKinds(tsInstance, mixinFacts.indexSignatures)
             : undefined
     }
 }
@@ -959,6 +977,12 @@ function baseConfigLayer(
         properties,
         metaReference : !options.sourceView && parentExported && !chainComplete
             ? `${parentFacts.name ?? ""}ConfigMeta`
+            : undefined,
+        // A NON-exported local parent has no meta to compose — the chain's LOCAL levels'
+        // index kinds are spelled as literals from the facts instead (the keys themselves
+        // ride the alias reference; only the machine-readable inventory needs this).
+        localIndexKinds : !options.sourceView && !parentExported && !chainComplete
+            ? indexSignatureKinds(tsInstance, localChainIndexSignatures(tsInstance, sourceFile, baseType, facts, new Set()))
             : undefined
     } ]
 }
@@ -1493,14 +1517,11 @@ function createConstructionConfigMeta(
     // The index-signature KINDS (not keys): a downstream Omit gate must know a layer has a
     // `string`/`number`/`symbol` index signature, because `keyof`-based subtraction over
     // such a layer would erase deeper concrete keys (pre-probe 1's hazard).
-    const indexKinds = (facts.classesByDeclaration.get(declaration)?.indexSignatures ?? [])
-        .map((signature) => signature.parameters[0]?.type)
-        .filter((type): type is ts.TypeNode => type !== undefined)
-        .map((type) => factory.createLiteralTypeNode(factory.createStringLiteral(
-            type.kind === tsInstance.SyntaxKind.NumberKeyword ? "number"
-                : type.kind === tsInstance.SyntaxKind.SymbolKeyword ? "symbol"
-                    : "string"
-        )))
+    const indexKinds = [ ...new Set([
+        ...indexSignatureKinds(tsInstance, facts.classesByDeclaration.get(declaration)?.indexSignatures ?? []),
+        // NON-exported local contributors' kinds — no meta of theirs exists to reference.
+        ...config.localIndexKinds
+    ]) ].map((kind) => factory.createLiteralTypeNode(factory.createStringLiteral(kind)))
 
     // COMPOSED fields: a contributor whose inventory the merged list cannot respell
     // (foreign computed keys, index kinds) rides as an indexed access into ITS meta
@@ -1536,6 +1557,20 @@ function createConstructionConfigMeta(
             literalField("indexKinds", unionOrNever([ ...indexKinds, ...metaReferenceTerms("indexKinds") ]))
         ])
     )
+}
+
+// The "string" | "number" | "symbol" kind literals of a set of index signatures — the
+// vocabulary of the meta's `indexKinds` field.
+function indexSignatureKinds(
+    tsInstance: TypeScript,
+    indexSignatures: ts.IndexSignatureDeclaration[]
+): string[] {
+    return indexSignatures
+        .map((signature) => signature.parameters[0]?.type)
+        .filter((type): type is ts.TypeNode => type !== undefined)
+        .map((type) => type.kind === tsInstance.SyntaxKind.NumberKeyword ? "number"
+            : type.kind === tsInstance.SyntaxKind.SymbolKeyword ? "symbol"
+                : "string")
 }
 
 // The inline replacement for the alias reference in the RESERVED-name error state: a

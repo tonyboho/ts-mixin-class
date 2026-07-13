@@ -1,6 +1,6 @@
 import path from "node:path"
 import ts from "typescript"
-import transformProgram from "../src/index.js"
+import transformProgram from "../../src/index.js"
 import { parseArgs } from "./lib/cli.js"
 
 // Enumerate every "Did not expect <kind> to have an Identifier in its trivia"

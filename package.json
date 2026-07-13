@@ -56,8 +56,8 @@
         "publint": "publint",
         "attw": "attw --pack . --profile esm-only",
         "changeset": "changeset",
-        "bump": "changeset version && node scripts/changelog-date.ts && node scripts/sync-readme-versions.ts",
-        "release:preflight": "node scripts/release-preflight.ts",
+        "bump": "changeset version && node scripts/release/changelog-date.ts && node scripts/release/sync-readme-versions.ts",
+        "release:preflight": "node scripts/release/release-preflight.ts",
         "release:check": "pnpm run clean && pnpm run typecheck && pnpm run typecheck:scripts && pnpm run build && pnpm run lint:check && pnpm run test && pnpm run publint && pnpm run attw",
         "release": "pnpm run release:preflight && pnpm run release:check && changeset publish && git push --follow-tags",
         "prepare": "ts-patch install"

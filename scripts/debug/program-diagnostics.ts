@@ -1,6 +1,6 @@
 import path from "node:path"
 import ts from "typescript"
-import transformProgram from "../src/index.js"
+import transformProgram from "../../src/index.js"
 import { parseArgs } from "./lib/cli.js"
 
 // Run the real ProgramTransformer over a whole tsconfig (cross-file registry and

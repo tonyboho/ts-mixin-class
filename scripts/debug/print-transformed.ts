@@ -1,5 +1,5 @@
 import ts from "typescript"
-import { printSourceFile, transformSourceFile } from "../src/index.js"
+import { printSourceFile, transformSourceFile } from "../../src/index.js"
 import {
     createSourceFile,
     modeFromArgs,

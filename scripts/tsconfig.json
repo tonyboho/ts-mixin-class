@@ -16,8 +16,6 @@
         "forceConsistentCasingInFileNames": true
     },
     "include": [
-        "changelog-date.ts",
-        "sync-readme-versions.ts",
-        "release-preflight.ts"
+        "release/*.ts"
     ]
 }

@@ -1299,10 +1299,10 @@ inherited interface. Full breakdown: `stress-diagnostic-parity.t.ts` header (dif
 
 ## Debugging
 
-### Scripts (`scripts/`)
+### Scripts (`scripts/debug/`; release automation lives in `scripts/release/`)
 
-Before a throwaway script, use the reusable ones (compiled to `dist/scripts/`, full usage in
-`scripts/README.md`). Input is `--file <path>` / positional path / `--code "<snippet>"` / stdin (a
+Before a throwaway script, use the reusable ones (compiled to `dist/scripts/debug/`, full usage
+in `scripts/debug/README.md`). Input is `--file <path>` / positional path / `--code "<snippet>"` / stdin (a
 snippet must import `mixin`/`Base` from the package). `--mode emit|ide|both` selects emit vs
 source-view.
 

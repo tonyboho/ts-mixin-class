@@ -78,7 +78,7 @@ private fields are intentionally nominal and class-local, which makes them a poo
 this kind of composition. Use ordinary members inside mixins, or keep private state in a
 non-mixin base class.
 
-**Explored 2026-07-07** (every claim below verified by `scripts/exploration-private-modifiers.ts`
+**Explored 2026-07-07** (every claim below verified by `scripts/debug/exploration-private-modifiers.ts`
 against our actual generated shapes — omitting interface + factory class for emit, claiming
 cast for source view — on the pinned TS; type-level `@ts-expect-error` and runtime chains both
 checked; the probe compiles with the repo build, so the pinned mechanics stay verified):

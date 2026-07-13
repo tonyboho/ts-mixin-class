@@ -4,7 +4,7 @@ Reusable replacements for the throwaway scripts you'd otherwise write to inspect
 the transformer. Build once (`pnpm build`), then run from the package root:
 
 ```bash
-node dist/scripts/<script>.js [options]
+node dist/scripts/debug/<script>.js [options]
 ```
 
 Input for the single-file scripts comes from (in order): `--file <path>`, a bare
@@ -17,16 +17,16 @@ Common options: `--mode emit|ide|both`, `--package-name <name>`,
 
 `ide` = the position-preserving **source-view** pass (what tsserver / the IDE and
 `tsc --noEmit` use). `emit` = the printed pass (what `tsc` emits). Bugs usually
-differ between the two — see the construction-`new` invariants in `../AGENTS.md`.
+differ between the two — see the construction-`new` invariants in `../../AGENTS.md`.
 
 ## `print-transformed.js`
 
 Print the transformed code for a snippet, in emit and/or source-view mode.
 
 ```bash
-node dist/scripts/print-transformed.js --file tests/fixture-suite/src/foo.t.ts
+node dist/scripts/debug/print-transformed.js --file tests/fixture-suite/src/foo.t.ts
 echo 'import { Base, mixin } from "ts-mixin-class"
-@mixin() class S extends Base { public x?: number = 1 }' | node dist/scripts/print-transformed.js --mode ide
+@mixin() class S extends Base { public x?: number = 1 }' | node dist/scripts/debug/print-transformed.js --mode ide
 ```
 
 ## `print-ast.js`
@@ -37,7 +37,7 @@ flagging the range shapes that break tsserver: `⚠ NEGATIVE` (`-1`),
 Defaults to `ide` mode (ranges only matter there).
 
 ```bash
-node dist/scripts/print-ast.js --file tests/fixture-suite/src/foo.t.ts
+node dist/scripts/debug/print-ast.js --file tests/fixture-suite/src/foo.t.ts
 ```
 
 ## `program-diagnostics.js`
@@ -49,16 +49,16 @@ for cross-file behavior, which the single-file scripts cannot reproduce.
 
 ```bash
 # fixture-suite, ide mode, all files
-node dist/scripts/program-diagnostics.js
+node dist/scripts/debug/program-diagnostics.js
 
 # one transformed file, printed, with its diagnostics
-node dist/scripts/program-diagnostics.js --file repro --print
+node dist/scripts/debug/program-diagnostics.js --file repro --print
 
 # resolved type of every `.new` access (emit vs ide can differ)
-node dist/scripts/program-diagnostics.js --file repro --types new
+node dist/scripts/debug/program-diagnostics.js --file repro --types new
 
 # what `tsc` (emit) checks instead of the IDE
-node dist/scripts/program-diagnostics.js --mode emit --file repro
+node dist/scripts/debug/program-diagnostics.js --mode emit --file repro
 ```
 
 Options: `--tsconfig <path>` (default `tests/fixture-suite/tsconfig.json`),

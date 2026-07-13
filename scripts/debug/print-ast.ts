@@ -1,5 +1,5 @@
 import ts from "typescript"
-import { transformSourceFile } from "../src/index.js"
+import { transformSourceFile } from "../../src/index.js"
 import {
     createSourceFile,
     parseArgs,

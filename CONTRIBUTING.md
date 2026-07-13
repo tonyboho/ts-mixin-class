@@ -34,8 +34,7 @@ pnpm run clean      # remove the dist output
 The same checks run in CI. Run them locally before opening a pull request:
 
 ```shell
-pnpm run typecheck          # type-check the library
-pnpm run typecheck:scripts  # type-check the scripts
+pnpm run typecheck          # type-check the library and scripts
 pnpm run lint:check         # ESLint, zero warnings allowed
 pnpm run test               # build, then run the Siesta test suite
 ```

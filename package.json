@@ -49,7 +49,6 @@
         "pretest": "pnpm run build",
         "test": "siesta dist/tests",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "typecheck:scripts": "tsc -p scripts/tsconfig.json",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "lint:check": "eslint . --max-warnings 0",
@@ -58,7 +57,7 @@
         "changeset": "changeset",
         "bump": "changeset version && node scripts/release/changelog-date.ts && node scripts/release/sync-readme-versions.ts",
         "release:preflight": "node scripts/release/release-preflight.ts",
-        "release:check": "pnpm run clean && pnpm run typecheck && pnpm run typecheck:scripts && pnpm run build && pnpm run lint:check && pnpm run test && pnpm run publint && pnpm run attw",
+        "release:check": "pnpm run clean && pnpm run typecheck && pnpm run build && pnpm run lint:check && pnpm run test && pnpm run publint && pnpm run attw",
         "release": "pnpm run release:preflight && pnpm run release:check && changeset publish && git push --follow-tags",
         "prepare": "ts-patch install"
     },

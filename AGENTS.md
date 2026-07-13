@@ -237,8 +237,14 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   that our C3-reduced heritage already avoids — the emitted statics intersections are
   capped at base + direct deps, so the duplicate-declaration accumulation never grows.
   The eager `addInheritedMembers` member-table cost is a THIRD, independent phenomenon:
-  landing either upstream issue would not change these curves (and it is not covered by
-  an upstream report yet). The pre-flat corpus
+  landing either upstream issue would not change these curves. A standalone, package-free
+  repro ready for an upstream report lives at `pnpm bench:ts-repro-members`
+  (`bench/diagnostics/typescript-member-table-repro.ts`): the distilled CORE is just
+  declared interfaces over a deepening class chain (`interface Mixin_i extends Base_k,
+  Mixin_{i-1}`) — check time 0.02/0.07/0.20/1.06s at 30/80/160/320 (×5+ per doubling,
+  type count exactly ×4), `addInheritedMembers` at ~33% self-time, unchanged under both
+  upstream patches; the FULL variant wraps the same heritage in the emitted factory
+  pattern and roughly triples the curve (statics bags immaterial — measured). The pre-flat corpus
   also shows the super-quadratic curve WITHOUT the transformer in the pipeline (277ms →
   461ms → 956ms → 3.81s @30/80/160/320): the growth is entirely the checker over the
   emitted shapes; the transformer's own contribution stays roughly linear (~0.1–0.6s).

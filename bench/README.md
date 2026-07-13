@@ -128,6 +128,13 @@ transformer's cost: `…-pre-flat` (the shapes as emitted today) and
 by a declared ancestors-only interface — the falsification harness for the
 phantom idea; refuted, see the perf note in AGENTS.md).
 
+`pnpm bench:ts-repro-members` runs the standalone, package-free repro of the
+super-quadratic `addInheritedMembers` member-table cost behind the base-chain
+curve (`bench/diagnostics/typescript-member-table-repro.ts`; knobs:
+`TS_MEMBER_TABLE_REPRO_SIZES`, `TS_MEMBER_TABLE_REPRO_VARIANTS=core,full`,
+`TS_MEMBER_TABLE_REPRO_TIMEOUT_MS`). Ready for an upstream report — see the
+perf note in AGENTS.md.
+
 Larger release-style run:
 
 ```bash

@@ -1,6 +1,9 @@
 export class C3LinearizationError<T> extends Error {
-    constructor(readonly pendingSequences: readonly T[][]) {
+    readonly pendingSequences : readonly T[][]
+
+    constructor(pendingSequences: readonly T[][]) {
         super("Cannot linearize sequences with the C3 algorithm")
+        this.pendingSequences = pendingSequences
     }
 }
 

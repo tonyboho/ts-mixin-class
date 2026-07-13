@@ -328,8 +328,11 @@ export type MixinDeclarationDiagnostic = {
 }
 
 export class DependencyLinearizationError extends Error {
-    constructor(readonly pendingSequences: readonly string[][]) {
+    readonly pendingSequences : readonly string[][]
+
+    constructor(pendingSequences: readonly string[][]) {
         super("Cannot linearize mixin classes: inconsistent requirements")
+        this.pendingSequences = pendingSequences
     }
 }
 

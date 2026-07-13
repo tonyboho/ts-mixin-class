@@ -228,7 +228,17 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   type — a phantom is one MORE such type per mixin, while the anonymous intersection
   resolves properties LAZILY and never builds a flattened table. Corollaries: the relation
   cache was never the bottleneck, and any future fix must REDUCE declared-heritage depth or
-  count (or land upstream, #63555) — adding declared types cannot help. The pre-flat corpus
+  count (or land upstream) — adding declared types cannot help. Cross-checked (2026-07-13):
+  the upstream fixes #63555 (`hasBaseType` memoization) and #63560
+  (`createUnionOrIntersectionProperty` declaration dedup) applied LOCALLY to the pinned
+  tsc — each alone AND combined — move NOTHING on this corpus (every row within 1–4%,
+  noise; the phantom stays +12% @320). Those fixes target the EXPONENTIAL
+  naive-full-list-heritage shapes (unbounded statics intersections, uncached base walks)
+  that our C3-reduced heritage already avoids — the emitted statics intersections are
+  capped at base + direct deps, so the duplicate-declaration accumulation never grows.
+  The eager `addInheritedMembers` member-table cost is a THIRD, independent phenomenon:
+  landing either upstream issue would not change these curves (and it is not covered by
+  an upstream report yet). The pre-flat corpus
   also shows the super-quadratic curve WITHOUT the transformer in the pipeline (277ms →
   461ms → 956ms → 3.81s @30/80/160/320): the growth is entirely the checker over the
   emitted shapes; the transformer's own contribution stays roughly linear (~0.1–0.6s).

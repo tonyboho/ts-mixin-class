@@ -1,5 +1,43 @@
 # ts-mixin-class
 
+## 0.0.16 - 2026-07-13
+
+### Patch Changes
+
+- Construction config now travels across source files and package boundaries. Exotic
+  config keys — numeric (`public 0!`), string-literal (`public "dash-name"!`), computed
+  const-string / unique-symbol keys, and class index signatures — carry with their
+  identity, value types and requiredness intact, cross-file and cross-package. Generic
+  published contributors instantiate at the use site (`implements Boxed<string>` over a
+  `.d.ts` package yields `BoxedConfig<string>` downstream).
+
+- Re-export barrels carry construction. Subclassing a construction base imported through a
+  barrel (`export *`, named, or aliased re-export, or a declaration package's entry-point
+  barrel) keeps its `.new` and config, and a `.d.ts` mixin re-exported through a package
+  barrel is now recognized. A subclass of a default-exported `.d.ts` construction base is
+  construction-enabled too, and a package built on top of another construction package is
+  itself recognized as a construction base.
+
+- An EMPTY construction config is now exact: `.new()` / `.new({})` stay legal, but an
+  unknown key is a type error.
+
+- An ABSTRACT construction class has no callable `.new` (TS2684); a concrete subclass gets
+  its own typed factory with the full accumulated config.
+
+- `<Name>Config` and `<Name>ConfigMeta` are reserved next to every construction class — a
+  colliding declaration or import is a TS990015 (rename it). Default-exported construction
+  classes and mixins are banned (TS990016) — use a named export.
+
+- More collision diagnostics in the editor: incompatible same-named instance members of
+  combined mixins are now flagged in the IDE too (including conflicts only a three-plus
+  mixin combination exhibits); static-member collisions normalize equivalent key spellings
+  (`static foo` vs `static ["foo"]`, `static 0` vs `static "0"`) and detect symbol-keyed
+  statics; the manual `.mix` ban (TS990012) now also catches namespace-qualified
+  (`lib.Logger.mix(...)`) and parenthesized (`(Logger).mix(...)`) calls.
+
+- For a config key shared across mixins, the nearest declaration in the linearization now
+  chooses the key's write type; requiredness stays monotonic regardless of order.
+
 ## 0.0.15 - 2026-07-11
 
 ### Patch Changes

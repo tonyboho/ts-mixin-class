@@ -11,6 +11,7 @@ import {
     scenarioDirectoryName,
     type BenchmarkScenario
 } from "../fixtures/generator.js"
+import { pretransformFixture, type PretransformForm } from "../fixtures/pretransform.js"
 import type { BenchConfig } from "../lib/env.js"
 import { scenarioSizes } from "../lib/env.js"
 import { generatedRoot, packageRoot, tscFile } from "../lib/paths.js"
@@ -23,12 +24,18 @@ const execFileAsync = promisify(execFile)
 export async function runCompile(config: BenchConfig): Promise<BenchReport> {
     const rows: BenchRow[] = []
 
-    for (const scenario of compileScenarios(config)) {
+    for (const { scenario, pretransform } of compileVariants(config)) {
         const fixture = await createBenchmarkFixture({
             packageRoot,
-            root : path.join(generatedRoot, "compile"),
-            scenario
+            root     : path.join(generatedRoot, "compile"),
+            scenario : pretransform === undefined
+                ? scenario
+                : { ...scenario, name: `${scenario.name}-pre-${pretransform}` }
         })
+
+        if (pretransform !== undefined) {
+            await pretransformFixture(fixture, pretransform)
+        }
 
         for (let index = 0; index < config.warmups; index++) {
             await runCleanCompile(fixture.tsconfigFile, fixture.directory)
@@ -40,10 +47,34 @@ export async function runCompile(config: BenchConfig): Promise<BenchReport> {
             samples.push(await runCleanCompile(fixture.tsconfigFile, fixture.directory))
         }
 
-        rows.push({ name: scenarioDirectoryName(scenario), samples })
+        rows.push({
+            name : pretransform === undefined
+                ? scenarioDirectoryName(scenario)
+                : `${scenarioDirectoryName(scenario)}-pre-${pretransform}`,
+            samples
+        })
     }
 
     return { id: "compile", title: "Compile (tsc -p)", rows }
+}
+
+// `TS_MIXIN_BENCH_PRETRANSFORM=1` adds, for every requiredBase scenario, two extra rows
+// compiled from the fixture's PRE-TRANSFORMED (emit-plane) output with the plugin
+// stripped: `…-pre-flat` (the shapes the transform emits today) and `…-pre-phantom`
+// (the ancestors-only interface on the factory `base` parameter). The pair isolates the
+// phantom idea's checker effect — see `fixtures/pretransform.ts`.
+function compileVariants(config: BenchConfig): { scenario: BenchmarkScenario, pretransform?: PretransformForm }[] {
+    const pretransform = process.env["TS_MIXIN_BENCH_PRETRANSFORM"] === "1"
+
+    return compileScenarios(config).flatMap((scenario) => [
+        { scenario },
+        ...(pretransform && scenario.baseChainDepth !== undefined
+            ? [
+                { scenario, pretransform: "flat" as const },
+                { scenario, pretransform: "phantom" as const }
+            ]
+            : [])
+    ])
 }
 
 function compileScenarios(config: BenchConfig): BenchmarkScenario[] {

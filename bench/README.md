@@ -105,6 +105,7 @@ TS_MIXIN_BENCH_SIZES=10,30              # default size list for all three groups
 TS_MIXIN_BENCH_TSSERVER_SIZES=10,30     # override for tsserver
 TS_MIXIN_BENCH_EDIT_SIZES=10,30         # override for edit
 TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30   # override for the compile base-chain rows
+TS_MIXIN_BENCH_PRETRANSFORM=1           # adds compile rows over the PRE-TRANSFORMED fixture
 TS_MIXIN_BENCH_PROPERTY_COUNT=1
 TS_MIXIN_BENCH_PROPERTY_VISIBILITY=implicit|public
 TS_MIXIN_BENCH_CONSTRUCTION=plain|base  # base: consumers extend Base and call .new(...)
@@ -118,6 +119,14 @@ TS_MIXIN_BENCH_EDIT_COUNT=8             # edits per edit-scenario sample
 same fields without an accessibility modifier. `base` construction makes
 consumers extend `ts-mixin-class/base` and call `Consumer.new(...)`, exercising
 the public-only construction config path.
+
+`TS_MIXIN_BENCH_PRETRANSFORM=1` adds, for every base-chain compile scenario, two
+rows compiled from the fixture's own TRANSFORMED (emit-plane) output with the
+plugin stripped — isolating the checker cost of the generated shapes from the
+transformer's cost: `…-pre-flat` (the shapes as emitted today) and
+`…-pre-phantom` (the factory `base` parameter's instance intersection replaced
+by a declared ancestors-only interface — the falsification harness for the
+phantom idea; refuted, see the perf note in AGENTS.md).
 
 Larger release-style run:
 

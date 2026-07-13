@@ -215,6 +215,23 @@ Unrelated bases, sibling subclasses, and different instantiations such as `Base<
   `super.<ownMember>` in a mixin body would falsely typecheck; correctness over perf.
   Fine for realistic projects; re-check the curve with
   `TS_MIXIN_BENCH_REQUIRED_BASE_SIZES=30,80,160,320 pnpm run bench:compile`.
+  Considered and REFUTED by bench (2026-07-13): PHANTOM "ancestors-only" interfaces
+  (`interface Mixin_i$ancestors extends Base_k, Dep {}` referenced from the factory `base`
+  parameter's `AnyConstructor<…>` instead of the anonymous intersection; the relation-cache
+  theory said stable declared types turn pairwise comparisons into cache hits). Measured
+  with the PRETRANSFORMED compile variants (`TS_MIXIN_BENCH_PRETRANSFORM=1` — the fixture
+  is rewritten to the transform's own emit-plane output and compiled plugin-less, so the
+  checker cost of the shapes is isolated from the transformer): pre-flat vs pre-phantom is
+  noise @30/80, phantom +6% @160 and +13% @320 (3.81s → 4.31s) — the phantom made it WORSE.
+  The pre-flat profile re-pins `addInheritedMembers` (~1.14s self of 3.84s total): the cost
+  is the EAGER member-table construction of each declared type with deep heritage, once per
+  type — a phantom is one MORE such type per mixin, while the anonymous intersection
+  resolves properties LAZILY and never builds a flattened table. Corollaries: the relation
+  cache was never the bottleneck, and any future fix must REDUCE declared-heritage depth or
+  count (or land upstream, #63555) — adding declared types cannot help. The pre-flat corpus
+  also shows the super-quadratic curve WITHOUT the transformer in the pipeline (277ms →
+  461ms → 956ms → 3.81s @30/80/160/320): the growth is entirely the checker over the
+  emitted shapes; the transformer's own contribution stays roughly linear (~0.1–0.6s).
   **Superseded (kept for context):** this bullet originally attributed the growth to the
   resolver's pairwise nominal comparisons walking base chains — the 320-corpus CPU profile
   above refuted that attribution (6ms of a 3.2s delta); the bench numbers were correct, the

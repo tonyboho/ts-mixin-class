@@ -106,6 +106,9 @@ runtime inheritance chain, keeping the following invariants:
   consumer's hierarchy, otherwise a type-check linearization error is issued;
 - shared dependencies are deduplicated.
 
+You can check this [blog post](https://tonyboho.github.io/ts-mixin-class/posts/demystifying-multiple-inheritance/)
+for a smoother introduction to multiple inheritance.
+
 ```ts
 import { mixin } from "ts-mixin-class"
 

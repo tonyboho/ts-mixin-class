@@ -62,7 +62,7 @@ const base = import.meta.env.BASE_URL
         ::selection { background: var(--hair) }
 
         .wrap {
-            max-width      : 42rem;
+            max-width      : 48rem;
             margin-inline  : auto;
             padding-inline : 20px;
         }
@@ -208,12 +208,36 @@ const base = import.meta.env.BASE_URL
 
         article.post p { margin: 1.25rem 0 }
 
+        article.post .emphasis {
+            background : var(--hair);
+            padding    : .22em .38em;
+            -webkit-box-decoration-break : clone;
+            box-decoration-break         : clone;
+        }
+
         article.post blockquote {
-            margin       : 1.6rem 0;
-            padding-left : 1.3rem;
-            border-left  : 1px solid var(--hair);
-            font-style   : italic;
-            color        : var(--soft);
+            margin       : 1.9rem 0;
+            padding      : .05rem 0 .05rem 1.3rem;
+            border-left  : 2px solid var(--soft);
+            color        : var(--fg);
+        }
+
+        /* ---------- diagrams ---------- */
+
+        figure.diagram {
+            margin     : 2.4rem auto;
+            text-align : center;
+        }
+
+        figure.diagram svg { max-width: 100%; height: auto }
+
+        figure.diagram figcaption {
+            font-size  : .88rem;
+            font-style : italic;
+            color      : var(--muted);
+            max-width  : 30rem;
+            margin     : .9rem auto 0;
+            line-height: 1.5;
         }
 
         /* ---------- code ---------- */

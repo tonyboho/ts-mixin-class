@@ -7,10 +7,7 @@ const posts = (await getCollection("blog"))
     .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
 ---
 <Base title="ts-mixin-class blog" description="Notes on ts-mixin-class: practical multiple inheritance for TypeScript.">
-    <p class="intro">
-        Notes on the design of ts-mixin-class — multiple inheritance for
-        TypeScript classes, resolved at compile time.
-    </p>
+    <p class="intro"></p>
     <ul class="posts">
         {posts.map(post => (
             <li>

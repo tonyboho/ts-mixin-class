@@ -1,6 +1,6 @@
 ---
 title: "Demystifying Multiple Inheritance"
-description: "Extending your single-inheritance intuition to multiple inheritance — which turns out to be just as simple."
+description: "Extending your single-inheritance intuition to multiple inheritance."
 date: 2026-09-14
 ---
 
@@ -290,7 +290,7 @@ The third solution rests on one simple idea. For every class, compute a
 *linear* list of all its superclasses — walking the inheritance graph in
 depth, so that every ancestor, direct or distant, lands in the list exactly
 once. <span class="emphasis">Then simply assume that the class was formed by single inheritance
-along this unrolled chain.</span>
+along this linear chain.</span>
 
 That single assumption buys back everything at once. Method lookup walks the
 list and takes the first match. `super` no longer means "my parent in the
@@ -308,15 +308,14 @@ There is no ambiguity left to argue about — and nothing to spell out at
 the call site either. All that remains is one honest question: how exactly
 should the chain be built?
 
-The idea itself is old — older than C++. It first appeared in Flavors, the
+The linearization idea is old — older than C++. It first appeared in Flavors, the
 Lisp Machine object system from the late seventies, and matured in CLOS,
 the Common Lisp Object System. Several attempts were made at the
 chain-building algorithm over the years — Flavors, CLOS, and early Python
-each had their own — but all of them suffered from various defects: in
-tangled hierarchies they could reorder ancestors in surprising ways,
-contradict the order written in an `extends` clause, or silently change
-the ordering between a class and its subclass. Reliable in the simple
-cases, they could not be trusted in the hard ones.
+each had their own. All of them solved the problem at the basic level,
+but each came with quirks of its own: in tangled hierarchies the resulting
+chains could be surprising. Reliable in the simple cases, they could not
+be trusted in the hard ones.
 
 That is, until the <span class="emphasis">C3 algorithm</span> was invented — the one that finally does
 it cleanly.
@@ -328,20 +327,18 @@ assembled is a technical detail, and it is well covered elsewhere. What we
 are after is the <span class="emphasis">intuition</span> behind it: and, better yet, an intuition built
 directly on top of the one we already have about single inheritance.
 
-The core idea of C3 is preserving *monotonicity*. Every class, at the point
-of its declaration, lists its parents — and that list is a promise: these
-ancestors will follow each other in this relative order in the final chain.
-C3 treats every such promise, made by every class in the hierarchy, as
-binding. <span class="emphasis">In the chain it builds for a particular class, the mutual order
-of any two ancestors never contradicts the order established by the
-declarations in that class’s own ancestry.</span>
+The core idea of C3 is preserving *monotonicity*. When a class lists its
+parents, that list defines a relative order between them. Each parent, in
+turn, defines a relative order between its own parents — and so on, all
+the way down. When C3 builds the linear chain for a particular class, it
+<span class="emphasis">satisfies every relative order collected deeply</span>.
 
 However, the chains of unrelated classes are
 independent: two hierarchies that never meet are free to order the same
 ancestors differently.
 
-Sometimes keeping every promise at once is simply impossible — that is
-exactly our second example, where `A` declares `X, Y` and `B` declares
+Sometimes satisfying all these orders at once is simply impossible — that is
+exactly our "inconsistency problem" example, where `A` declares `X, Y` and `B` declares
 `Y, X`. C3 does not pick a side quietly: it refuses the hierarchy with a
 compile-time error. What it cannot do cleanly, it does not do at all.
 

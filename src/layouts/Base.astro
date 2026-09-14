@@ -1,0 +1,163 @@
+---
+interface Props {
+    title        : string
+    description? : string
+}
+
+const { title, description } = Astro.props
+const base = import.meta.env.BASE_URL
+---
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    {description && <meta name="description" content={description} />}
+    <title>{title}</title>
+    <style is:global>
+        :root {
+            --bg       : #fafaf9;
+            --fg       : #1c1c1a;
+            --muted    : #6e6e69;
+            --border   : #e0e0dc;
+            --code-bg  : #f0f0ee;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg      : #161615;
+                --fg      : #d6d6d2;
+                --muted   : #8a8a84;
+                --border  : #2e2e2c;
+                --code-bg : #202020;
+            }
+        }
+
+        * { box-sizing: border-box }
+
+        body {
+            margin      : 0;
+            background  : var(--bg);
+            color       : var(--fg);
+            font        : 16px/1.65 ui-sans-serif, system-ui, sans-serif;
+        }
+
+        .wrap {
+            max-width      : 44rem;
+            margin-inline  : auto;
+            padding-inline : 16px;
+        }
+
+        header.site {
+            border-bottom : 1px solid var(--border);
+            padding-block : 1rem;
+            margin-bottom : 2.5rem;
+        }
+
+        header.site nav {
+            display     : flex;
+            align-items : baseline;
+            gap         : 1.25rem;
+            flex-wrap   : wrap;
+        }
+
+        header.site .name {
+            font-family    : ui-monospace, monospace;
+            font-weight    : 600;
+            text-decoration: none;
+            color          : var(--fg);
+        }
+
+        header.site a.ext {
+            color     : var(--muted);
+            font-size : .9rem;
+        }
+
+        h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em }
+        h1 { font-size: 1.7rem; margin: 0 0 .4rem }
+
+        a { color: inherit; text-underline-offset: 3px }
+        a:hover { color: var(--muted) }
+
+        time, .muted { color: var(--muted) }
+
+        code {
+            font-family : ui-monospace, "Cascadia Code", monospace;
+            font-size   : .92em;
+        }
+
+        :not(pre) > code {
+            background    : var(--code-bg);
+            padding       : .1em .35em;
+            border-radius : 4px;
+        }
+
+        pre {
+            border        : 1px solid var(--border);
+            border-radius : 6px;
+            padding       : 1rem;
+            overflow-x    : auto;
+            font-size     : .88rem;
+            line-height   : 1.55;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            pre.astro-code,
+            pre.astro-code span {
+                color            : var(--shiki-dark) !important;
+                background-color : var(--shiki-dark-bg) !important;
+            }
+        }
+
+        footer.site {
+            border-top    : 1px solid var(--border);
+            margin-top    : 4rem;
+            padding-block : 1.25rem 2.5rem;
+            font-size     : .9rem;
+            color         : var(--muted);
+        }
+
+        article.post h2 { margin-top: 2.2rem }
+
+        article.post blockquote {
+            margin       : 1rem 0;
+            padding-left : 1rem;
+            border-left  : 2px solid var(--border);
+            color        : var(--muted);
+        }
+
+        ul.posts { list-style: none; padding: 0; margin: 0 }
+
+        ul.posts li {
+            display   : flex;
+            gap       : 1.5rem;
+            align-items: baseline;
+            padding-block: .45rem;
+        }
+
+        ul.posts time {
+            font-family : ui-monospace, monospace;
+            font-size   : .85rem;
+            white-space : nowrap;
+        }
+    </style>
+</head>
+<body>
+    <header class="site">
+        <nav class="wrap">
+            <a class="name" href={base}>ts-mixin-class / blog</a>
+            <a class="ext" href="https://github.com/tonyboho/ts-mixin-class">GitHub</a>
+            <a class="ext" href="https://www.npmjs.com/package/ts-mixin-class">npm</a>
+        </nav>
+    </header>
+    <main class="wrap">
+        <slot />
+    </main>
+    <footer class="site">
+        <div class="wrap">
+            ts-mixin-class — practical multiple inheritance for TypeScript classes.
+        </div>
+    </footer>
+</body>
+</html>

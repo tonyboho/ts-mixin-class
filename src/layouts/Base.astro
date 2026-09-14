@@ -15,91 +15,228 @@ const base = import.meta.env.BASE_URL
     <meta name="color-scheme" content="light dark" />
     {description && <meta name="description" content={description} />}
     <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+    />
     <style is:global>
         :root {
-            --bg       : #fafaf9;
-            --fg       : #1c1c1a;
-            --muted    : #6e6e69;
-            --border   : #e0e0dc;
-            --code-bg  : #f0f0ee;
+            --bg      : #faf8f3;
+            --fg      : #23211c;
+            --soft    : #57534a;
+            --muted   : #8b867a;
+            --border  : #e6e1d5;
+            --hair    : #d8d2c4;
+            --code-bg : #f1eee6;
+            --serif   : "Newsreader", Georgia, serif;
+            --mono    : "JetBrains Mono", ui-monospace, monospace;
         }
 
         @media (prefers-color-scheme: dark) {
             :root {
-                --bg      : #161615;
-                --fg      : #d6d6d2;
-                --muted   : #8a8a84;
-                --border  : #2e2e2c;
-                --code-bg : #202020;
+                --bg      : #191813;
+                --fg      : #ddd8cc;
+                --soft    : #b0aa9c;
+                --muted   : #7d786c;
+                --border  : #2e2c25;
+                --hair    : #3a372e;
+                --code-bg : #211f19;
             }
         }
 
         * { box-sizing: border-box }
 
+        html { scroll-behavior: smooth }
+
         body {
-            margin      : 0;
-            background  : var(--bg);
-            color       : var(--fg);
-            font        : 16px/1.65 ui-sans-serif, system-ui, sans-serif;
+            margin     : 0;
+            background : var(--bg);
+            color      : var(--fg);
+            font       : 400 19px/1.7 var(--serif);
+            font-optical-sizing : auto;
+            -webkit-font-smoothing : antialiased;
         }
+
+        ::selection { background: var(--hair) }
 
         .wrap {
-            max-width      : 44rem;
+            max-width      : 42rem;
             margin-inline  : auto;
-            padding-inline : 16px;
+            padding-inline : 20px;
         }
 
-        header.site {
-            border-bottom : 1px solid var(--border);
-            padding-block : 1rem;
-            margin-bottom : 2.5rem;
-        }
+        /* ---------- header ---------- */
+
+        header.site { padding-block: 2.6rem 0 }
 
         header.site nav {
-            display     : flex;
-            align-items : baseline;
-            gap         : 1.25rem;
-            flex-wrap   : wrap;
+            display         : flex;
+            align-items     : baseline;
+            justify-content : space-between;
+            gap             : 1rem;
+            flex-wrap       : wrap;
+            padding-bottom  : 1.1rem;
+            border-bottom   : 1px solid var(--border);
         }
 
         header.site .name {
-            font-family    : ui-monospace, monospace;
-            font-weight    : 600;
-            text-decoration: none;
-            color          : var(--fg);
+            font-family     : var(--mono);
+            font-size       : .85rem;
+            font-weight     : 500;
+            letter-spacing  : .04em;
+            text-decoration : none;
+            color           : var(--fg);
+        }
+
+        header.site .name .tilde { color: var(--muted) }
+
+        header.site .links {
+            display : flex;
+            gap     : 1.4rem;
         }
 
         header.site a.ext {
-            color     : var(--muted);
-            font-size : .9rem;
+            font-family     : var(--mono);
+            font-size       : .72rem;
+            letter-spacing  : .14em;
+            text-transform  : uppercase;
+            text-decoration : none;
+            color           : var(--muted);
+            transition      : color .15s ease;
         }
 
-        h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em }
-        h1 { font-size: 1.7rem; margin: 0 0 .4rem }
+        header.site a.ext:hover { color: var(--fg) }
 
-        a { color: inherit; text-underline-offset: 3px }
-        a:hover { color: var(--muted) }
+        main { padding-top: 3rem }
 
-        time, .muted { color: var(--muted) }
+        /* ---------- typography ---------- */
+
+        h1, h2, h3 {
+            font-family    : var(--serif);
+            font-weight    : 500;
+            line-height    : 1.2;
+            letter-spacing : -0.015em;
+        }
+
+        h1 { font-size: 2.3rem; margin: 0 }
+        h2 { font-size: 1.45rem; margin: 2.6rem 0 .8rem }
+
+        a {
+            color                     : inherit;
+            text-decoration-thickness : 1px;
+            text-decoration-color     : var(--hair);
+            text-underline-offset     : 4px;
+            transition                : text-decoration-color .15s ease;
+        }
+
+        a:hover { text-decoration-color: var(--soft) }
+
+        .muted { color: var(--muted) }
+
+        /* ---------- post list ---------- */
+
+        .intro {
+            font-style    : italic;
+            font-size     : 1.15rem;
+            color         : var(--soft);
+            margin        : 0 0 2.8rem;
+        }
+
+        ul.posts { list-style: none; padding: 0; margin: 0 }
+
+        ul.posts li {
+            display       : flex;
+            align-items   : baseline;
+            gap           : .9rem;
+            padding-block : .7rem;
+        }
+
+        ul.posts li + li { border-top: 1px solid var(--border) }
+
+        ul.posts a {
+            font-size       : 1.18rem;
+            text-decoration : none;
+        }
+
+        ul.posts a:hover { text-decoration: underline; text-decoration-color: var(--hair) }
+
+        ul.posts .leader {
+            flex          : 1;
+            min-width     : 2rem;
+            border-bottom : 1px dotted var(--hair);
+            transform     : translateY(-.35em);
+        }
+
+        ul.posts time {
+            font-family    : var(--mono);
+            font-size      : .72rem;
+            letter-spacing : .08em;
+            color          : var(--muted);
+            white-space    : nowrap;
+        }
+
+        /* ---------- article ---------- */
+
+        article.post header.post { margin-bottom: 2.6rem }
+
+        article.post .kicker {
+            font-family    : var(--mono);
+            font-size      : .72rem;
+            letter-spacing : .16em;
+            text-transform : uppercase;
+            color          : var(--muted);
+            margin         : 0 0 1.1rem;
+        }
+
+        article.post .lede {
+            font-style  : italic;
+            font-size   : 1.22rem;
+            line-height : 1.55;
+            color       : var(--soft);
+            margin      : 1.1rem 0 0;
+        }
+
+        article.post .ornament {
+            border      : 0;
+            margin      : 2.2rem auto 0;
+            width       : 5rem;
+            height      : 1px;
+            background  : var(--hair);
+        }
+
+        article.post p { margin: 1.25rem 0 }
+
+        article.post blockquote {
+            margin       : 1.6rem 0;
+            padding-left : 1.3rem;
+            border-left  : 1px solid var(--hair);
+            font-style   : italic;
+            color        : var(--soft);
+        }
+
+        /* ---------- code ---------- */
 
         code {
-            font-family : ui-monospace, "Cascadia Code", monospace;
-            font-size   : .92em;
+            font-family : var(--mono);
+            font-size   : .78em;
         }
 
         :not(pre) > code {
             background    : var(--code-bg);
-            padding       : .1em .35em;
+            padding       : .12em .4em;
             border-radius : 4px;
         }
 
         pre {
             border        : 1px solid var(--border);
-            border-radius : 6px;
-            padding       : 1rem;
+            border-radius : 8px;
+            padding       : 1.15rem 1.3rem;
             overflow-x    : auto;
-            font-size     : .88rem;
-            line-height   : 1.55;
+            margin        : 1.7rem 0;
+            font-size     : .8rem;
+            line-height   : 1.65;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -110,45 +247,32 @@ const base = import.meta.env.BASE_URL
             }
         }
 
-        footer.site {
+        /* ---------- footer ---------- */
+
+        footer.site { margin-top: 5.5rem; padding-bottom: 3rem }
+
+        footer.site .rule {
+            border        : 0;
             border-top    : 1px solid var(--border);
-            margin-top    : 4rem;
-            padding-block : 1.25rem 2.5rem;
-            font-size     : .9rem;
-            color         : var(--muted);
+            margin-bottom : 1.4rem;
         }
 
-        article.post h2 { margin-top: 2.2rem }
-
-        article.post blockquote {
-            margin       : 1rem 0;
-            padding-left : 1rem;
-            border-left  : 2px solid var(--border);
-            color        : var(--muted);
-        }
-
-        ul.posts { list-style: none; padding: 0; margin: 0 }
-
-        ul.posts li {
-            display   : flex;
-            gap       : 1.5rem;
-            align-items: baseline;
-            padding-block: .45rem;
-        }
-
-        ul.posts time {
-            font-family : ui-monospace, monospace;
-            font-size   : .85rem;
-            white-space : nowrap;
+        footer.site .inner {
+            font-family    : var(--mono);
+            font-size      : .72rem;
+            letter-spacing : .06em;
+            color          : var(--muted);
         }
     </style>
 </head>
 <body>
     <header class="site">
         <nav class="wrap">
-            <a class="name" href={base}>ts-mixin-class / blog</a>
-            <a class="ext" href="https://github.com/tonyboho/ts-mixin-class">GitHub</a>
-            <a class="ext" href="https://www.npmjs.com/package/ts-mixin-class">npm</a>
+            <a class="name" href={base}><span class="tilde">~/</span>ts-mixin-class<span class="tilde"> · blog</span></a>
+            <span class="links">
+                <a class="ext" href="https://github.com/tonyboho/ts-mixin-class">GitHub</a>
+                <a class="ext" href="https://www.npmjs.com/package/ts-mixin-class">npm</a>
+            </span>
         </nav>
     </header>
     <main class="wrap">
@@ -156,7 +280,10 @@ const base = import.meta.env.BASE_URL
     </main>
     <footer class="site">
         <div class="wrap">
-            ts-mixin-class — practical multiple inheritance for TypeScript classes.
+            <hr class="rule" />
+            <div class="inner">
+                ts-mixin-class — practical multiple inheritance for TypeScript classes
+            </div>
         </div>
     </footer>
 </body>

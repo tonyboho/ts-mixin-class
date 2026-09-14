@@ -20,6 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: withastro/action@v3
+        with:
+          node-version: 24
 
   deploy:
     needs: build

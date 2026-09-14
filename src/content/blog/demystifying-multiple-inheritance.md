@@ -312,13 +312,19 @@ The linearization idea is old — older than C++. It first appeared in Flavors, 
 Lisp Machine object system from the late seventies, and matured in CLOS,
 the Common Lisp Object System. Several attempts were made at the
 chain-building algorithm over the years — Flavors, CLOS, and early Python
-each had their own. All of them solved the problem at the basic level,
-but each came with quirks of its own: in tangled hierarchies the resulting
-chains could be surprising. Reliable in the simple cases, they could not
-be trusted in the hard ones.
+each had their own. All of them solved the problem at the base level:
+they respect the obvious rule that a subclass always stands earlier in
+the chain than its superclass. In other words, every such chain is a
+topological sort of the inheritance graph.
+
+A topological sort, however, leaves some elements incomparable: classes
+that do not inherit from one another can be placed in either order. It is
+exactly these classes that caused the trouble — in tangled hierarchies
+the early algorithms could order them in surprising ways. Reliable in the
+simple cases, they could not be trusted in the hard ones.
 
 That is, until the <span class="emphasis">C3 algorithm</span> was invented — the one that finally does
-it cleanly.
+the linearization cleanly.
 
 ## C3: preserving monotonicity
 
@@ -340,7 +346,7 @@ ancestors differently.
 Sometimes satisfying all these orders at once is simply impossible — that is
 exactly our "inconsistency problem" example, where `A` declares `X, Y` and `B` declares
 `Y, X`. C3 does not pick a side quietly: it refuses the hierarchy with a
-compile-time error. What it cannot do cleanly, it does not do at all.
+<span class="emphasis">compile-time error</span>. What it cannot do cleanly, it does not do at all.
 
 Now the main part — the intuition. In single inheritance, when we write a
 method and call `super.greet()`, we rely on a firm expectation: the method
@@ -367,7 +373,7 @@ class C extends A {
 
 class D extends B, C {}
 
-new B().greet() // "B > A"         — super is A itself
+new B().greet() // "B > A"        — super is A itself
 new D().greet() // "B > C > A"    — super of B is now C, a descendant of A
 ```
 
@@ -385,7 +391,7 @@ your class does not get to know its exact place in every chain it will
 ever join. You write your class against an <span class="emphasis">unknown direct superclass</span>; C3 reserves the
 right to slot other descendants of that superclass between you and it.
 
-And that is the only adjustment of intuition that switching to multiple
+> And that is the only adjustment of intuition that switching to multiple
 inheritance requires: `super` means "the next one behind me", rather than
 "my direct parent". Relax this single expectation — and the whole feature
 unfolds from the intuition you already had.

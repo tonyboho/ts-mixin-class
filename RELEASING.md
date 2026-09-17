@@ -48,9 +48,11 @@ This runs, in order:
    `npm` may prompt for an OTP if 2FA is enabled.
 4. `git push --follow-tags` — pushes the release commit and tag.
 
-Requires an `npm login` with publish rights to the package. With 2FA in `auth-and-writes`
-mode, a non-interactive run needs a granular access token with **2FA bypass** in `~/.npmrc`;
-`changeset publish` reports npm's OTP rejection as an opaque `E404 undefined`.
+Requires a token with publish rights to the package. With 2FA in `auth-and-writes` mode, a
+non-interactive run needs a granular access token with **2FA bypass**. pnpm publishes with its
+own client and reads the token from **`~/.config/pnpm/auth.ini`**, not `~/.npmrc` — when
+rotating the token, update both files, or `changeset publish` fails with an opaque
+`E404 undefined` (the registry's answer to a PUT with a stale token).
 
 ## Never `npm publish` directly
 

@@ -56,6 +56,7 @@
         "attw": "attw --pack . --profile esm-only",
         "changeset": "changeset",
         "bump": "changeset version && node scripts/release/changelog-date.ts && node scripts/release/sync-readme-versions.ts",
+        "prepublishOnly": "node scripts/release/assert-pnpm-publish.ts",
         "release:preflight": "node scripts/release/release-preflight.ts",
         "release:check": "pnpm run clean && pnpm run typecheck && pnpm run build && pnpm run lint:check && pnpm run test && pnpm run publint && pnpm run attw",
         "release": "pnpm run release:preflight && pnpm run release:check && changeset publish && git push --follow-tags",

@@ -48,4 +48,15 @@ This runs, in order:
    `npm` may prompt for an OTP if 2FA is enabled.
 4. `git push --follow-tags` — pushes the release commit and tag.
 
-Requires an `npm login` with publish rights to the package.
+Requires an `npm login` with publish rights to the package. With 2FA in `auth-and-writes`
+mode, a non-interactive run needs a granular access token with **2FA bypass** in `~/.npmrc`;
+`changeset publish` reports npm's OTP rejection as an opaque `E404 undefined`.
+
+## Never `npm publish` directly
+
+`package.json` uses pnpm catalog specifiers (`"typescript": "catalog:"`). Only `pnpm publish`
+— which `changeset publish` runs — rewrites them to real ranges in the tarball; a direct
+`npm publish` ships the literal `catalog:` string and the version cannot be installed (that
+is how 0.0.17 went out). The `prepublishOnly` guard (`scripts/release/assert-pnpm-publish.ts`)
+now refuses any non-pnpm publisher. If the gate already passed and only the publish step
+needs a retry, re-run `pnpm release` — do not shortcut it.

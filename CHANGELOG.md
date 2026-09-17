@@ -1,5 +1,13 @@
 # ts-mixin-class
 
+## 0.0.18 - 2026-09-17
+
+### Patch Changes
+
+- 2c8f272: Republishes the package with a resolved `typescript` peer dependency range. 0.0.17 shipped
+  `"typescript": "catalog:"` (a pnpm workspace placeholder) and cannot be installed — use
+  0.0.18 instead.
+
 ## 0.0.17 - 2026-09-17
 
 ### Patch Changes

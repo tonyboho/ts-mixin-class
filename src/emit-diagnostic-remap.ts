@@ -2,6 +2,7 @@ import type * as ts from "typescript"
 
 import { generatedStaticNewMarker } from "./construction-config.js"
 import { rewriteGeneratedNameDiagnostics } from "./diagnostic-name-rewrite.js"
+import { relocateGeneratedBaseDiagnostics } from "./generated-base-diagnostics.js"
 import {
     composeEmittedSourceMap,
     precedingMappingIndex,
@@ -227,6 +228,13 @@ export function wrapProgramDiagnostics(
     const rewriteNames = <Diagnostic extends ts.Diagnostic>(diagnostics: Diagnostic[]): Diagnostic[] => {
         return rewriteGeneratedNameDiagnostics(tsInstance, diagnostics, originalProgram, crossFile, options)
     }
+    // A diagnostic raised ON a generated `$base` interface (a member type conflict between the
+    // consumer's layers) is moved onto the consumer's `implements` list first, in the checked
+    // file's own coordinates — the position remap then translates that user span exactly. See
+    // `generated-base-diagnostics.ts`.
+    const relocate = <Diagnostic extends ts.Diagnostic>(diagnostics: readonly Diagnostic[]): Diagnostic[] => {
+        return relocateGeneratedBaseDiagnostics(tsInstance, diagnostics)
+    }
 
     program.getSyntacticDiagnostics   = (sourceFile, cancellationToken) => {
         return remapDiagnostics(tsInstance, originalGetSyntactic(sourceFile, cancellationToken))
@@ -238,12 +246,12 @@ export function wrapProgramDiagnostics(
             tsInstance,
             originalProgram,
             nativeDiagnostics,
-            rewriteNames(remapDiagnostics(tsInstance, originalGetSemantic(sourceFile, cancellationToken))),
+            rewriteNames(remapDiagnostics(tsInstance, relocate(originalGetSemantic(sourceFile, cancellationToken)))),
             sourceFile
         )
     }
     program.getDeclarationDiagnostics = (sourceFile, cancellationToken) => {
-        return rewriteNames(remapDiagnostics(tsInstance, originalGetDeclaration(sourceFile, cancellationToken)))
+        return rewriteNames(remapDiagnostics(tsInstance, relocate(originalGetDeclaration(sourceFile, cancellationToken))))
     }
     program.emit                      = (targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, customTransformers) => {
         // Strip the redundant generated `static new` factories from JS emit (they only

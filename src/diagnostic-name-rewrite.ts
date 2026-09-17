@@ -1,5 +1,6 @@
 import type * as ts from "typescript"
 import { C3LinearizationError, mergeC3Linearizations } from "./c3-linearization.js"
+import { generatedBaseNameRender } from "./generated-base-diagnostics.js"
 import { buildImportedNameMap } from "./import-map.js"
 import { getSourceFileFacts } from "./source-file-facts.js"
 import { registryKey, type CrossFileContext, type TransformOptions } from "./model.js"
@@ -35,11 +36,15 @@ import type { TypeScript } from "./util.js"
 // `implements` reference and once against the generated heritage) — an exact-duplicate pass
 // then collapses them.
 
-// The last alternative admits the source-view INTERSECTION render (`base class
-// 'Machine & Greeter'` — plain TS never names a class's base as an intersection, our
-// metadata-cast render does). The gate may over-admit; the actual quoted-name replacement
-// below stays exact-keyed, so an admitted-but-unmatched message passes through untouched.
-const artifactPattern = /__\w+\$(?:base|empty|class)\b|ClassStatics<typeof \w+>|'\}'|'typeof \}'|base (?:class|type) '[^']*&[^']*'/
+// The collapsed source-view render is whatever ONE character the generated declaration was
+// gap-placed onto — `}` after a preceding block, but equally a digit or a semicolon after
+// `const x = 15` — so the collapsed alternatives admit any single-character name in the
+// base-name contexts; the replacement below is keyed on the class's ACTUAL render. The last
+// alternative admits the source-view INTERSECTION render (`base class 'Machine & Greeter'` —
+// plain TS never names a class's base as an intersection, our metadata-cast render does).
+// The gate may over-admit; the actual quoted-name replacement below stays exact-keyed, so an
+// admitted-but-unmatched message passes through untouched.
+const artifactPattern = /__\w+\$(?:base|empty|class)\b|ClassStatics<typeof \w+>|'\}'|'typeof [^']'|base (?:class|type) '[^']'|base (?:class|type) '[^']*&[^']*'/
 
 export function rewriteGeneratedNameDiagnostics<Diagnostic extends ts.Diagnostic>(
     tsInstance: TypeScript,
@@ -93,6 +98,14 @@ function rewriteDiagnostic<Diagnostic extends ts.Diagnostic>(
     const aliasAtSpan  = originalFile === undefined || diagnostic.start === undefined
         ? undefined
         : configAliasNameAtSpan(tsInstance, originalFile, diagnostic.start)
+    // The class's generated `$base` name as the checker actually printed it in THIS file —
+    // the source-view collapsed gap character (`}`, `5`, `;` …). The emit render is the real
+    // `__X$base` identifier, handled by the exact artifact forms below; the original
+    // (untransformed) file carries no generated base at all.
+    const baseRender = diagnostic.file === undefined || resolution?.className === undefined
+        ? undefined
+        : generatedBaseNameRender(tsInstance, diagnostic.file, resolution.className, resolution.classPosition)
+    const collapsed  = baseRender === undefined || /^__\w+\$base$/.test(baseRender) ? undefined : baseRender
 
     const rewriteText = (text: string): string => {
         let out = text
@@ -105,6 +118,10 @@ function rewriteDiagnostic<Diagnostic extends ts.Diagnostic>(
 
         if (resolution.realBaseName !== undefined) {
             out = out.replaceAll("'typeof }'", `'typeof ${resolution.realBaseName}'`)
+
+            if (collapsed !== undefined) {
+                out = out.replaceAll(`'typeof ${collapsed}'`, `'typeof ${resolution.realBaseName}'`)
+            }
         }
 
         const replacement = resolution.ownerName ?? resolution.combinedDisplay
@@ -112,6 +129,13 @@ function rewriteDiagnostic<Diagnostic extends ts.Diagnostic>(
         if (replacement !== undefined) {
             out = out.replace(/'__\w+\$(?:base|empty)'/g, `'${replacement}'`)
             out = out.replace(/(base (?:class|type) )'\}'/g, `$1'${replacement}'`)
+
+            if (collapsed !== undefined) {
+                out = out.replace(
+                    new RegExp(`(base (?:class|type) )'${escapeRegExp(collapsed)}'`, "g"),
+                    `$1'${replacement}'`
+                )
+            }
 
             if (resolution.combinedDisplay !== undefined && resolution.combinedDisplay !== replacement) {
                 out = out.replace(
@@ -161,6 +185,10 @@ function rewriteMessage(
 }
 
 type SpanResolution = {
+    // The class enclosing the span, by name and start — the key to its generated `$base`
+    // render in the checked file.
+    className       : string | undefined,
+    classPosition   : number,
     // The layer that DECLARES the member at the span (a mixin, or a class up the real base
     // chain) — the honest name for the override family's "base class".
     ownerName       : string | undefined,
@@ -209,7 +237,13 @@ function resolveSpanContext(
             options
         )
 
-    return { ownerName, realBaseName, combinedDisplay }
+    return {
+        className     : enclosingClass.name?.text,
+        classPosition : enclosingClass.pos,
+        ownerName,
+        realBaseName,
+        combinedDisplay
+    }
 }
 
 // The `<Name>Config` identifier at the span in the ORIGINAL file, accepted only when a class

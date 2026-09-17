@@ -999,7 +999,22 @@ combined display. `typeof __X$class`/`ClassStatics<typeof R>` unwrap textually. 
 replacements are exact-keyed and fire only when a replacement resolved. TS2416 fires TWICE by
 construction (the user's `implements` reference + the generated heritage); the rewrite makes the
 artifact twin byte-identical and an exact-duplicate pass drops it — do not "fix" the double
-report upstream, the twin is load-bearing for the implements conformance check. A NESTED
+report upstream, the twin is load-bearing for the implements conformance check. The collapsed
+render is NOT always `'}'`: a generated declaration is gap-placed onto the ONE character ending
+whatever statement precedes the consumer, so after `const x = 15` it renders as `'5'` (after a
+`;`-terminated statement, `';'`). The artifact gate therefore admits any single-character name in
+the `base class/type '…'` / `'typeof …'` contexts, and the replacement is keyed on the class's
+ACTUAL render, read from the CHECKED file's generated `$base` name span
+(`generatedBaseNameRender` in `generated-base-diagnostics.ts` — the original file has no generated
+base; the emit render is the real `__X$base` identifier, handled by the exact forms). The same
+module owns the **relocation pass** that runs BEFORE the position remap: a diagnostic whose span
+is exactly a generated `$base` interface's name (the checker's own error span for a member-type
+conflict between the re-extended layers — TS2320 on the §7.27 slow path) is moved onto the
+consumer's `implements` list and its head message names the consumer instead of the gap render
+(`Interface '5' cannot simultaneously extend …` → `Interface 'Combined' …`). It runs in the
+checked file's coordinates on both planes: the printed consumer keeps the user's `implements`
+clause, whose identifiers the emit remap translates exactly; source view is position-preserving.
+Guard: `mixin-member-type-conflict.t.ts` (§11.16). A NESTED
 construction class's in-block `<Name>Config` alias is the one generated node whose collapsed
 name can surface OUTSIDE a base-name context — a message printing the alias SYMBOL (e.g.
 TS2315) renders a bare `'}'` (the append-real-text trick works only past the document end, so

@@ -1,5 +1,15 @@
 # ts-mixin-class
 
+## 0.0.17 - 2026-09-17
+
+### Patch Changes
+
+- A member type conflict between a consumer's mixins (two mixins declaring the same
+  member with incompatible types) is now reported on the consumer's `implements` list
+  and names the consumer. It used to land on whatever statement preceded the class —
+  and, in the editor, print a type name read from that statement (`Interface '5' …`)
+  with a doubled TS2416.
+
 ## 0.0.16 - 2026-07-13
 
 ### Patch Changes

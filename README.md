@@ -95,6 +95,23 @@ Run `prepare` once so `ts-patch` patches your local TypeScript:
 pnpm run prepare
 ```
 
+### VS Code setup
+
+The editor must run the workspace TypeScript (the one `ts-patch` patched), not the
+one bundled with VS Code — otherwise it shows false errors on `@mixin`, `implements`
+and `super`. Select it once: `Ctrl/Cmd+Shift+P` → `TypeScript: Select TypeScript
+Version` → `Use Workspace Version`.
+
+To have VS Code offer this automatically when the project is opened, add both
+settings to `.vscode/settings.json`:
+
+```json
+{
+    "js/ts.tsdk.path": "node_modules/typescript/lib",
+    "js/ts.tsdk.promptToUseWorkspaceVersion": true
+}
+```
+
 ## Linearization
 
 When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build a

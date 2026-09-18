@@ -112,6 +112,9 @@ settings to `.vscode/settings.json`:
 }
 ```
 
+After all of this, you may still need to restart the TypeScript server for the changes to
+take effect: `Ctrl/Cmd+Shift+P` → `TypeScript: Restart TS Server`.
+
 ## Linearization
 
 When mixins depend on other mixins, `ts-mixin-class` uses C3 linearization to build a
